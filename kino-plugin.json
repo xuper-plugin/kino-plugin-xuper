@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "apiVersion": 1,
   "entry": "plugin.js",
   "description": "El portal de Magis, presentado como un plugin más.",
@@ -15,6 +15,6 @@
     "episodes",
     "resolve"
   ],
-  "color": "#2B6CD9",
+  "color": "#050B2D",
   "icon": "icon.png"
 }
