@@ -1,6 +1,6 @@
 // Xuper -- the Magis portal as a Kino plugin. This script never touches the network itself: every
 // call goes to `kino.xuper.*`, which Kino only provides to the plugin installed from exactly
-// `kinotvapp/kino-plugin-xuper` (a fork or a copy gets plain `kino`, without `xuper`). Session,
+// `xuper-plugin/kino-plugin-xuper` (a fork or a copy gets plain `kino`, without `xuper`). Session,
 // portal calls, ranking and stream headers all stay inside the app; what comes back is already in
 // the plugin output shape, so each export only unwraps the envelope.
 //
@@ -16,7 +16,7 @@ function unwrap(envelope) {
 }
 
 function xuper() {
-  if (!kino.xuper) throw kino.error("unavailable", "Xuper solo funciona instalado desde kinotvapp/kino-plugin-xuper");
+  if (!kino.xuper) throw kino.error("unavailable", "Xuper solo funciona instalado desde xuper-plugin/kino-plugin-xuper");
   return kino.xuper;
 }
 

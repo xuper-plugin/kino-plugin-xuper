@@ -13,7 +13,7 @@ and stream resolution natively, entirely inside Kino. This script never touches 
 export below just unwraps what `kino.xuper` already answered.
 
 `kino.xuper` is only ever handed to the plugin installed from **exactly**
-`kinotvapp/kino-plugin-xuper`. A fork, a copy under a different name, or a repo that only claims the
+`xuper-plugin/kino-plugin-xuper`. A fork, a copy under a different name, or a repo that only claims the
 same manifest `id` gets ordinary `kino`, with no `.xuper` — its `search`/`home`/`browse`/`episodes`/
 `resolve` would all fail with `unavailable`. So this repository is not a starting point for your own
 plugin the way the other example plugins are; see [Write your own plugin](#write-your-own-plugin)
@@ -37,7 +37,7 @@ the network on its own.
 In Kino open Ajustes > Plugins and type the address of this repository:
 
 ```
-kinotvapp/kino-plugin-xuper
+xuper-plugin/kino-plugin-xuper
 ```
 
 Kino reads `kino-plugin.json` and `plugin.js` from the repository root. Because this plugin never
