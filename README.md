@@ -60,3 +60,7 @@ node sdk/validate.mjs .
 
 `sdk/run.mjs`'s calls into `search`/`episodes`/`resolve`/etc. will fail outside the app: the shim has
 no real `kino.xuper` to hand them.
+
+## License
+
+The script, manifest and kit files in this repository are licensed under the [Apache License 2.0](LICENSE). Copyright 2026 xuper-plugin. This covers only what is in this repository: it grants nothing over Xuper's portal or content, nor over the native code inside Kino that this plugin talks to.
