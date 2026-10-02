@@ -38,3 +38,18 @@ test("it is not standard MD5", () => {
   const abc = new TextEncoder().encode("abc");
   assert.notEqual(digestHex(abc), "900150983cd24fb0d6963f7d28e17f72"); // real MD5("abc")
 });
+
+test("the literal K table is the sine definition except the four tweaked steps", async () => {
+  const { K, TWEAKED_STEPS } = await import("../src/tweakedMd5.js");
+  assert.equal(K.length, 64);
+  assert.deepEqual([...TWEAKED_STEPS].sort((a, b) => a - b), [42, 45, 54, 62]);
+  for (let i = 0; i < 64; i++) {
+    const textbook = Math.floor(Math.abs(Math.sin(i + 1)) * 2 ** 32) >>> 0;
+    if (TWEAKED_STEPS.includes(i)) assert.notEqual(K[i], textbook, "step " + i + " is tweaked");
+    else assert.equal(K[i], textbook, "step " + i);
+  }
+  assert.equal(K[42], 0xd46f3085);
+  assert.equal(K[45], 0xe6bd99e5);
+  assert.equal(K[54], 0xffecc47d);
+  assert.equal(K[62], 0x2da7d2bb);
+});
