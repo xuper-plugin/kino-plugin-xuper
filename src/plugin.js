@@ -1,6 +1,6 @@
 import { guarded } from "./wiring.js";
 
-export async function search() { await null; return []; }
+export async function search(query) { await null; return guarded(({ catalog }) => catalog.search(query)); }
 export async function home() { await null; return guarded(({ catalog }) => catalog.home()); }
 export async function browse(ref, cursor) { await null; return guarded(({ catalog }) => catalog.browse(ref, cursor)); }
 export async function episodes() { await null; throw kino.error("not_found", "todavía no"); }

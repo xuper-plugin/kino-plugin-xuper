@@ -1,9 +1,10 @@
-// Home and browse over the Magis catalog (native-magis.md §4.1, §4.2). `search` and `episodes` join
-// the returned object in later steps; each public function is self-contained and shares only the
+// Home and browse over the Magis catalog (native-magis.md §4.1, §4.2); `search` lives in search.js
+// (§4.4) and is composed in. `episodes` joins the returned object in a later step; each public function is self-contained and shares only the
 // private helpers below.
 import { classify, KINDS } from "./homeClassifier.js";
 import { parseTree, encodeTree, decodeTree, utf8Length, refOf, parseShelveTime } from "./homeTree.js";
 import { isSeries } from "./refs.js";
+import { makeSearch } from "./search.js";
 
 export { parseShelveTime };
 
@@ -75,7 +76,7 @@ function offsetOf(cursor) {
   return n > 0 && n <= 2147483647 ? n : 0;
 }
 
-export function makeCatalog({ kino, portal, session, clock }) {
+export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
   const key = (root) => `tree:${root}`;
 
   function readTree(root) {
@@ -147,5 +148,7 @@ export function makeCatalog({ kino, portal, session, clock }) {
     return next < row.all.length ? { items, next: String(next) } : { items };
   }
 
-  return { home, browse };
+  const { search } = makeSearch({ kino, portal, session, clock, tmdb });
+
+  return { home, browse, search };
 }

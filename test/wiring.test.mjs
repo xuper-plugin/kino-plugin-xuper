@@ -29,3 +29,9 @@ test("guarded passes kino errors through and maps anything else to a Spanish una
   });
   assert.equal(await guarded(() => 7), 7);
 });
+
+test("search goes through the catalog: an empty query is [], with no configured host the failure is a kino unavailable", async () => {
+  assert.equal(typeof getDeps().tmdb.titleForms, "function");
+  assert.deepEqual(await plugin.search({ q: "  ", type: "any", season: 0, episode: 0, tmdbId: 0 }), []);
+  await assert.rejects(() => plugin.search({ q: "Dune", type: "any", season: 0, episode: 0, tmdbId: 0 }), (e) => e.code === "unavailable");
+});

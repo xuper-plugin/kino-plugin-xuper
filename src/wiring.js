@@ -4,6 +4,7 @@ import { makeCrypto } from "./crypto.js";
 import { makePortal } from "./portal.js";
 import { makeSession } from "./session.js";
 import { makeCatalog } from "./catalog.js";
+import { makeTmdb } from "./tmdb.js";
 import * as constants from "./config.js";
 
 let deps = null;
@@ -16,8 +17,9 @@ export function getDeps() {
   let session = null; // the portal needs the session's sn and the session needs the portal: wired lazily
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
   session = makeSession({ kino, portal, clock });
-  const catalog = makeCatalog({ kino, portal, session, clock });
-  deps = { clock, crypto, portal, session, catalog };
+  const tmdb = makeTmdb({ kino });
+  const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
+  deps = { clock, crypto, portal, session, tmdb, catalog };
   return deps;
 }
 

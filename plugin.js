@@ -25,13 +25,13 @@ function makeCrypto(kino2) {
     },
     decryptBlob(wire) {
       try {
-        const text = kino2.crypto.decrypt("des-ede3-ecb", {
+        const text2 = kino2.crypto.decrypt("des-ede3-ecb", {
           key: kino2.secret("magisKey"),
           data: fromHex(wire),
           padding: "pkcs7"
         });
-        if (typeof text !== "string" || text === "") throw new Error("empty");
-        return text;
+        if (typeof text2 !== "string" || text2 === "") throw new Error("empty");
+        return text2;
       } catch (e) {
         throw fail("descifrar");
       }
@@ -588,7 +588,7 @@ var GENRES = new Map(Object.entries({
 var YEAR_SECTION = /^(\d{4})(.*)$/;
 var cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 var byScore = (a, b) => cmp(b.score ?? -1, a.score ?? -1) || cmp(a.title, b.title) || cmp(a.id, b.id);
-var plain = (text) => text.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").trim();
+var plain = (text2) => text2.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").trim();
 function distinctBy(list, key) {
   const seen = /* @__PURE__ */ new Set();
   return list.filter((x) => {
@@ -725,8 +725,8 @@ function numberOrNull(v) {
   const s = String(v);
   return DEC.test(s) ? Number(s) : null;
 }
-function parseShelveTime(text) {
-  const raw = typeof text === "string" ? text.trim() : "";
+function parseShelveTime(text2) {
+  const raw = typeof text2 === "string" ? text2.trim() : "";
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2}):(\d{1,2})$/.exec(raw);
   if (!m) return 0;
   const [y, mo, d, h, mi, s] = m.slice(1).map(Number);
@@ -800,10 +800,10 @@ function commonPrefix(urls) {
   }
   return p.length >= 12 ? p : "";
 }
-function cut(text, max) {
-  if (text.length <= max) return text;
-  const end = text.charCodeAt(max - 1) >= 55296 && text.charCodeAt(max - 1) < 56320 ? max - 1 : max;
-  return text.slice(0, end);
+function cut(text2, max) {
+  if (text2.length <= max) return text2;
+  const end = text2.charCodeAt(max - 1) >= 55296 && text2.charCodeAt(max - 1) < 56320 ? max - 1 : max;
+  return text2.slice(0, end);
 }
 var TREE_FORMAT = 1;
 function encodeTree(sections, { descMax = Infinity, genres = true, backdrop = true, perSection = Infinity } = {}) {
@@ -839,8 +839,8 @@ function encodeTree(sections, { descMax = Infinity, genres = true, backdrop = tr
   })]);
   return JSON.stringify({ v: TREE_FORMAT, p, i: items, s });
 }
-function decodeTree(text) {
-  const o = JSON.parse(text);
+function decodeTree(text2) {
+  const o = JSON.parse(text2);
   if (o === null || typeof o !== "object" || o.v !== TREE_FORMAT || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
     throw new Error("stored tree is malformed");
   }
@@ -871,6 +871,282 @@ function decodeTree(text) {
   });
 }
 
+// src/search.js
+var ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
+var MAX_OUTPUT_ITEMS = 100;
+var MAX_ALT_TITLES = 5;
+var MAX_SPANISH_FORMS = 3;
+var MAX_FULL_TITLE_RETRIES = 4;
+var PAGE_SIZE = 20;
+var CACHE_KEY = "search:v1";
+var CACHE_BUDGET_BYTES = 24e3;
+var CACHE_FRESH_MS = 6 * 36e5;
+var B = "(?<![\\p{L}\\p{N}_])";
+var E = "(?![\\p{L}\\p{N}_])";
+var SEASON_SOURCE = `(?:${B}T\\s?([0-9]{1,2})${E}|${B}Temp\\.?\\s?([0-9]{1,2})${E}|${B}Temporada\\s?([0-9]{1,2})${E}|${B}S([0-9]{1,2})${E})`;
+function seasonFromName(name) {
+  const m = new RegExp(SEASON_SOURCE, "iu").exec(typeof name === "string" ? name : "");
+  if (!m) return 1;
+  const digits = m.slice(1).find((g) => g !== void 0 && g.trim() !== "");
+  return digits === void 0 ? 1 : Number(digits);
+}
+var withoutSeason = (name) => (typeof name === "string" ? name : "").replace(new RegExp(SEASON_SOURCE, "giu"), "").trim().toLowerCase();
+function sortSeasons(items) {
+  const slots = [];
+  items.forEach((it, i) => {
+    if (isSeries(it.p)) slots.push(i);
+  });
+  if (slots.length < 2) return items;
+  const order = /* @__PURE__ */ new Map();
+  for (const i of slots) {
+    const key = withoutSeason(items[i].t);
+    if (!order.has(key)) order.set(key, order.size);
+  }
+  const sorted = slots.map((i) => items[i]).sort((a, b) => order.get(withoutSeason(a.t)) - order.get(withoutSeason(b.t)) || seasonFromName(a.t) - seasonFromName(b.t));
+  const out = items.slice();
+  slots.forEach((i, pos) => {
+    out[i] = sorted[pos];
+  });
+  return out;
+}
+var str2 = (v) => typeof v === "string" ? v : "";
+var isObject2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var INT2 = /^[+-]?\d+$/;
+function intOrNull2(v) {
+  if (typeof v === "number") return Number.isInteger(v) ? v : null;
+  if (typeof v === "string" && INT2.test(v)) {
+    const n = Number(v);
+    return n >= -2147483648 && n <= 2147483647 ? n : null;
+  }
+  return null;
+}
+function slim(raw) {
+  if (!isObject2(raw)) return null;
+  const c = str2(raw.contentId);
+  if (c.trim() === "") return null;
+  const alias = str2(raw.alias);
+  const t = [raw.name, raw.viewPoint, raw.alias].map(str2).find((s) => s.trim() !== "") ?? "";
+  const out = { c, t };
+  if (alias !== t && alias.trim() !== "") out.a = alias;
+  const programType = str2(raw.programType).trim() === "" ? "movie" : str2(raw.programType);
+  if (programType !== "movie") out.p = programType;
+  const year = str2(raw.releaseTime).slice(0, 4);
+  if (/^[0-9]{4}$/.test(year)) out.y = year;
+  const n = intOrNull2(raw.volumnCount) ?? intOrNull2(raw.updateCount) ?? 0;
+  if (n !== 0) out.n = n;
+  if (Array.isArray(raw.posterList)) {
+    for (const p of raw.posterList) {
+      if (!isObject2(p)) continue;
+      const key = p.fileType === "icon" ? "m" : p.fileType === "poster" ? "b" : null;
+      const url = str2(p.fileUrl);
+      if (key !== null && url.trim() !== "" && out[key] === void 0) out[key] = url;
+    }
+  }
+  return out;
+}
+var eachObject = (list, f) => {
+  if (Array.isArray(list)) {
+    for (const x of list) if (isObject2(x)) f(x);
+  }
+};
+function flatten(response) {
+  const out = [];
+  if (isObject2(response)) {
+    eachObject(response.searchItemList, (group) => eachObject(group.itemList, (x) => out.push(x)));
+    if (out.length === 0) eachObject(Array.isArray(response.assetList) ? response.assetList : response.list, (x) => out.push(x));
+  }
+  return out;
+}
+function decodeCache(raw) {
+  try {
+    const o = JSON.parse(raw);
+    if (!isObject2(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
+    return o.e.filter((x) => isObject2(x) && typeof x.k === "string" && Number.isFinite(x.s) && Array.isArray(x.i) && x.i.every((it) => isObject2(it) && typeof it.c === "string" && typeof it.t === "string"));
+  } catch (_) {
+    return [];
+  }
+}
+var isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var intOr0 = (v) => typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0;
+var distinctBy2 = (list, keyOf) => {
+  const seen = /* @__PURE__ */ new Set();
+  return list.filter((x) => {
+    const k = keyOf(x);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
+  const surface = (e) => {
+    if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
+    if (isKinoError(e)) return e;
+    return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
+  };
+  const log = (msg) => {
+    try {
+      kino2.log(msg);
+    } catch (_) {
+    }
+  };
+  function readEntries() {
+    try {
+      const raw = kino2.storage.get(CACHE_KEY);
+      return raw === null || raw === void 0 ? [] : decodeCache(raw);
+    } catch (_) {
+      return [];
+    }
+  }
+  function writeEntries(added, touched) {
+    try {
+      const now = clock.now();
+      let entries = readEntries().filter((e) => now - e.s < CACHE_FRESH_MS);
+      for (const k of touched) {
+        const at = entries.findIndex((e) => e.k === k);
+        if (at >= 0) entries.push(...entries.splice(at, 1));
+      }
+      for (const a of added) {
+        entries = entries.filter((e) => e.k !== a.k);
+        entries.push({ k: a.k, s: now, i: a.i });
+      }
+      let text2 = JSON.stringify({ v: 1, e: entries });
+      while (utf8Length(text2) > CACHE_BUDGET_BYTES && entries.length > 0) {
+        entries.shift();
+        text2 = JSON.stringify({ v: 1, e: entries });
+      }
+      if (entries.length === 0) return;
+      kino2.storage.set(CACHE_KEY, text2);
+    } catch (_) {
+    }
+  }
+  function contextOf(query) {
+    const q = isObject2(query) ? query : {};
+    const rawType = typeof q.type === "string" ? q.type.trim() : "";
+    return {
+      q: typeof q.q === "string" ? q.q.trim() : "",
+      type: rawType === "" ? "movie" : rawType === "series" ? "tv" : rawType,
+      season: intOr0(q.season),
+      episode: intOr0(q.episode),
+      tmdbId: intOr0(q.tmdbId),
+      originalTitle: typeof q.originalTitle === "string" ? q.originalTitle : "",
+      altTitles: Array.isArray(q.altTitles) ? q.altTitles.filter((s) => typeof s === "string").slice(0, MAX_ALT_TITLES) : []
+    };
+  }
+  async function titleForms(ctx) {
+    const forms = [ctx.q];
+    if (ctx.tmdbId > 0 && tmdb) {
+      let detail = null;
+      try {
+        detail = await tmdb.titleForms(ctx.type === "movie" ? "movie" : "tv", ctx.tmdbId);
+      } catch (_) {
+        detail = null;
+      }
+      if (detail) {
+        for (const t of [detail.title, detail.originalTitle, detail.englishTitle]) if (typeof t === "string" && t.trim() !== "") forms.push(t);
+        for (const t of (Array.isArray(detail.spanishTitles) ? detail.spanishTitles : []).slice(0, MAX_SPANISH_FORMS)) forms.push(t);
+      }
+    }
+    for (const t of [ctx.originalTitle, ...ctx.altTitles]) if (t.trim() !== "") forms.push(t);
+    return distinctBy2(forms, (f) => f.trim().toLowerCase());
+  }
+  async function search2(query) {
+    const ctx = contextOf(query);
+    if (ctx.q === "") return [];
+    const forms = await titleForms(ctx);
+    const queries = distinctBy2(forms.map((f) => kino2.rank.shortQuery(f)), (f) => f.toLowerCase());
+    const entries = readEntries();
+    const nowMs = clock.now();
+    const touched = [];
+    const added = [];
+    const seen = /* @__PURE__ */ new Set();
+    const pool = [];
+    let lastError = null;
+    let ensuring = null;
+    async function portalItems(q) {
+      ensuring ?? (ensuring = session.ensure());
+      await ensuring;
+      const response = await session.withValidSession(({ userId, userToken }) => portal.call(
+        "v3/searchByName",
+        { value: q, type: "0", columnId: "", filter: "", pageNum: 1, pageSize: PAGE_SIZE },
+        { baseFields: true, userId, userToken }
+      ));
+      return flatten(response).map(slim).filter((x) => x !== null);
+    }
+    async function fetchInto(qs) {
+      for (const q of qs) {
+        const key = q.toLowerCase();
+        let part = null;
+        const hit = entries.find((e) => e.k === key && nowMs - e.s < CACHE_FRESH_MS);
+        if (hit) {
+          part = hit.i;
+          touched.push(key);
+        } else {
+          try {
+            part = await portalItems(q);
+            if (part.length > 0) added.push({ k: key, i: part });
+          } catch (e) {
+            lastError = e;
+            part = null;
+          }
+        }
+        if (part) {
+          for (const item of part) if (!seen.has(item.c)) {
+            seen.add(item.c);
+            pool.push(item);
+          }
+        }
+      }
+    }
+    const titlesOf = (item) => [item.t, item.a ?? ""];
+    const ranked = () => kino2.rank.filterRelevant(kino2.rank.sortBySimilarity(pool, forms, titlesOf), forms, titlesOf);
+    let items;
+    try {
+      await fetchInto(queries);
+      if (pool.length === 0 && lastError !== null) throw surface(lastError);
+      items = ranked();
+      if (items.length === 0) {
+        const asked = new Set(queries.map((s) => s.trim().toLowerCase()));
+        const full = distinctBy2(
+          forms.map((f) => f.trim()).filter((f) => f !== "" && !asked.has(f.toLowerCase())),
+          (f) => f.toLowerCase()
+        ).slice(0, MAX_FULL_TITLE_RETRIES);
+        if (full.length > 0) {
+          await fetchInto(full);
+          items = ranked();
+        }
+      }
+    } finally {
+      if (added.length > 0 || touched.length > 0) writeEntries(added, touched);
+    }
+    if ((ctx.type === "tv" || ctx.type === "anime") && ctx.season > 0) {
+      const matching = items.filter((it) => !isSeries(it.p ?? "movie") || seasonFromName(it.t) === ctx.season);
+      if (matching.length > 0) items = matching;
+    }
+    if (items.length === 0 && ctx.tmdbId > 0) log(`xuper search: 0 results tmdb=${ctx.tmdbId} type=${ctx.type} pool=${pool.length}`);
+    const out = [];
+    for (const it of sortSeasons(items)) {
+      if (!ITEM_ID.test(it.c)) continue;
+      const programType = it.p ?? "movie";
+      const series = isSeries(programType);
+      const item = {
+        id: it.c,
+        ref: encode({ contentId: it.c, programType, episode: ctx.episode }),
+        title: it.t.trim() === "" ? it.c : it.t,
+        kind: series ? "series" : "movie",
+        year: it.y ?? "",
+        season: series ? seasonFromName(it.t) : ctx.season,
+        episodeCount: it.n ?? 0
+      };
+      if (it.m) item.poster = it.m;
+      if (it.b) item.backdrop = it.b;
+      out.push(item);
+      if (out.length >= MAX_OUTPUT_ITEMS) break;
+    }
+    return out;
+  }
+  return { search: search2 };
+}
+
 // src/catalog.js
 var ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
 var TREE_TTL_MS = 2 * 36e5;
@@ -890,9 +1166,9 @@ var MAX_HOME_ROWS = 20;
 var MAX_ROW_ITEMS = 60;
 var MAX_GENRES = 5;
 var NEW_WINDOW_MS = 48 * 36e5;
-var ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
+var ITEM_ID2 = /^[A-Za-z0-9._~-]{1,128}$/;
 function projectItem(item, nowMs) {
-  if (!ITEM_ID.test(item.id)) return null;
+  if (!ITEM_ID2.test(item.id)) return null;
   const out = {
     id: item.id,
     ref: refOf(item),
@@ -918,13 +1194,13 @@ function projectRows(rows, nowMs) {
   return out.slice(0, MAX_HOME_ROWS);
 }
 var hasItems = (sections) => sections.some((s) => s.items.length > 0);
-var INT2 = /^[+-]?\d+$/;
+var INT3 = /^[+-]?\d+$/;
 function offsetOf(cursor) {
-  if (typeof cursor !== "string" || !INT2.test(cursor)) return 0;
+  if (typeof cursor !== "string" || !INT3.test(cursor)) return 0;
   const n = Number(cursor);
   return n > 0 && n <= 2147483647 ? n : 0;
 }
-function makeCatalog({ kino: kino2, portal, session, clock }) {
+function makeCatalog({ kino: kino2, portal, session, clock, tmdb = null }) {
   const key = (root) => `tree:${root}`;
   function readTree(root) {
     try {
@@ -938,10 +1214,10 @@ function makeCatalog({ kino: kino2, portal, session, clock }) {
   }
   function writeTree(root, sections) {
     for (const shed of SHED_STEPS) {
-      const text = encodeTree(sections, shed);
-      if (utf8Length(text) > TREE_BUDGET_BYTES) continue;
+      const text2 = encodeTree(sections, shed);
+      if (utf8Length(text2) > TREE_BUDGET_BYTES) continue;
       try {
-        kino2.storage.set(key(root), text, { ttlMs: TREE_TTL_MS });
+        kino2.storage.set(key(root), text2, { ttlMs: TREE_TTL_MS });
       } catch (_) {
       }
       return;
@@ -995,7 +1271,71 @@ function makeCatalog({ kino: kino2, portal, session, clock }) {
     const next = offset + BROWSE_PAGE;
     return next < row2.all.length ? { items, next: String(next) } : { items };
   }
-  return { home: home2, browse: browse2 };
+  const { search: search2 } = makeSearch({ kino: kino2, portal, session, clock, tmdb });
+  return { home: home2, browse: browse2, search: search2 };
+}
+
+// src/tmdb.js
+var TMDB_BASE = "https://api.themoviedb.org/3";
+var TMDB_LANGUAGE = "es-MX";
+var TIMEOUT_MS = 8e3;
+var text = (v) => typeof v === "string" ? v : "";
+var blank2 = (s) => s.trim() === "";
+function parseTitleForms(type, body) {
+  let o;
+  try {
+    o = JSON.parse(body);
+  } catch (_) {
+    return null;
+  }
+  if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
+  const isTv = type === "tv";
+  const localized = text(isTv ? o.name : o.title);
+  const original = text(isTv ? o.original_name : o.original_title);
+  const list = o.translations && Array.isArray(o.translations.translations) ? o.translations.translations : [];
+  const entries = list.filter((t) => t !== null && typeof t === "object");
+  const titleOf = (t) => t.data !== null && typeof t.data === "object" ? text(isTv ? t.data.name : t.data.title) : "";
+  const englishEntry = entries.find((t) => t.iso_639_1 === "en");
+  const spanish = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const t of entries) {
+    if (t.iso_639_1 !== "es") continue;
+    const title = titleOf(t);
+    const key = title.trim().toLowerCase();
+    if (blank2(title) || key === localized.toLowerCase() || seen.has(key)) continue;
+    seen.add(key);
+    spanish.push(title);
+  }
+  return {
+    title: localized,
+    originalTitle: original,
+    englishTitle: englishEntry ? titleOf(englishEntry) : "",
+    spanishTitles: spanish
+  };
+}
+function makeTmdb({ kino: kino2 }) {
+  function keyMarker() {
+    try {
+      return kino2.secret("tmdbKey");
+    } catch (_) {
+      return null;
+    }
+  }
+  async function titleForms(type, id) {
+    try {
+      if (!Number.isInteger(id) || id <= 0) return null;
+      const key = keyMarker();
+      if (!key) return null;
+      const kind = type === "movie" ? "movie" : "tv";
+      const url = `${TMDB_BASE}/${kind}/${id}?api_key=${key}&language=${TMDB_LANGUAGE}&append_to_response=translations`;
+      const res = await kino2.fetch(url, { cookies: false, timeoutMs: TIMEOUT_MS });
+      if (!res || !res.ok) return null;
+      return parseTitleForms(kind, res.text());
+    } catch (_) {
+      return null;
+    }
+  }
+  return { titleForms };
 }
 
 // src/wiring.js
@@ -1008,16 +1348,17 @@ function getDeps() {
   let session = null;
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
   session = makeSession({ kino, portal, clock });
-  const catalog = makeCatalog({ kino, portal, session, clock });
-  deps = { clock, crypto, portal, session, catalog };
+  const tmdb = makeTmdb({ kino });
+  const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
+  deps = { clock, crypto, portal, session, tmdb, catalog };
   return deps;
 }
-var isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var isKinoError2 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function guarded(body) {
   try {
     return await body(getDeps());
   } catch (e) {
-    if (isKinoError(e)) throw e;
+    if (isKinoError2(e)) throw e;
     try {
       kino.log("xuper: " + String(e && e.name || "error"));
     } catch (_) {
@@ -1027,9 +1368,9 @@ async function guarded(body) {
 }
 
 // src/plugin.js
-async function search() {
+async function search(query) {
   await null;
-  return [];
+  return guarded(({ catalog }) => catalog.search(query));
 }
 async function home() {
   await null;
