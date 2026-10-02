@@ -25,3 +25,27 @@ export const DEVICE_FIXED = Object.freeze({
   drmId: "",
   sdkVer: 36,
 });
+
+// Salts and the fixed MAC the native client sends: protocol constants, not credentials.
+export const SNTOKEN_SALT = "ntFT65w6itH!lHCPw7D=@qnsFC5adD28";
+export const PASSWORD_SALT = "cloudstream";
+export const FIXED_MAC = "02:00:00:00:00:00";
+
+// `v3/snToken` hardware fingerprint: the emulator's values; the identifying fields (androidId,
+// cpuId, MACs, serialNumber) are randomized per minted device by the session, not listed here.
+export const FINGERPRINT_FIXED = Object.freeze({
+  board: "goldfish_arm64",
+  brand: "google",
+  cpuAbi: "arm64-v8a",
+  device: "emu64a",
+  diskInfo: "8GB",
+  display: "sdk_gphone64_arm64",
+  fingerprint: "google/sdk_gphone64_arm64/emu64a:14/UE1A.230829.036/11228894:user/release-keys",
+  hardware: "ranchu",
+  host: "abfarm",
+  manufacturer: "Google",
+  ramSize: "4GB",
+  romSize: "8GB",
+  tags: "release-keys",
+  verId: "",
+});
