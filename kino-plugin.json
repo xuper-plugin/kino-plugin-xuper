@@ -14,7 +14,8 @@
     "browse",
     "episodes",
     "resolve",
-    "download"
+    "download",
+    "channels"
   ],
   "settings": [
     {
@@ -55,5 +56,6 @@
       "type": "url"
     }
   ],
-  "streamHosts": "any"
+  "streamHosts": "any",
+  "liveStreamHosts": "any"
 }

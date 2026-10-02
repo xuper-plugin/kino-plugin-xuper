@@ -48,3 +48,10 @@ test("resolve goes through makeResolve: a ref that is not Xuper's is a Spanish u
   await assert.rejects(() => plugin.resolve("https://example.com/video.mp4"), (e) => e.code === "unavailable" && e.message === "ese ref no es de Xuper: no se puede reproducir");
   await assert.rejects(() => plugin.resolve("magis1:movie:0:ABC", { reason: "retry" }), (e) => e.code === "unavailable");
 });
+
+test("liveCategories and liveChannels go through the live catalog: bad input is a kino not_found, with no configured host the failure is a kino unavailable", async () => {
+  assert.equal(typeof getDeps().live.liveChannels, "function");
+  await assert.rejects(() => plugin.liveChannels({ categoryId: "abc" }), (e) => e.code === "not_found");
+  await assert.rejects(() => plugin.liveCategories(), (e) => e.code === "unavailable");
+  await assert.rejects(() => plugin.liveChannels({ categoryId: "76183" }), (e) => e.code === "unavailable");
+});

@@ -847,6 +847,7 @@ function imageOf(asset, fileType) {
   }
   return null;
 }
+var logoOf = (a) => imageOf(a, "icon") ?? nonBlank(a.posterUrl);
 function itemFrom(a) {
   if (a === null || typeof a !== "object") return null;
   const id = nonBlank(a.contentId);
@@ -1322,7 +1323,7 @@ var unpack = (p) => ({
 });
 function makePortalChapters({ kino: kino2, portal, session, clock }) {
   const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
-  const isKinoError4 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+  const isKinoError5 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
   async function fetchDetail(seriesId) {
     let response;
     try {
@@ -1334,7 +1335,7 @@ function makePortalChapters({ kino: kino2, portal, session, clock }) {
       ));
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
-      if (isKinoError4(e)) throw e;
+      if (isKinoError5(e)) throw e;
       throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
     }
     const data = isObject4(response) ? response.assetData : void 0;
@@ -1840,6 +1841,118 @@ function makeResolve({ kino: kino2, portal, session, clock, config, portalChapte
   return { resolve: resolve2 };
 }
 
+// src/liveCatalog.js
+var LIVE_ROOT = "masnew_live";
+var CATEGORIES_PAGE_SIZE = 200;
+var CHANNELS_PAGE_SIZE = 500;
+var MAX_PAGES = 10;
+var MAX_CATEGORIES = 200;
+var ID = /^[A-Za-z0-9._~-]{1,128}$/;
+var INT8 = /^[+-]?\d+$/;
+var POSITIVE = /^\d{1,9}$/;
+var NAMES = { ChannelList: "Todos" };
+var ADULT_NAMES = /* @__PURE__ */ new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
+var isObject7 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var asText2 = (v) => v === null || v === void 0 ? "" : typeof v === "string" ? v : String(v);
+var isBlank2 = (s) => s.trim() === "";
+var isKinoError3 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+function intOrNull3(v) {
+  if (v === null || v === void 0) return null;
+  const s = String(v);
+  if (!INT8.test(s)) return null;
+  const n = Number(s);
+  return n >= -2147483648 && n <= 2147483647 ? n : null;
+}
+function makeLiveCatalog({ kino: kino2, portal, session }) {
+  let adultIds = null;
+  const surface = (e) => {
+    if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
+    if (isKinoError3(e)) return e;
+    return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
+  };
+  async function readCategories() {
+    let response;
+    try {
+      await session.ensure();
+      response = await session.withValidSession(({ userId, userToken }) => portal.call(
+        "getNextColumns",
+        { columnCode: LIVE_ROOT, pageNum: 1, pageSize: CATEGORIES_PAGE_SIZE, version: "" },
+        { baseFields: true, userId, userToken }
+      ));
+    } catch (e) {
+      throw surface(e);
+    }
+    const columns = isObject7(response) && Array.isArray(response.recommendList) ? response.recommendList : [];
+    const out = [];
+    for (const c of columns) {
+      if (!isObject7(c)) continue;
+      const id = intOrNull3(c.columnId);
+      if (id === null || id <= 0) continue;
+      const raw = asText2(c.name);
+      const name = Object.hasOwn(NAMES, raw) ? NAMES[raw] : raw;
+      if (isBlank2(name)) continue;
+      out.push({ id: String(id), name, adult: ADULT_NAMES.has(name.trim().toLowerCase()) });
+    }
+    if (out.length > 0) adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
+    return out;
+  }
+  async function liveCategories2() {
+    const all = await readCategories();
+    return all.filter((c) => !c.adult && ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => ({ id: c.id, title: c.name }));
+  }
+  async function isAdultCategory(id) {
+    if (adultIds === null) {
+      await readCategories();
+      if (adultIds === null) throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
+    }
+    return adultIds.has(id);
+  }
+  async function fetchPage(columnId, page) {
+    await session.ensure();
+    const response = await session.withValidSession(({ userId, userToken }) => portal.call(
+      "v6/getLiveData",
+      { columnId: Number(columnId), pageNum: page, pageSize: CHANNELS_PAGE_SIZE, dataVersion: "", expireTimeStr: "" },
+      { baseFields: true, userId, userToken }
+    ));
+    return isObject7(response) && Array.isArray(response.channelList) ? response.channelList : [];
+  }
+  function project(list, categoryId) {
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const c of list) {
+      if (!isObject7(c)) continue;
+      const code = asText2(c.channelCode);
+      const title = asText2(c.name);
+      if (isBlank2(code) || isBlank2(title) || !ID.test(code) || code.startsWith("~") || seen.has(code)) continue;
+      seen.add(code);
+      const n = intOrNull3(c.channelNumber);
+      const item = { id: code, title, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
+      const logo = logoOf(c);
+      if (logo) item.logo = logo;
+      items.push(item);
+    }
+    return items;
+  }
+  async function liveChannels2({ categoryId, cursor } = {}) {
+    if (typeof categoryId !== "string" || !POSITIVE.test(categoryId) || Number(categoryId) <= 0) {
+      throw kino2.error("not_found", "No se encontr\xF3 esa categor\xEDa");
+    }
+    const id = String(Number(categoryId));
+    const page = typeof cursor === "string" && POSITIVE.test(cursor) && Number(cursor) >= 1 ? Number(cursor) : 1;
+    if (page > MAX_PAGES) return { items: [] };
+    try {
+      if (await isAdultCategory(id)) return { items: [] };
+      const list = await fetchPage(id, page);
+      const items = project(list, id);
+      return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
+    } catch (e) {
+      if (page > 1) return { items: [] };
+      throw surface(e);
+    }
+  }
+  return { liveCategories: liveCategories2, liveChannels: liveChannels2 };
+}
+
 // src/wiring.js
 var deps = null;
 function getDeps() {
@@ -1853,15 +1966,16 @@ function getDeps() {
   const tmdb = makeTmdb({ kino });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2 };
+  const live = makeLiveCatalog({ kino, portal, session, clock });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live };
   return deps;
 }
-var isKinoError3 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var isKinoError4 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function guarded(body) {
   try {
     return await body(getDeps());
   } catch (e) {
-    if (isKinoError3(e)) throw e;
+    if (isKinoError4(e)) throw e;
     try {
       kino.log("xuper: " + String(e && e.name || "error"));
     } catch (_) {
@@ -1891,6 +2005,14 @@ async function resolve(ref, options) {
   await null;
   return guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options));
 }
+async function liveCategories() {
+  await null;
+  return guarded(({ live }) => live.liveCategories());
+}
+async function liveChannels(args) {
+  await null;
+  return guarded(({ live }) => live.liveChannels(args));
+}
 async function settingsStatus() {
   await null;
   return { text: "todav\xEDa no" };
@@ -1904,6 +2026,8 @@ export {
   browse,
   episodes,
   home,
+  liveCategories,
+  liveChannels,
   resolve,
   search,
   settingsStatus

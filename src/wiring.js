@@ -6,6 +6,7 @@ import { makeSession } from "./session.js";
 import { makeCatalog } from "./catalog.js";
 import { makeTmdb } from "./tmdb.js";
 import { makeResolve } from "./resolve.js";
+import { makeLiveCatalog } from "./liveCatalog.js";
 import * as constants from "./config.js";
 
 let deps = null;
@@ -22,7 +23,8 @@ export function getDeps() {
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
   // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).
   const resolve = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve };
+  const live = makeLiveCatalog({ kino, portal, session, clock });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live };
   return deps;
 }
 

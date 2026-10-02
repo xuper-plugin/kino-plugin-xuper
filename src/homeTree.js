@@ -46,6 +46,9 @@ function imageOf(asset, fileType) {
   return null;
 }
 
+/** A portal item's picture as the SDK wants it: the `icon` entry of `posterList`, else the loose `posterUrl`. */
+export const logoOf = (a) => imageOf(a, "icon") ?? nonBlank(a.posterUrl);
+
 function itemFrom(a) {
   if (a === null || typeof a !== "object") return null;
   const id = nonBlank(a.contentId);

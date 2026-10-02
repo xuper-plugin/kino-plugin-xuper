@@ -6,5 +6,7 @@ export async function browse(ref, cursor) { await null; return guarded(({ catalo
 export async function episodes(ref) { await null; return guarded(({ catalog }) => catalog.episodes(ref)); }
 // `options` (the retry reason) is not used for VOD yet.
 export async function resolve(ref, options) { await null; return guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)); }
+export async function liveCategories() { await null; return guarded(({ live }) => live.liveCategories()); }
+export async function liveChannels(args) { await null; return guarded(({ live }) => live.liveChannels(args)); }
 export async function settingsStatus() { await null; return { text: "todavía no" }; }
 export async function action() { await null; throw kino.error("unavailable", "todavía no"); }
