@@ -3,6 +3,7 @@
 // no storage. Only refs this plugin can read (`magis1:` and the legacy gateway form) and the
 // native live provider key are claimed; everything else is `null`, which the app remembers.
 import { decode, encode, encodeChapter } from "./refs.js";
+import { isObject } from "./util.js";
 
 /** The provider key the app files native Xuper live favorites/recents under (LiveChannelKeys.XUPER). */
 export const LIVE_PROVIDER = "xuper";
@@ -12,7 +13,6 @@ const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const MAX_NUMBER = 99999; // contract maxEpisodeNumber
 const MAX_SEASON = 999; // contract maxSeasonNumber
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const whole = (v, max) => (Number.isInteger(v) && v >= 1 && v <= max ? v : null);
 
 // A ref this plugin owns, as refs.decode reads it; never the app's own `plg1:` wrapper.

@@ -1,6 +1,7 @@
 // The account tab of Ajustes: the status line, the action buttons and the check that runs before
 // the person's email and password are saved. The account itself is NOT stored here: it is the
 // plugin's own settings (`kino.config`), which only the person can edit.
+import { isKinoError } from "./util.js";
 const STATUS_MAX = 200;
 const MESSAGE_MAX = 300;
 
@@ -21,7 +22,6 @@ const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? 
 const clip = (text, max) => (text.length <= max ? text : text.slice(0, max - 1) + "…");
 // The session already turns a refused credential into this; a raw PortalError counts as one too.
 const refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
-const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
 export function makeSettings({ kino, session, clock }) {
   // Kino errors (already Spanish, already free of secrets) pass; anything else is a fixed text, so

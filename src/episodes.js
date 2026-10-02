@@ -7,6 +7,7 @@ import { PortalError, mapPortalError } from "./portal.js";
 import { FIXED_MAC } from "./config.js";
 import { decode, encode, encodeChapter } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
+import { isObject, isKinoError, optStringStrict } from "./util.js";
 
 // One kino.storage key for every cached series (the whole storage is 256 KB and shared with the home
 // trees and the search results): never over 32,000 bytes, oldest series evicted first. A full
@@ -19,7 +20,6 @@ const IMDB = /^tt\d{7,}$/;
 const MAX_EPISODES = 5000; // SDK caps
 const MAX_SEASONS = 50;
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const INT = /^[+-]?\d+$/;
 
 // Kotlin's String.toIntOrNull over `value.toString()`: strings as they are, numbers by their text.
@@ -30,8 +30,6 @@ function toIntOrNull(v) {
   return n >= -2147483648 && n <= 2147483647 ? n || 0 : null;
 }
 
-// org.json optString: strings and numbers by their text, anything else "".
-const optString = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
 
 /**
  * What a series detail's `sameSeasonSeriesList` says about the season `ownId` (native parseSeasonList):
@@ -45,7 +43,7 @@ export function parseSeasonList(list, ownId) {
   const entries = Array.isArray(list) ? list : [];
   for (const entry of entries) {
     if (!isObject(entry)) continue;
-    const id = optString(entry.contentId);
+    const id = optStringStrict(entry.contentId);
     const number = toIntOrNull(entry.seasonNumber);
     if (id === ownId) own = number;
     if (id.trim() !== "" && number !== null) all.push({ id, number });
@@ -89,7 +87,6 @@ const unpack = (p) => ({
  */
 export function makePortalChapters({ kino, portal, session, clock }) {
   const cache = makeByteCache({ kino, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, valid: validPayload });
-  const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
   async function fetchDetail(seriesId) {
     let response;
@@ -116,12 +113,12 @@ export function makePortalChapters({ kino, portal, session, clock }) {
     const data = await fetchDetail(seriesId);
     const items = (Array.isArray(data.simpleProgramList) ? data.simpleProgramList : []).filter(isObject).map((it) => {
       const seriesNumber = typeof it.seriesNumber === "string" ? it.seriesNumber : typeof it.seriesNumber === "number" ? String(it.seriesNumber) : null;
-      const item = { seriesNumber, contentId: optString(it.contentId), name: optString(it.name), duration: undefined };
+      const item = { seriesNumber, contentId: optStringStrict(it.contentId), name: optStringStrict(it.name), duration: undefined };
       if (typeof it.duration === "string" || (typeof it.duration === "number" && Number.isFinite(it.duration))) item.duration = it.duration;
       return item;
     });
     const seasonList = parseSeasonList(data.sameSeasonSeriesList, seriesId);
-    const raw = { items, imdb: optString(data.keyWords), season: seasonList.own, declared: toIntOrNull(data.volumnCount), seasons: seasonList.all };
+    const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull(data.volumnCount), seasons: seasonList.all };
     // Only cached with chapters: an empty list over a transient failure would stick for hours.
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
     return raw;

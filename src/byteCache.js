@@ -5,8 +5,8 @@
 // Nothing here ever fails the caller: a read that cannot be had or decoded is a miss and a write that
 // cannot be done is dropped (the caller just serves uncached).
 import { utf8Length } from "./homeTree.js";
+import { isObject } from "./util.js";
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 /**
  * `valid(payload)` lets the owner reject a payload of an older or foreign shape (a miss).

@@ -8,6 +8,7 @@ export { isChannelRef } from "./refs.js";
 import { isCfl, slbBean } from "./resolve.js";
 import { buildSignContext, signRequest, tokenOf } from "./liveSign.js";
 import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
+import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
 
 const DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime (native CHANNEL_TTL_S)
 const MIN_EXPIRES_S = 30; // SDK range of expiresInSeconds
@@ -15,7 +16,7 @@ const MAX_EXPIRES_S = 86400;
 const MAX_ALTERNATE_HOSTS = 6; // SDK cap
 const NOT_LOGGED_IN = "aaa100028"; // a channel that genuinely needs a real account
 const INT = /^[+-]?\d+$/;
-const AUTHORITY = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/; // SDK alternateHosts pattern
+const ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/; // SDK alternateHosts pattern
 const SERVED_MEMORY = 64;
 
 // The person-facing texts of the native live failures (code in English, texts in Spanish).
@@ -29,12 +30,6 @@ const TEXT = {
   generic: "Xuper no está disponible ahora",
 };
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
-// org.json optString: strings and numbers by their text, anything else "".
-const optString = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
-const objects = (v) => (Array.isArray(v) ? v.filter(isObject) : []);
-const notBlank = (s) => s.trim() !== "";
 
 /** `main_addr` reduced to its host (and port): no scheme, no path (native MagisSlb.bareHost). */
 export function bareHost(mainAddr) {
@@ -52,8 +47,8 @@ export function bareHost(mainAddr) {
 function signalFrom(play) {
   let firstLicense = null;
   for (const a of objects(isObject(play) ? play.liveAddressList : null)) {
-    const license = optString(a.license);
-    const playCode = optString(a.playCode);
+    const license = optStringStrict(a.license);
+    const playCode = optStringStrict(a.playCode);
     if (firstLicense === null) firstLicense = license;
     if (notBlank(playCode) && notBlank(license)) return { playCode, license };
   }
@@ -64,11 +59,11 @@ function signalFrom(play) {
 function liveCdns(slb) {
   const out = [];
   for (const cdn of objects(isObject(slb) ? slb.cdn_list : null)) {
-    if (optString(cdn.tag) !== "live") continue;
+    if (optStringStrict(cdn.tag) !== "live") continue;
     for (const u of objects(cdn.url_list)) {
-      const url = optString(u.url);
-      if (!isCfl(url) && optString(u.sign_type) !== "cfl") continue;
-      const host = bareHost(optString(cdn.main_addr));
+      const url = optStringStrict(u.url);
+      if (!isCfl(url) && optStringStrict(u.sign_type) !== "cfl") continue;
+      const host = bareHost(optStringStrict(cdn.main_addr));
       if (notBlank(host)) out.push({ cflHost: host, authBase: url });
     }
   }
@@ -77,7 +72,7 @@ function liveCdns(slb) {
 
 // The portal's `invalidTime` (s; measured 14400), 300 without a positive one, in the SDK's range.
 function expiresOf(slb) {
-  const text = optString(isObject(slb) ? slb.invalidTime : "");
+  const text = optStringStrict(isObject(slb) ? slb.invalidTime : "");
   const n = INT.test(text) ? Number(text) : NaN;
   const ttl = n > 0 ? n : DEFAULT_TTL_S;
   return Math.min(MAX_EXPIRES_S, Math.max(MIN_EXPIRES_S, ttl));
@@ -139,7 +134,7 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
     // A CDN whose authBase has no token cannot be signed for: it is dropped (native refused the
     // channel when the FIRST one had none, see the report).
-    const cdns = all.filter((d) => tokenOf(d.authBase) !== "" && AUTHORITY.test(d.cflHost));
+    const cdns = all.filter((d) => tokenOf(d.authBase) !== "" && ALTERNATE_HOST.test(d.cflHost));
     if (cdns.length === 0) throw unavailable(TEXT.noToken);
 
     const built = buildSignContext(signal.license, cdns);

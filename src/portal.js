@@ -3,6 +3,7 @@ import {
   PORTAL_CODE, SPKG_VER, APK_VER_HEADER, USER_AGENT, CONTENT_TYPE, RATE_LIMIT_MS,
   REQUEST_TIMEOUT_MS, DEVICE_FIXED,
 } from "./config.js";
+import { isObject } from "./util.js";
 
 const MAX_SLEEP_MS = 5000; // kino.sleep ceiling
 const MAX_REQUEST_MS = 30000; // kino.fetch ceiling
@@ -31,7 +32,6 @@ export function mapPortalError(code, message, kino) {
   return kino.error("unavailable", "Xuper no está disponible ahora");
 }
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 export function makePortal({ kino, crypto, config, clock, snProvider }) {
   let preferredHost = null;

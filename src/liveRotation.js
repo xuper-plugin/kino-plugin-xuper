@@ -8,13 +8,13 @@
 // between calls, so the state is also kept in kino.storage, per channel, with a short ttl and only
 // sns plus a digest of the refused key (never a license or a token). Every storage access is
 // guarded: a full or refusing storage leaves the memory copy working and never fails the call.
+import { isBlank } from "./util.js";
 
 export const MAX_ROTATIONS = 3;
 export const ROTATION_TTL_MS = 30 * 60_000;
 const MAX_CHANNELS = 12; // ~250 bytes each: the whole rotation state stays near 3 KB
 const PREFIX = "liveRot:";
 
-const isBlank = (s) => typeof s !== "string" || s.trim() === "";
 const empty = () => ({ tried: [], active: null, last: null, at: 0 });
 
 export function makeLiveRotation({ kino, clock, random, maxRotations = MAX_ROTATIONS, ttlMs = ROTATION_TTL_MS }) {

@@ -2,8 +2,8 @@ import { guarded, clock, getDeps } from "./wiring.js";
 import { signRequest } from "./liveSign.js";
 import { makeMigrate } from "./migrate.js";
 import { makeSettings } from "./settings.js";
+import { isKinoError } from "./util.js";
 
-const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
 export async function search(query) { await null; return guarded(({ catalog }) => catalog.search(query)); }
 export async function home() { await null; return guarded(({ catalog }) => catalog.home()); }
@@ -16,7 +16,7 @@ export async function sign(request) {
   await null;
   try { return signRequest(request, clock.now()); }
   catch (e) {
-    if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) throw e;
+    if (isKinoError(e)) throw e;
     try { kino.log("xuper sign: " + String((e && e.name) || "error")); } catch (_) {}
     throw kino.error("unavailable", "No se pudo firmar la petición del canal");
   }

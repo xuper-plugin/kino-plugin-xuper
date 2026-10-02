@@ -9,6 +9,7 @@ import { makeResolve } from "./resolve.js";
 import { makeLiveCatalog } from "./liveCatalog.js";
 import { makeLive } from "./live.js";
 import * as constants from "./config.js";
+import { isKinoError } from "./util.js";
 
 let deps = null;
 
@@ -34,7 +35,6 @@ export function getDeps() {
   return deps;
 }
 
-const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
 /** Runs an export's body: kino errors pass through, anything else becomes a plain `unavailable`. */
 export async function guarded(body) {

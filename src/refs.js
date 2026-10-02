@@ -3,12 +3,13 @@
 //   legacy form: base64url(json).<hmac>, json {"s":"magis","p":{content_id,program_type,episode}};
 //                the signature and the 24 h expiry are ignored on purpose (nothing to check them with).
 
+import { asText, isBlank } from "./util.js";
+
 export const PREFIX = "magis1";
 /** The types the portal serves by chapters. */
 export const SERIES = new Set(["teleplay", "series", "variety"]);
 export const isSeries = (programType) => SERIES.has(programType);
 
-const blank = (s) => typeof s !== "string" || s.trim() === "";
 const INT = /^[+-]?\d+$/;
 
 // Kotlin's String.toIntOrNull: optional sign, digits, inside the Int range.
@@ -68,8 +69,7 @@ function utf8(bytes) {
   return out;
 }
 
-// org.json optString / optInt over a parsed value.
-const optString = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : String(v));
+// org.json optInt over a parsed value (and `asText` for asText: the lenient coercion of any value).
 function optInt(v) {
   if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
   if (typeof v === "string") { const n = Number(v.trim()); return v.trim() !== "" && Number.isFinite(n) ? Math.trunc(n) : 0; }
@@ -80,29 +80,29 @@ function fromGatewayRef(ref) {
   const dot = ref.indexOf(".");
   if (dot < 0) return null; // substringBefore('.') == ref
   const data = ref.slice(0, dot);
-  if (blank(data)) return null;
+  if (isBlank(data)) return null;
   let json;
   try {
     const text = base64UrlToText(data);
     json = text === null ? null : JSON.parse(text);
   } catch (_) { return null; }
   if (json === null || typeof json !== "object" || Array.isArray(json)) return null;
-  if (optString(json.s) !== "magis") return null;
+  if (asText(json.s) !== "magis") return null;
   const p = json.p;
   if (p === null || typeof p !== "object" || Array.isArray(p)) return null;
-  const contentId = optString(p.content_id);
-  if (blank(contentId)) return null;
-  return make(contentId, optString(p.program_type).trim() === "" ? "movie" : optString(p.program_type), optInt(p.episode));
+  const contentId = asText(p.content_id);
+  if (isBlank(contentId)) return null;
+  return make(contentId, asText(p.program_type).trim() === "" ? "movie" : asText(p.program_type), optInt(p.episode));
 }
 
 /** A Magis ref of its own or a legacy one, or null when it is not Magis's or unreadable. */
 export function decode(ref) {
-  if (typeof ref !== "string" || blank(ref)) return null;
+  if (typeof ref !== "string" || isBlank(ref)) return null;
   if (ref.startsWith(PREFIX + ":")) {
     const parts = ref.split(":");
     if (parts.length < 4) return null;
     const contentId = parts.slice(3).join(":");
-    if (blank(contentId)) return null;
+    if (isBlank(contentId)) return null;
     const type = parts[1];
     return make(contentId, type.trim() === "" ? "movie" : type, toIntOrNull(parts[2]) ?? 0);
   }

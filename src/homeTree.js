@@ -1,23 +1,14 @@
 // The portal's `getNextColumns` answer for one VOD root, as sections of items (native
 // MagisLiveCatalog.tree, native-magis.md §4.1), plus the compact form kept in kino.storage.
 import { encode } from "./refs.js";
+import { isBlank, asText, intOrNull } from "./util.js";
 
 const PORTAL_OFFSET_MS = 8 * 3600_000; // the portal's shelveTime has no zone: China time, UTC+8
 
-const isBlank = (s) => typeof s !== "string" || s.trim() === "";
-const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : String(v));
 const nonBlank = (v) => { const s = asText(v); return s.trim() === "" ? null : s; };
 
 // Kotlin's `opt(k)?.toString()?.toIntOrNull()` / `toDoubleOrNull()`.
-const INT = /^[+-]?\d+$/;
 const DEC = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
-function intOrNull(v) {
-  if (v === null || v === undefined) return null;
-  const s = String(v);
-  if (!INT.test(s)) return null;
-  const n = Number(s);
-  return n >= -2147483648 && n <= 2147483647 ? n : null;
-}
 function numberOrNull(v) {
   if (v === null || v === undefined) return null;
   const s = String(v);

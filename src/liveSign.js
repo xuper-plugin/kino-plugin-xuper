@@ -12,7 +12,7 @@ import { LIVE_USER_AGENT, LIVE_APP, LIVE_APP_VERSION, LIVE_X_BUFFER } from "./co
 export const MAX_CONTEXT_CHARS = 4096; // SDK cap on signContext
 const TOKEN = /token=([0-9A-Fa-f]{32})/;
 const HEX32 = /^[0-9A-Fa-f]{32}$/;
-const AUTHORITY = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/;
+const URL_AUTHORITY = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/;
 
 /** The `token=<32 hex>` inside an authBase (native ChannelCdn.token), or "". */
 export function tokenOf(authBase) {
@@ -25,7 +25,7 @@ const normalize = (authority) => String(authority).toLowerCase().replace(/:80$/,
 
 /** The authority of [url] as `normalize` writes it, or "" when it is not an absolute url. */
 export function authorityOf(url) {
-  const m = AUTHORITY.exec(typeof url === "string" ? url : "");
+  const m = URL_AUTHORITY.exec(typeof url === "string" ? url : "");
   if (!m) return "";
   const at = m[1].lastIndexOf("@");
   return normalize(at >= 0 ? m[1].slice(at + 1) : m[1]);

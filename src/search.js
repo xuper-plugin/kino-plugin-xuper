@@ -5,6 +5,7 @@
 import { PortalError, mapPortalError } from "./portal.js";
 import { encode, isSeries } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
+import { isObject, isKinoError } from "./util.js";
 
 const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const MAX_OUTPUT_ITEMS = 100; // SDK cap
@@ -61,10 +62,9 @@ export function sortSeasons(items) {
 //   c contentId, t title (name | viewPoint | alias), a alias when it differs, p programType when
 //   not "movie", y release year, n episode count, m poster (icon), b backdrop (poster).
 const str = (v) => (typeof v === "string" ? v : "");
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const INT = /^[+-]?\d+$/;
 
-function intOrNull(v) {
+function wholeNumberOrNull(v) {
   if (typeof v === "number") return Number.isInteger(v) ? v : null;
   if (typeof v === "string" && INT.test(v)) {
     const n = Number(v);
@@ -85,7 +85,7 @@ function slim(raw) {
   if (programType !== "movie") out.p = programType;
   const year = str(raw.releaseTime).slice(0, 4);
   if (/^[0-9]{4}$/.test(year)) out.y = year;
-  const n = intOrNull(raw.volumnCount) ?? intOrNull(raw.updateCount) ?? 0;
+  const n = wholeNumberOrNull(raw.volumnCount) ?? wholeNumberOrNull(raw.updateCount) ?? 0;
   if (n !== 0) out.n = n;
   if (Array.isArray(raw.posterList)) {
     for (const p of raw.posterList) {
@@ -115,7 +115,6 @@ function flatten(response) {
 const validEntryItems = (items) => Array.isArray(items)
   && items.every((it) => isObject(it) && typeof it.c === "string" && typeof it.t === "string");
 
-const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 const intOr0 = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0);
 const distinctBy = (list, keyOf) => {
   const seen = new Set();

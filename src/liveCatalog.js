@@ -3,6 +3,7 @@
 // kept in memory is the set of adult category ids, so an adult category's channels are never served.
 import { PortalError, mapPortalError } from "./portal.js";
 import { logoOf } from "./homeTree.js";
+import { isObject, asText, isBlank, isKinoError, intOrNull } from "./util.js";
 
 const LIVE_ROOT = "masnew_live";
 const CATEGORIES_PAGE_SIZE = 200; // 30 lost eight of the 38 real categories
@@ -10,7 +11,6 @@ const CHANNELS_PAGE_SIZE = 500;
 const MAX_PAGES = 10; // SDK: at most 10 pages per category
 const MAX_CATEGORIES = 200; // SDK cap
 const ID = /^[A-Za-z0-9._~-]{1,128}$/;
-const INT = /^[+-]?\d+$/;
 const POSITIVE = /^\d{1,9}$/;
 
 // The portal calls the all-channels category "ChannelList": an internal English name.
@@ -18,19 +18,7 @@ const NAMES = { ChannelList: "Todos" };
 // Recognized by NAME because it is the only thing the portal gives: no field marks them.
 const ADULT_NAMES = new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : String(v));
-const isBlank = (s) => s.trim() === "";
-const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
-// Kotlin's `opt(k)?.toString()?.toIntOrNull()`.
-function intOrNull(v) {
-  if (v === null || v === undefined) return null;
-  const s = String(v);
-  if (!INT.test(s)) return null;
-  const n = Number(s);
-  return n >= -2147483648 && n <= 2147483647 ? n : null;
-}
 
 export function makeLiveCatalog({ kino, portal, session }) {
   // Adult category ids seen in the last non-empty categories answer; null = not read yet.

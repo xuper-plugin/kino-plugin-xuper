@@ -88,6 +88,23 @@ var FINGERPRINT_FIXED = Object.freeze({
   verId: ""
 });
 
+// src/util.js
+var isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var asText = (v) => v === null || v === void 0 ? "" : typeof v === "string" ? v : String(v);
+var optStringStrict = (v) => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
+var isBlank = (s) => typeof s !== "string" || s.trim() === "";
+var notBlank = (s) => s.trim() !== "";
+var objects = (v) => Array.isArray(v) ? v.filter(isObject) : [];
+var isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var INT = /^[+-]?\d+$/;
+function intOrNull(v) {
+  if (v === null || v === void 0) return null;
+  const s = String(v);
+  if (!INT.test(s)) return null;
+  const n = Number(s);
+  return n >= -2147483648 && n <= 2147483647 ? n : null;
+}
+
 // src/portal.js
 var MAX_SLEEP_MS = 5e3;
 var MAX_REQUEST_MS = 3e4;
@@ -112,7 +129,6 @@ function mapPortalError(code, message, kino2) {
   }
   return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
 }
-var isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) {
   let preferredHost = null;
   let lastCallMs = null;
@@ -718,10 +734,9 @@ function classify(roots) {
 var PREFIX = "magis1";
 var SERIES = /* @__PURE__ */ new Set(["teleplay", "series", "variety"]);
 var isSeries = (programType) => SERIES.has(programType);
-var blank2 = (s) => typeof s !== "string" || s.trim() === "";
-var INT = /^[+-]?\d+$/;
+var INT2 = /^[+-]?\d+$/;
 function toIntOrNull(text2) {
-  if (!INT.test(text2)) return null;
+  if (!INT2.test(text2)) return null;
   const n = Number(text2);
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
@@ -784,7 +799,6 @@ function utf8(bytes) {
   }
   return out;
 }
-var optString = (v) => v === null || v === void 0 ? "" : typeof v === "string" ? v : String(v);
 function optInt(v) {
   if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
   if (typeof v === "string") {
@@ -797,7 +811,7 @@ function fromGatewayRef(ref) {
   const dot = ref.indexOf(".");
   if (dot < 0) return null;
   const data = ref.slice(0, dot);
-  if (blank2(data)) return null;
+  if (isBlank(data)) return null;
   let json;
   try {
     const text2 = base64UrlToText(data);
@@ -806,20 +820,20 @@ function fromGatewayRef(ref) {
     return null;
   }
   if (json === null || typeof json !== "object" || Array.isArray(json)) return null;
-  if (optString(json.s) !== "magis") return null;
+  if (asText(json.s) !== "magis") return null;
   const p = json.p;
   if (p === null || typeof p !== "object" || Array.isArray(p)) return null;
-  const contentId = optString(p.content_id);
-  if (blank2(contentId)) return null;
-  return make(contentId, optString(p.program_type).trim() === "" ? "movie" : optString(p.program_type), optInt(p.episode));
+  const contentId = asText(p.content_id);
+  if (isBlank(contentId)) return null;
+  return make(contentId, asText(p.program_type).trim() === "" ? "movie" : asText(p.program_type), optInt(p.episode));
 }
 function decode(ref) {
-  if (typeof ref !== "string" || blank2(ref)) return null;
+  if (typeof ref !== "string" || isBlank(ref)) return null;
   if (ref.startsWith(PREFIX + ":")) {
     const parts = ref.split(":");
     if (parts.length < 4) return null;
     const contentId = parts.slice(3).join(":");
-    if (blank2(contentId)) return null;
+    if (isBlank(contentId)) return null;
     const type = parts[1];
     return make(contentId, type.trim() === "" ? "movie" : type, toIntOrNull(parts[2]) ?? 0);
   }
@@ -832,21 +846,11 @@ function isChannelRef(ref) {
 
 // src/homeTree.js
 var PORTAL_OFFSET_MS = 8 * 36e5;
-var isBlank = (s) => typeof s !== "string" || s.trim() === "";
-var asText = (v) => v === null || v === void 0 ? "" : typeof v === "string" ? v : String(v);
 var nonBlank = (v) => {
   const s = asText(v);
   return s.trim() === "" ? null : s;
 };
-var INT2 = /^[+-]?\d+$/;
 var DEC = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
-function intOrNull(v) {
-  if (v === null || v === void 0) return null;
-  const s = String(v);
-  if (!INT2.test(s)) return null;
-  const n = Number(s);
-  return n >= -2147483648 && n <= 2147483647 ? n : null;
-}
 function numberOrNull(v) {
   if (v === null || v === void 0) return null;
   const s = String(v);
@@ -1000,13 +1004,12 @@ function decodeTree(text2) {
 }
 
 // src/byteCache.js
-var isObject2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid = () => true }) {
   const decode2 = (raw) => {
     try {
       const o = JSON.parse(raw);
-      if (!isObject2(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
-      return o.e.filter((x) => isObject2(x) && typeof x.k === "string" && Number.isFinite(x.s) && x.i !== void 0 && valid(x.i));
+      if (!isObject(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
+      return o.e.filter((x) => isObject(x) && typeof x.k === "string" && Number.isFinite(x.s) && x.i !== void 0 && valid(x.i));
     } catch (_) {
       return [];
     }
@@ -1091,9 +1094,8 @@ function sortSeasons(items) {
   return out;
 }
 var str2 = (v) => typeof v === "string" ? v : "";
-var isObject3 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 var INT3 = /^[+-]?\d+$/;
-function intOrNull2(v) {
+function wholeNumberOrNull(v) {
   if (typeof v === "number") return Number.isInteger(v) ? v : null;
   if (typeof v === "string" && INT3.test(v)) {
     const n = Number(v);
@@ -1102,7 +1104,7 @@ function intOrNull2(v) {
   return null;
 }
 function slim(raw) {
-  if (!isObject3(raw)) return null;
+  if (!isObject(raw)) return null;
   const c = str2(raw.contentId);
   if (c.trim() === "") return null;
   const alias = str2(raw.alias);
@@ -1113,11 +1115,11 @@ function slim(raw) {
   if (programType !== "movie") out.p = programType;
   const year = str2(raw.releaseTime).slice(0, 4);
   if (/^[0-9]{4}$/.test(year)) out.y = year;
-  const n = intOrNull2(raw.volumnCount) ?? intOrNull2(raw.updateCount) ?? 0;
+  const n = wholeNumberOrNull(raw.volumnCount) ?? wholeNumberOrNull(raw.updateCount) ?? 0;
   if (n !== 0) out.n = n;
   if (Array.isArray(raw.posterList)) {
     for (const p of raw.posterList) {
-      if (!isObject3(p)) continue;
+      if (!isObject(p)) continue;
       const key = p.fileType === "icon" ? "m" : p.fileType === "poster" ? "b" : null;
       const url = str2(p.fileUrl);
       if (key !== null && url.trim() !== "" && out[key] === void 0) out[key] = url;
@@ -1127,19 +1129,18 @@ function slim(raw) {
 }
 var eachObject = (list, f) => {
   if (Array.isArray(list)) {
-    for (const x of list) if (isObject3(x)) f(x);
+    for (const x of list) if (isObject(x)) f(x);
   }
 };
 function flatten(response) {
   const out = [];
-  if (isObject3(response)) {
+  if (isObject(response)) {
     eachObject(response.searchItemList, (group) => eachObject(group.itemList, (x) => out.push(x)));
     if (out.length === 0) eachObject(Array.isArray(response.assetList) ? response.assetList : response.list, (x) => out.push(x));
   }
   return out;
 }
-var validEntryItems = (items) => Array.isArray(items) && items.every((it) => isObject3(it) && typeof it.c === "string" && typeof it.t === "string");
-var isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var validEntryItems = (items) => Array.isArray(items) && items.every((it) => isObject(it) && typeof it.c === "string" && typeof it.t === "string");
 var intOr0 = (v) => typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0;
 var distinctBy2 = (list, keyOf) => {
   const seen = /* @__PURE__ */ new Set();
@@ -1164,7 +1165,7 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
   };
   const cache = makeByteCache({ kino: kino2, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock: clock2, ttlMs: CACHE_FRESH_MS, valid: validEntryItems });
   function contextOf(query) {
-    const q = isObject3(query) ? query : {};
+    const q = isObject(query) ? query : {};
     const rawType = typeof q.type === "string" ? q.type.trim() : "";
     return {
       q: typeof q.q === "string" ? q.q.trim() : "",
@@ -1298,7 +1299,6 @@ var CACHE_FRESH_MS2 = 6 * 36e5;
 var IMDB = /^tt\d{7,}$/;
 var MAX_EPISODES = 5e3;
 var MAX_SEASONS = 50;
-var isObject4 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 var INT4 = /^[+-]?\d+$/;
 function toIntOrNull2(v) {
   const text2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
@@ -1306,14 +1306,13 @@ function toIntOrNull2(v) {
   const n = Number(text2);
   return n >= -2147483648 && n <= 2147483647 ? n || 0 : null;
 }
-var optString2 = (v) => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
 function parseSeasonList(list, ownId) {
   let own = null;
   const all = [];
   const entries = Array.isArray(list) ? list : [];
   for (const entry of entries) {
-    if (!isObject4(entry)) continue;
-    const id = optString2(entry.contentId);
+    if (!isObject(entry)) continue;
+    const id = optStringStrict(entry.contentId);
     const number = toIntOrNull2(entry.seasonNumber);
     if (id === ownId) own = number;
     if (id.trim() !== "" && number !== null) all.push({ id, number });
@@ -1326,7 +1325,7 @@ function findChapter(items, episode) {
   if (episode <= 0) return items[0];
   return items.find((it) => typeof it.seriesNumber === "string" && it.seriesNumber.trim() === String(episode));
 }
-var validPayload = (p) => isObject4(p) && typeof p.i === "string" && Array.isArray(p.a) && Array.isArray(p.e) && p.e.every((x) => Array.isArray(x) && typeof x[1] === "string" && typeof x[2] === "string") && p.a.every((x) => Array.isArray(x) && typeof x[0] === "string" && Number.isInteger(x[1])) && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d));
+var validPayload = (p) => isObject(p) && typeof p.i === "string" && Array.isArray(p.a) && Array.isArray(p.e) && p.e.every((x) => Array.isArray(x) && typeof x[1] === "string" && typeof x[2] === "string") && p.a.every((x) => Array.isArray(x) && typeof x[0] === "string" && Number.isInteger(x[1])) && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d));
 function pack(raw) {
   return {
     i: raw.imdb,
@@ -1345,7 +1344,6 @@ var unpack = (p) => ({
 });
 function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
   const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock: clock2, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
-  const isKinoError8 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
   async function fetchDetail(seriesId) {
     let response;
     try {
@@ -1357,25 +1355,25 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
       ));
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
-      if (isKinoError8(e)) throw e;
+      if (isKinoError(e)) throw e;
       throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
     }
-    const data = isObject4(response) ? response.assetData : void 0;
-    if (!isObject4(data)) throw kino2.error("unavailable", "Xuper devolvi\xF3 una cap\xEDtulos sin datos");
+    const data = isObject(response) ? response.assetData : void 0;
+    if (!isObject(data)) throw kino2.error("unavailable", "Xuper devolvi\xF3 una cap\xEDtulos sin datos");
     return data;
   }
   return async function portalChapters(seriesId) {
     const cached = cache.get(seriesId);
     if (cached !== void 0) return unpack(cached);
     const data = await fetchDetail(seriesId);
-    const items = (Array.isArray(data.simpleProgramList) ? data.simpleProgramList : []).filter(isObject4).map((it) => {
+    const items = (Array.isArray(data.simpleProgramList) ? data.simpleProgramList : []).filter(isObject).map((it) => {
       const seriesNumber = typeof it.seriesNumber === "string" ? it.seriesNumber : typeof it.seriesNumber === "number" ? String(it.seriesNumber) : null;
-      const item = { seriesNumber, contentId: optString2(it.contentId), name: optString2(it.name), duration: void 0 };
+      const item = { seriesNumber, contentId: optStringStrict(it.contentId), name: optStringStrict(it.name), duration: void 0 };
       if (typeof it.duration === "string" || typeof it.duration === "number" && Number.isFinite(it.duration)) item.duration = it.duration;
       return item;
     });
     const seasonList = parseSeasonList(data.sameSeasonSeriesList, seriesId);
-    const raw = { items, imdb: optString2(data.keyWords), season: seasonList.own, declared: toIntOrNull2(data.volumnCount), seasons: seasonList.all };
+    const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull2(data.volumnCount), seasons: seasonList.all };
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
     return raw;
   };
@@ -1594,7 +1592,7 @@ var TIMEOUT_MS = 8e3;
 var IMG = "https://image.tmdb.org/t/p";
 var IMDB_ID = /^tt\d{7,}$/;
 var text = (v) => typeof v === "string" ? v : "";
-var blank3 = (s) => s.trim() === "";
+var blank2 = (s) => s.trim() === "";
 function parseTitleForms(type, body) {
   let o;
   try {
@@ -1616,7 +1614,7 @@ function parseTitleForms(type, body) {
     if (t.iso_639_1 !== "es") continue;
     const title2 = titleOf(t);
     const key = title2.trim().toLowerCase();
-    if (blank3(title2) || key === localized.toLowerCase() || seen.has(key)) continue;
+    if (blank2(title2) || key === localized.toLowerCase() || seen.has(key)) continue;
     seen.add(key);
     spanish.push(title2);
   }
@@ -1627,14 +1625,13 @@ function parseTitleForms(type, body) {
     spanishTitles: spanish
   };
 }
-var isObject5 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 var INT6 = /^[+-]?\d+$/;
 function optInt2(v) {
   if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
   if (typeof v === "string" && INT6.test(v.trim())) return Number(v.trim());
   return 0;
 }
-var imageUrl = (path, size) => typeof path !== "string" || blank3(path) || path === "null" ? "" : `${IMG}/${size}${path}`;
+var imageUrl = (path, size) => typeof path !== "string" || blank2(path) || path === "null" ? "" : `${IMG}/${size}${path}`;
 function parseSeriesByImdb(body) {
   let o;
   try {
@@ -1642,7 +1639,7 @@ function parseSeriesByImdb(body) {
   } catch (_) {
     return null;
   }
-  const tv = isObject5(o) && Array.isArray(o.tv_results) && isObject5(o.tv_results[0]) ? o.tv_results[0] : null;
+  const tv = isObject(o) && Array.isArray(o.tv_results) && isObject(o.tv_results[0]) ? o.tv_results[0] : null;
   if (tv === null) return null;
   const tmdbId = optInt2(tv.id);
   if (tmdbId <= 0) return null;
@@ -1655,12 +1652,12 @@ function parseSeasonEpisodes(body) {
   } catch (_) {
     return null;
   }
-  if (!isObject5(o)) return null;
+  if (!isObject(o)) return null;
   const list = Array.isArray(o.episodes) ? o.episodes : [];
-  return list.filter(isObject5).map((e) => {
+  return list.filter(isObject).map((e) => {
     const episode = optInt2(e.episode_number);
     const name = text(e.name);
-    return { episode, name: blank3(name) ? `Episodio ${episode}` : name, overview: text(e.overview), still: imageUrl(e.still_path, "w300") };
+    return { episode, name: blank2(name) ? `Episodio ${episode}` : name, overview: text(e.overview), still: imageUrl(e.still_path, "w300") };
   });
 }
 function makeTmdb({ kino: kino2 }) {
@@ -1717,11 +1714,6 @@ var EXPIRED = /expired=(\d+)/;
 var MAX_SUBTITLES = 30;
 var INT7 = /^[+-]?\d+$/;
 var DIGITS = /^[0-9]+$/;
-var isObject6 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-var isKinoError2 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
-var optString3 = (v) => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
-var objects = (v) => Array.isArray(v) ? v.filter(isObject6) : [];
-var notBlank = (s) => s.trim() !== "";
 function isCfl(url) {
   return url.slice(url.lastIndexOf("?") + 1).split("&").some((p) => p.trim() === "sign_type=cfl");
 }
@@ -1739,13 +1731,13 @@ function portalDurationMs(raw) {
   return parts.reduce((acc, p) => acc * 60 + Number(p), 0) * 1e3;
 }
 function bestMedia(play) {
-  const episode = isObject6(play) ? objects(play.episodeList)[0] : void 0;
+  const episode = isObject(play) ? objects(play.episodeList)[0] : void 0;
   if (!episode) return null;
   const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList));
   let best = null;
   let bestScore = Infinity;
   for (const m of candidates) {
-    const score = (optString3(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optString3(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
+    const score = (optStringStrict(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optStringStrict(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
     if (score < bestScore) {
       best = m;
       bestScore = score;
@@ -1759,26 +1751,26 @@ function readSubtitles(play) {
   for (const sub of objects(episode?.subtitleList)) {
     const file = objects(sub.file)[0];
     if (!file) continue;
-    const url = optString3(file.url);
+    const url = optStringStrict(file.url);
     if (!notBlank(url)) continue;
-    out.push({ lang: optString3(sub.language), url, format: notBlank(optString3(file.fileType)) ? optString3(file.fileType) : "srt" });
+    out.push({ lang: optStringStrict(sub.language), url, format: notBlank(optStringStrict(file.fileType)) ? optStringStrict(file.fileType) : "srt" });
   }
   return out.slice(0, MAX_SUBTITLES);
 }
 function vodCdn(slb) {
   for (const cdn of objects(slb.cdn_list)) {
-    if (optString3(cdn.tag) !== "vod") continue;
+    if (optStringStrict(cdn.tag) !== "vod") continue;
     for (const u of objects(cdn.url_list)) {
-      const url = optString3(u.url);
-      if ((isCfl(url) || optString3(u.sign_type) === "cfl") && optString3(u.tag) === "free") {
-        return { base: withScheme(optString3(cdn.main_addr)), auth: url };
+      const url = optStringStrict(u.url);
+      if ((isCfl(url) || optStringStrict(u.sign_type) === "cfl") && optStringStrict(u.tag) === "free") {
+        return { base: withScheme(optStringStrict(cdn.main_addr)), auth: url };
       }
     }
   }
   return null;
 }
 function slbLifetime(slb, nowMs) {
-  const text2 = optString3(slb.invalidTime);
+  const text2 = optStringStrict(slb.invalidTime);
   const declaredN = INT7.test(text2) ? Number(text2) : NaN;
   const declared = declaredN > 0 ? declaredN : SLB_DEFAULT_TTL_S;
   const cdn = vodCdn(slb);
@@ -1805,7 +1797,7 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
   const sessionSlb = () => session.withValidSession(async ({ userId, userToken }) => {
     if (slbCache && slbCache.token === userToken && clock2.now() < slbCache.expiresMs) return slbCache.slb;
     const answer = await portal.call("v14/getSlbInfo", slbBean(config.apkVersion), { baseFields: true, userId, userToken });
-    const fresh = isObject6(answer) ? answer : {};
+    const fresh = isObject(answer) ? answer : {};
     const ttl = slbLifetime(fresh, clock2.now());
     slbCache = ttl > 0 ? { slb: fresh, token: userToken, expiresMs: clock2.now() + ttl * 1e3 } : null;
     return fresh;
@@ -1827,13 +1819,13 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
     ));
     const best = bestMedia(play);
     if (!best) throw unavailable("Xuper devolvi\xF3 sin media reproducible");
-    const license = optString3(objects(best.licenseList)[0]?.license);
+    const license = optStringStrict(objects(best.licenseList)[0]?.license);
     if (!notBlank(license)) throw unavailable("Xuper devolvi\xF3 sin licenseList");
     const cdn = vodCdn(await sessionSlb());
     if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
-    const ext = optString3(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
+    const ext = optStringStrict(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
     return {
-      url: `${cdn.base}/vod/${optString3(best.contentId)}_media.${ext}`,
+      url: `${cdn.base}/vod/${optStringStrict(best.contentId)}_media.${ext}`,
       mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
       headers: {
         "Content-Auth": cdn.auth,
@@ -1857,7 +1849,7 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
       return await resolveVod(magis, chapter2);
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
-      if (isKinoError2(e)) throw e;
+      if (isKinoError(e)) throw e;
       throw unavailable("Xuper no est\xE1 disponible ahora");
     }
   }
@@ -1871,26 +1863,14 @@ var CHANNELS_PAGE_SIZE = 500;
 var MAX_PAGES = 10;
 var MAX_CATEGORIES = 200;
 var ID = /^[A-Za-z0-9._~-]{1,128}$/;
-var INT8 = /^[+-]?\d+$/;
 var POSITIVE = /^\d{1,9}$/;
 var NAMES = { ChannelList: "Todos" };
 var ADULT_NAMES = /* @__PURE__ */ new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
-var isObject7 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-var asText2 = (v) => v === null || v === void 0 ? "" : typeof v === "string" ? v : String(v);
-var isBlank2 = (s) => s.trim() === "";
-var isKinoError3 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
-function intOrNull3(v) {
-  if (v === null || v === void 0) return null;
-  const s = String(v);
-  if (!INT8.test(s)) return null;
-  const n = Number(s);
-  return n >= -2147483648 && n <= 2147483647 ? n : null;
-}
 function makeLiveCatalog({ kino: kino2, portal, session }) {
   let adultIds = null;
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
-    if (isKinoError3(e)) return e;
+    if (isKinoError(e)) return e;
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
   async function readCategories() {
@@ -1905,15 +1885,15 @@ function makeLiveCatalog({ kino: kino2, portal, session }) {
     } catch (e) {
       throw surface(e);
     }
-    const columns = isObject7(response) && Array.isArray(response.recommendList) ? response.recommendList : [];
+    const columns = isObject(response) && Array.isArray(response.recommendList) ? response.recommendList : [];
     const out = [];
     for (const c of columns) {
-      if (!isObject7(c)) continue;
-      const id = intOrNull3(c.columnId);
+      if (!isObject(c)) continue;
+      const id = intOrNull(c.columnId);
       if (id === null || id <= 0) continue;
-      const raw = asText2(c.name);
+      const raw = asText(c.name);
       const name = Object.hasOwn(NAMES, raw) ? NAMES[raw] : raw;
-      if (isBlank2(name)) continue;
+      if (isBlank(name)) continue;
       out.push({ id: String(id), name, adult: ADULT_NAMES.has(name.trim().toLowerCase()) });
     }
     if (out.length > 0) adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
@@ -1937,18 +1917,18 @@ function makeLiveCatalog({ kino: kino2, portal, session }) {
       { columnId: Number(columnId), pageNum: page, pageSize: CHANNELS_PAGE_SIZE, dataVersion: "", expireTimeStr: "" },
       { baseFields: true, userId, userToken }
     ));
-    return isObject7(response) && Array.isArray(response.channelList) ? response.channelList : [];
+    return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
   }
   function project(list, categoryId) {
     const seen = /* @__PURE__ */ new Set();
     const items = [];
     for (const c of list) {
-      if (!isObject7(c)) continue;
-      const code = asText2(c.channelCode);
-      const title2 = asText2(c.name);
-      if (isBlank2(code) || isBlank2(title2) || !ID.test(code) || code.startsWith("~") || seen.has(code)) continue;
+      if (!isObject(c)) continue;
+      const code = asText(c.channelCode);
+      const title2 = asText(c.name);
+      if (isBlank(code) || isBlank(title2) || !ID.test(code) || code.startsWith("~") || seen.has(code)) continue;
       seen.add(code);
-      const n = intOrNull3(c.channelNumber);
+      const n = intOrNull(c.channelNumber);
       const item = { id: code, title: title2, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
       const logo = logoOf(c);
       if (logo) item.logo = logo;
@@ -2192,14 +2172,14 @@ function signO3(token, startMomentMs) {
 var MAX_CONTEXT_CHARS = 4096;
 var TOKEN = /token=([0-9A-Fa-f]{32})/;
 var HEX32 = /^[0-9A-Fa-f]{32}$/;
-var AUTHORITY = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/;
+var URL_AUTHORITY = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/;
 function tokenOf(authBase) {
   const m = TOKEN.exec(typeof authBase === "string" ? authBase : "");
   return m ? m[1] : "";
 }
 var normalize = (authority) => String(authority).toLowerCase().replace(/:80$/, "");
 function authorityOf(url) {
-  const m = AUTHORITY.exec(typeof url === "string" ? url : "");
+  const m = URL_AUTHORITY.exec(typeof url === "string" ? url : "");
   if (!m) return "";
   const at = m[1].lastIndexOf("@");
   return normalize(at >= 0 ? m[1].slice(at + 1) : m[1]);
@@ -2253,7 +2233,6 @@ var MAX_ROTATIONS = 3;
 var ROTATION_TTL_MS = 30 * 6e4;
 var MAX_CHANNELS = 12;
 var PREFIX2 = "liveRot:";
-var isBlank3 = (s) => typeof s !== "string" || s.trim() === "";
 var empty = () => ({ tried: [], active: null, last: null, at: 0 });
 function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = MAX_ROTATIONS, ttlMs = ROTATION_TTL_MS }) {
   const memory = /* @__PURE__ */ new Map();
@@ -2343,7 +2322,7 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
     const rotationsSoFar = state.tried.length - 1;
     let next = null;
     if (rotationsSoFar < maxRotations) {
-      const candidates = (Array.isArray(pool) ? pool : []).filter((e) => e && !isBlank3(e.sn) && !state.tried.includes(e.sn));
+      const candidates = (Array.isArray(pool) ? pool : []).filter((e) => e && !isBlank(e.sn) && !state.tried.includes(e.sn));
       if (candidates.length > 0) next = candidates[Math.min(candidates.length - 1, Math.floor(random() * candidates.length))].sn;
     }
     state.active = next;
@@ -2366,8 +2345,8 @@ var MIN_EXPIRES_S = 30;
 var MAX_EXPIRES_S = 86400;
 var MAX_ALTERNATE_HOSTS = 6;
 var NOT_LOGGED_IN = "aaa100028";
-var INT9 = /^[+-]?\d+$/;
-var AUTHORITY2 = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/;
+var INT8 = /^[+-]?\d+$/;
+var ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/;
 var SERVED_MEMORY = 64;
 var TEXT = {
   noAccount: "Este canal necesita una cuenta de Xuper (para pel\xEDculas y series no hace falta). Vinc\xFAlala en Ajustes \u25B8 Plugins \u25B8 Xuper.",
@@ -2382,11 +2361,6 @@ var TEXT = {
   tooLong: "No se pudo abrir el canal: los datos de la se\xF1al son demasiado largos",
   generic: "Xuper no est\xE1 disponible ahora"
 };
-var isObject8 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-var isKinoError4 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
-var optString4 = (v) => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
-var objects2 = (v) => Array.isArray(v) ? v.filter(isObject8) : [];
-var notBlank2 = (s) => s.trim() !== "";
 function bareHost(mainAddr) {
   let s = typeof mainAddr === "string" ? mainAddr : "";
   if (s.startsWith("https://")) s = s.slice(8);
@@ -2396,30 +2370,30 @@ function bareHost(mainAddr) {
 }
 function signalFrom(play) {
   let firstLicense = null;
-  for (const a of objects2(isObject8(play) ? play.liveAddressList : null)) {
-    const license = optString4(a.license);
-    const playCode = optString4(a.playCode);
+  for (const a of objects(isObject(play) ? play.liveAddressList : null)) {
+    const license = optStringStrict(a.license);
+    const playCode = optStringStrict(a.playCode);
     if (firstLicense === null) firstLicense = license;
-    if (notBlank2(playCode) && notBlank2(license)) return { playCode, license };
+    if (notBlank(playCode) && notBlank(license)) return { playCode, license };
   }
   return firstLicense === null ? null : { playCode: "", license: firstLicense };
 }
 function liveCdns(slb) {
   const out = [];
-  for (const cdn of objects2(isObject8(slb) ? slb.cdn_list : null)) {
-    if (optString4(cdn.tag) !== "live") continue;
-    for (const u of objects2(cdn.url_list)) {
-      const url = optString4(u.url);
-      if (!isCfl(url) && optString4(u.sign_type) !== "cfl") continue;
-      const host = bareHost(optString4(cdn.main_addr));
-      if (notBlank2(host)) out.push({ cflHost: host, authBase: url });
+  for (const cdn of objects(isObject(slb) ? slb.cdn_list : null)) {
+    if (optStringStrict(cdn.tag) !== "live") continue;
+    for (const u of objects(cdn.url_list)) {
+      const url = optStringStrict(u.url);
+      if (!isCfl(url) && optStringStrict(u.sign_type) !== "cfl") continue;
+      const host = bareHost(optStringStrict(cdn.main_addr));
+      if (notBlank(host)) out.push({ cflHost: host, authBase: url });
     }
   }
   return out;
 }
 function expiresOf(slb) {
-  const text2 = optString4(isObject8(slb) ? slb.invalidTime : "");
-  const n = INT9.test(text2) ? Number(text2) : NaN;
+  const text2 = optStringStrict(isObject(slb) ? slb.invalidTime : "");
+  const n = INT8.test(text2) ? Number(text2) : NaN;
   const ttl = n > 0 ? n : DEFAULT_TTL_S;
   return Math.min(MAX_EXPIRES_S, Math.max(MIN_EXPIRES_S, ttl));
 }
@@ -2436,7 +2410,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
   };
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
-    if (isKinoError4(e)) return e;
+    if (isKinoError(e)) return e;
     return unavailable(TEXT.generic);
   };
   function noteServed(code, license) {
@@ -2464,7 +2438,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     try {
       play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" });
     } catch (e) {
-      const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError4(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
+      const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
       if (notLoggedIn) throw kino2.error("auth_required", TEXT.noAccount);
       throw e;
     }
@@ -2473,8 +2447,8 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]));
     const all = liveCdns(slb);
     if (all.length === 0) throw unavailable(TEXT.noCdn);
-    if (!notBlank2(signal.license)) throw unavailable(TEXT.noLicense);
-    const cdns = all.filter((d) => tokenOf(d.authBase) !== "" && AUTHORITY2.test(d.cflHost));
+    if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
+    const cdns = all.filter((d) => tokenOf(d.authBase) !== "" && ALTERNATE_HOST.test(d.cflHost));
     if (cdns.length === 0) throw unavailable(TEXT.noToken);
     const built = buildSignContext(signal.license, cdns);
     if (!built) throw unavailable(TEXT.tooLong);
@@ -2484,7 +2458,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
       if (d.cflHost.toLowerCase() === primary.toLowerCase() || alternates.some((h) => h.toLowerCase() === d.cflHost.toLowerCase())) continue;
       if (alternates.length < MAX_ALTERNATE_HOSTS) alternates.push(d.cflHost);
     }
-    const playCode = notBlank2(signal.playCode) ? signal.playCode : code;
+    const playCode = notBlank(signal.playCode) ? signal.playCode : code;
     noteServed(code, signal.license);
     return {
       url: `http://${primary}/live/${playCode}.m3u8`,
@@ -2523,7 +2497,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
   async function resolveLive(code, options) {
     await null;
     try {
-      const retry = isObject8(options) && isObject8(options.retry) ? options.retry : null;
+      const retry = isObject(options) && isObject(options.retry) ? options.retry : null;
       if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
       return await openWithRotation(code);
     } catch (e) {
@@ -2552,12 +2526,11 @@ function getDeps() {
   deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream };
   return deps;
 }
-var isKinoError5 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function guarded(body) {
   try {
     return await body(getDeps());
   } catch (e) {
-    if (isKinoError5(e)) throw e;
+    if (isKinoError(e)) throw e;
     try {
       kino.log("xuper: " + String(e && e.name || "error"));
     } catch (_) {
@@ -2571,7 +2544,6 @@ var LIVE_PROVIDER = "xuper";
 var ITEM_ID3 = /^[A-Za-z0-9._~-]{1,128}$/;
 var MAX_NUMBER = 99999;
 var MAX_SEASON = 999;
-var isObject9 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 var whole = (v, max) => Number.isInteger(v) && v >= 1 && v <= max ? v : null;
 function ownRef(ref) {
   if (typeof ref !== "string" || ref.startsWith("plg1:")) return null;
@@ -2603,7 +2575,7 @@ function makeMigrate() {
   async function migrate2(input) {
     await null;
     try {
-      if (!isObject9(input)) return null;
+      if (!isObject(input)) return null;
       if (input.kind === "title") return title(input);
       if (input.kind === "chapter") return chapter(input);
       if (input.kind === "live") return live(input);
@@ -2629,10 +2601,9 @@ var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a
 var str3 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
-var isKinoError6 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 function makeSettings({ kino: kino2, session, clock: clock2 }) {
   const surface = (e) => {
-    if (isKinoError6(e)) return e;
+    if (isKinoError(e)) return e;
     try {
       kino2.log("xuper settings: " + String(e && e.name || "error"));
     } catch (_) {
@@ -2725,7 +2696,6 @@ function makeSettings({ kino: kino2, session, clock: clock2 }) {
 }
 
 // src/plugin.js
-var isKinoError7 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function search(query) {
   await null;
   return guarded(({ catalog }) => catalog.search(query));
@@ -2751,7 +2721,7 @@ async function sign(request) {
   try {
     return signRequest(request, clock.now());
   } catch (e) {
-    if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) throw e;
+    if (isKinoError(e)) throw e;
     try {
       kino.log("xuper sign: " + String(e && e.name || "error"));
     } catch (_) {
@@ -2773,7 +2743,7 @@ async function migrate(input) {
   try {
     return await migrator.migrate(input);
   } catch (e) {
-    if (isKinoError7(e)) throw e;
+    if (isKinoError(e)) throw e;
     try {
       kino.log("xuper migrate: " + String(e && e.name || "error"));
     } catch (_) {
@@ -2796,7 +2766,7 @@ async function action(key) {
   try {
     return await settings().action(key);
   } catch (e) {
-    if (isKinoError7(e)) throw e;
+    if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }
@@ -2805,7 +2775,7 @@ async function validateSettings(values) {
   try {
     return await settings().validateSettings(values);
   } catch (e) {
-    if (isKinoError7(e)) throw e;
+    if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }

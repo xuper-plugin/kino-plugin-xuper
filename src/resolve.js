@@ -7,6 +7,7 @@ import { PortalError, mapPortalError } from "./portal.js";
 import { UA_CDN, FIXED_MAC } from "./config.js";
 import { decode, isChannelRef } from "./refs.js";
 import { findChapter } from "./episodes.js";
+import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
 
 const SLB_DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime
 const AUTH_MARGIN_S = 300;
@@ -15,12 +16,6 @@ const MAX_SUBTITLES = 30; // SDK cap
 const INT = /^[+-]?\d+$/;
 const DIGITS = /^[0-9]+$/;
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
-// org.json optString: strings and numbers by their text, anything else "".
-const optString = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
-const objects = (v) => (Array.isArray(v) ? v.filter(isObject) : []);
-const notBlank = (s) => s.trim() !== "";
 
 /** `sign_type=cfl` exactly (not `cflx`); `url` is a loose querystring, maybe with a `?` (MagisSlb.isCfl). */
 export function isCfl(url) {
@@ -52,7 +47,7 @@ function bestMedia(play) {
   let best = null;
   let bestScore = Infinity;
   for (const m of candidates) {
-    const score = (optString(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optString(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
+    const score = (optStringStrict(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optStringStrict(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
     if (score < bestScore) { best = m; bestScore = score; }
   }
   return best;
@@ -65,10 +60,10 @@ function readSubtitles(play) {
   for (const sub of objects(episode?.subtitleList)) {
     const file = objects(sub.file)[0];
     if (!file) continue;
-    const url = optString(file.url);
+    const url = optStringStrict(file.url);
     if (!notBlank(url)) continue;
     // The SDK keeps only vtt/srt and sniffs the rest.
-    out.push({ lang: optString(sub.language), url, format: notBlank(optString(file.fileType)) ? optString(file.fileType) : "srt" });
+    out.push({ lang: optStringStrict(sub.language), url, format: notBlank(optStringStrict(file.fileType)) ? optStringStrict(file.fileType) : "srt" });
   }
   return out.slice(0, MAX_SUBTITLES);
 }
@@ -76,11 +71,11 @@ function readSubtitles(play) {
 /** The VOD CDN and the free tier's Content-Auth, or null. */
 function vodCdn(slb) {
   for (const cdn of objects(slb.cdn_list)) {
-    if (optString(cdn.tag) !== "vod") continue;
+    if (optStringStrict(cdn.tag) !== "vod") continue;
     for (const u of objects(cdn.url_list)) {
-      const url = optString(u.url);
-      if ((isCfl(url) || optString(u.sign_type) === "cfl") && optString(u.tag) === "free") {
-        return { base: withScheme(optString(cdn.main_addr)), auth: url };
+      const url = optStringStrict(u.url);
+      if ((isCfl(url) || optStringStrict(u.sign_type) === "cfl") && optStringStrict(u.tag) === "free") {
+        return { base: withScheme(optStringStrict(cdn.main_addr)), auth: url };
       }
     }
   }
@@ -92,7 +87,7 @@ function vodCdn(slb) {
  * `expired=<unix>` in the Content-Auth itself (minus a margin). No usable cdn: 0 (not cached).
  */
 export function slbLifetime(slb, nowMs) {
-  const text = optString(slb.invalidTime);
+  const text = optStringStrict(slb.invalidTime);
   const declaredN = INT.test(text) ? Number(text) : NaN;
   const declared = declaredN > 0 ? declaredN : SLB_DEFAULT_TTL_S;
   const cdn = vodCdn(slb);
@@ -145,16 +140,16 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
     ));
     const best = bestMedia(play);
     if (!best) throw unavailable("Xuper devolvió sin media reproducible");
-    const license = optString(objects(best.licenseList)[0]?.license);
+    const license = optStringStrict(objects(best.licenseList)[0]?.license);
     if (!notBlank(license)) throw unavailable("Xuper devolvió sin licenseList");
 
     const cdn = vodCdn(await sessionSlb());
     if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
 
     // `ts` iff the portal says so; asking for `.mp4` otherwise is all that can be done.
-    const ext = optString(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
+    const ext = optStringStrict(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
     return {
-      url: `${cdn.base}/vod/${optString(best.contentId)}_media.${ext}`,
+      url: `${cdn.base}/vod/${optStringStrict(best.contentId)}_media.${ext}`,
       mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
       headers: {
         "Content-Auth": cdn.auth, // the querystring verbatim: VOD is not re-signed

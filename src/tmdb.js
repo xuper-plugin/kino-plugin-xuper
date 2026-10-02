@@ -2,6 +2,7 @@
 // the title forms). TMDB is an enrichment, never a requirement: with no key declared, a failing
 // request or an unreadable body the answer is simply `null` and the search goes on without it.
 // The episodes' enrichment reads (native TmdbApi.seriesByImdb / seasonEpisodes) live here too.
+import { isObject } from "./util.js";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANGUAGE = "es-MX";
@@ -46,7 +47,6 @@ export function parseTitleForms(type, body) {
   };
 }
 
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const INT = /^[+-]?\d+$/;
 
 // org.json optInt: a number truncated, a numeric string parsed, anything else 0.
