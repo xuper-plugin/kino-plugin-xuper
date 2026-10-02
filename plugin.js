@@ -47,6 +47,7 @@ var PORTAL_CODE = "masnew";
 var SPKG_VER = "2025-08-07 05:40:11_36_16_";
 var APK_VER_HEADER = "43404";
 var USER_AGENT = "okhttp/3.12.12";
+var UA_CDN = "Ranger/4.9.4-17294ac0";
 var CONTENT_TYPE = "application/json;charset=utf-8";
 var RATE_LIMIT_MS = 400;
 var REQUEST_TIMEOUT_MS = 25e3;
@@ -1298,6 +1299,10 @@ function parseSeasonList(list, ownId) {
   all.sort((a, b) => a.number - b.number);
   return { own, all };
 }
+function findChapter(items, episode) {
+  if (episode <= 0) return items[0];
+  return items.find((it) => typeof it.seriesNumber === "string" && it.seriesNumber.trim() === String(episode));
+}
 var validPayload = (p) => isObject4(p) && typeof p.i === "string" && Array.isArray(p.a) && Array.isArray(p.e) && p.e.every((x) => Array.isArray(x) && typeof x[1] === "string" && typeof x[2] === "string") && p.a.every((x) => Array.isArray(x) && typeof x[0] === "string" && Number.isInteger(x[1])) && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d));
 function pack(raw) {
   return {
@@ -1317,7 +1322,7 @@ var unpack = (p) => ({
 });
 function makePortalChapters({ kino: kino2, portal, session, clock }) {
   const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
-  const isKinoError3 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+  const isKinoError4 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
   async function fetchDetail(seriesId) {
     let response;
     try {
@@ -1329,7 +1334,7 @@ function makePortalChapters({ kino: kino2, portal, session, clock }) {
       ));
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
-      if (isKinoError3(e)) throw e;
+      if (isKinoError4(e)) throw e;
       throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
     }
     const data = isObject4(response) ? response.assetData : void 0;
@@ -1682,6 +1687,159 @@ function makeTmdb({ kino: kino2 }) {
   return { titleForms, seriesByImdb, seasonEpisodes };
 }
 
+// src/resolve.js
+var SLB_DEFAULT_TTL_S = 300;
+var AUTH_MARGIN_S = 300;
+var EXPIRED = /expired=(\d+)/;
+var MAX_SUBTITLES = 30;
+var INT7 = /^[+-]?\d+$/;
+var DIGITS = /^[0-9]+$/;
+var isObject6 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var isKinoError2 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var optString3 = (v) => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
+var objects = (v) => Array.isArray(v) ? v.filter(isObject6) : [];
+var notBlank = (s) => s.trim() !== "";
+function isCfl(url) {
+  return url.slice(url.lastIndexOf("?") + 1).split("&").some((p) => p.trim() === "sign_type=cfl");
+}
+function withScheme(mainAddr) {
+  const clean = mainAddr.replace(/\/+$/, "");
+  return clean.startsWith("http://") || clean.startsWith("https://") ? clean : `https://${clean}`;
+}
+function portalDurationMs(raw) {
+  if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw * 1e3) : 0;
+  if (typeof raw !== "string") return 0;
+  const text2 = raw.trim();
+  if (text2 === "") return 0;
+  const parts = text2.split(":");
+  if (parts.length > 3 || parts.some((p) => !DIGITS.test(p))) return 0;
+  return parts.reduce((acc, p) => acc * 60 + Number(p), 0) * 1e3;
+}
+function bestMedia(play) {
+  const episode = isObject6(play) ? objects(play.episodeList)[0] : void 0;
+  if (!episode) return null;
+  const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList));
+  let best = null;
+  let bestScore = Infinity;
+  for (const m of candidates) {
+    const score = (optString3(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optString3(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
+    if (score < bestScore) {
+      best = m;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+function readSubtitles(play) {
+  const episode = objects(play.episodeList)[0];
+  const out = [];
+  for (const sub of objects(episode?.subtitleList)) {
+    const file = objects(sub.file)[0];
+    if (!file) continue;
+    const url = optString3(file.url);
+    if (!notBlank(url)) continue;
+    out.push({ lang: optString3(sub.language), url, format: notBlank(optString3(file.fileType)) ? optString3(file.fileType) : "srt" });
+  }
+  return out.slice(0, MAX_SUBTITLES);
+}
+function vodCdn(slb) {
+  for (const cdn of objects(slb.cdn_list)) {
+    if (optString3(cdn.tag) !== "vod") continue;
+    for (const u of objects(cdn.url_list)) {
+      const url = optString3(u.url);
+      if ((isCfl(url) || optString3(u.sign_type) === "cfl") && optString3(u.tag) === "free") {
+        return { base: withScheme(optString3(cdn.main_addr)), auth: url };
+      }
+    }
+  }
+  return null;
+}
+function slbLifetime(slb, nowMs) {
+  const text2 = optString3(slb.invalidTime);
+  const declaredN = INT7.test(text2) ? Number(text2) : NaN;
+  const declared = declaredN > 0 ? declaredN : SLB_DEFAULT_TTL_S;
+  const cdn = vodCdn(slb);
+  if (!cdn) return 0;
+  const m = EXPIRED.exec(cdn.auth);
+  if (!m) return declared;
+  return Math.min(declared, Number(m[1]) - Math.floor(nowMs / 1e3) - AUTH_MARGIN_S);
+}
+var slbBean = (apkVersion) => ({
+  hasPay: "0",
+  userIdentity: "1",
+  type: "merge",
+  appVer: apkVersion,
+  lang: "es",
+  encMediaSupported: 1,
+  liveCodeList: ["masnew_live"],
+  appParams: "",
+  reserve1: FIXED_MAC,
+  pipFlag: "0"
+});
+function makeResolve({ kino: kino2, portal, session, clock, config, portalChapters }) {
+  const unavailable = (text2) => kino2.error("unavailable", text2);
+  let slbCache = null;
+  const sessionSlb = () => session.withValidSession(async ({ userId, userToken }) => {
+    if (slbCache && slbCache.token === userToken && clock.now() < slbCache.expiresMs) return slbCache.slb;
+    const answer = await portal.call("v14/getSlbInfo", slbBean(config.apkVersion), { baseFields: true, userId, userToken });
+    const fresh = isObject6(answer) ? answer : {};
+    const ttl = slbLifetime(fresh, clock.now());
+    slbCache = ttl > 0 ? { slb: fresh, token: userToken, expiresMs: clock.now() + ttl * 1e3 } : null;
+    return fresh;
+  });
+  async function chapterFrom(magis) {
+    const { items } = await portalChapters(magis.contentId);
+    if (items.length === 0) throw unavailable(`la serie ${magis.contentId} vino sin cap\xEDtulos`);
+    const chapter = findChapter(items, magis.episode);
+    if (!chapter) throw unavailable(`la serie no tiene el cap\xEDtulo ${magis.episode}`);
+    return chapter;
+  }
+  async function resolveVod(magis, chapter) {
+    await session.ensure();
+    const contentId = chapter && notBlank(chapter.contentId) ? chapter.contentId : magis.contentId;
+    const play = await session.withValidSession(({ userId, userToken }) => portal.call(
+      "v10/startPlayVOD",
+      { contentId, seriesContentId: chapter ? magis.contentId : "", startTime: 0, type: "1", columnId: 0, authType: "" },
+      { baseFields: true, userId, userToken }
+    ));
+    const best = bestMedia(play);
+    if (!best) throw unavailable("Xuper devolvi\xF3 sin media reproducible");
+    const license = optString3(objects(best.licenseList)[0]?.license);
+    if (!notBlank(license)) throw unavailable("Xuper devolvi\xF3 sin licenseList");
+    const cdn = vodCdn(await sessionSlb());
+    if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
+    const ext = optString3(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
+    return {
+      url: `${cdn.base}/vod/${optString3(best.contentId)}_media.${ext}`,
+      mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
+      headers: {
+        "Content-Auth": cdn.auth,
+        // the querystring verbatim: VOD is not re-signed
+        "Content-License": license,
+        "User-Agent": UA_CDN,
+        App: config.appId,
+        "App-Version": config.apkVersion
+      },
+      subtitles: readSubtitles(play),
+      // A chapter's own declared duration wins (the portal sends it empty for most series).
+      durationMs: chapter ? portalDurationMs(chapter.duration) : portalDurationMs(best.duration)
+    };
+  }
+  async function resolve2(ref) {
+    try {
+      const magis = decode(ref);
+      if (!magis) throw unavailable("ese ref no es de Xuper: no se puede reproducir");
+      const chapter = magis.isSeries ? await chapterFrom(magis) : null;
+      return await resolveVod(magis, chapter);
+    } catch (e) {
+      if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
+      if (isKinoError2(e)) throw e;
+      throw unavailable("Xuper no est\xE1 disponible ahora");
+    }
+  }
+  return { resolve: resolve2 };
+}
+
 // src/wiring.js
 var deps = null;
 function getDeps() {
@@ -1694,15 +1852,16 @@ function getDeps() {
   session = makeSession({ kino, portal, clock });
   const tmdb = makeTmdb({ kino });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
-  deps = { clock, crypto, portal, session, tmdb, catalog };
+  const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2 };
   return deps;
 }
-var isKinoError2 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var isKinoError3 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function guarded(body) {
   try {
     return await body(getDeps());
   } catch (e) {
-    if (isKinoError2(e)) throw e;
+    if (isKinoError3(e)) throw e;
     try {
       kino.log("xuper: " + String(e && e.name || "error"));
     } catch (_) {
@@ -1728,9 +1887,9 @@ async function episodes(ref) {
   await null;
   return guarded(({ catalog }) => catalog.episodes(ref));
 }
-async function resolve() {
+async function resolve(ref, options) {
   await null;
-  throw kino.error("unavailable", "todav\xEDa no");
+  return guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options));
 }
 async function settingsStatus() {
   await null;

@@ -11,6 +11,8 @@ export const SPKG_VER = "2025-08-07 05:40:11_36_16_";
 // Fixed literal of the `apkVer` header: a different field from the device dict's `apkVersion`.
 export const APK_VER_HEADER = "43404";
 export const USER_AGENT = "okhttp/3.12.12";
+// The `User-Agent` the CDN expects on VOD media requests (not the portal's okhttp one).
+export const UA_CDN = "Ranger/4.9.4-17294ac0";
 export const CONTENT_TYPE = "application/json;charset=utf-8";
 export const RATE_LIMIT_MS = 400;
 export const REQUEST_TIMEOUT_MS = 25000;

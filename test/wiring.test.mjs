@@ -42,3 +42,9 @@ test("episodes goes through the catalog: a ref that is not Xuper's is a Spanish 
   await assert.rejects(() => plugin.episodes("https://example.com/x"), (e) => e.code === "unavailable" && e.message === "ese ref no es de Xuper: no se pueden listar capítulos");
   await assert.rejects(() => plugin.episodes("magis1:teleplay:0:ABC"), (e) => e.code === "unavailable");
 });
+
+test("resolve goes through makeResolve: a ref that is not Xuper's is a Spanish unavailable, with no configured host a real ref is too", async () => {
+  assert.equal(typeof getDeps().resolve.resolve, "function");
+  await assert.rejects(() => plugin.resolve("https://example.com/video.mp4"), (e) => e.code === "unavailable" && e.message === "ese ref no es de Xuper: no se puede reproducir");
+  await assert.rejects(() => plugin.resolve("magis1:movie:0:ABC", { reason: "retry" }), (e) => e.code === "unavailable");
+});
