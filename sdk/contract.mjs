@@ -589,11 +589,11 @@ function drmOf(value, check, allowDrm) {
 /** PluginOutput.SIGNED_CHANNEL: an inline channel stream that asks for signing. */
 const SIGNED_CHANNEL = "Un canal con firma por petición debe reproducirse con resolve()";
 
-/** `signing: "request"` and `signContext` (apiVersion 6), as the app's PluginOutput.signingOf reads them. */
-function signingOf(value, manifest, drm, inline) {
+/** `signing: "request"`, `signContext` and `alternateHosts` (apiVersion 6), as the app's PluginOutput.signingOf reads them. */
+function signingOf(value, manifest, drm, inline, alternateOk, drop) {
   const s = o().signing;
   if (!(Number.isInteger(manifest.apiVersion) && manifest.apiVersion >= s.apiVersion)) return null;
-  if (value.signing === undefined || value.signing === null) return { signing: false, signContext: "" };
+  if (value.signing === undefined || value.signing === null) return { signing: false, signContext: "", alternateHosts: [] };
   if (value.signing !== s.value) throw new Error('El valor de "signing" no es válido');
   if (inline) throw new Error(SIGNED_CHANNEL);
   const mime = typeof value.mime === "string" ? value.mime.trim().toLowerCase() : "";
@@ -607,10 +607,57 @@ function signingOf(value, manifest, drm, inline) {
   if (ctx !== undefined && ctx !== null && (typeof ctx !== "string" || ctx.length > s.maxContextChars)) throw new Error('El dato "signContext" no es válido');
   // A kino.secret() marker means nothing in sign()'s own runtime, as in the app.
   if (typeof ctx === "string" && ctx.includes("__kinoSecret_")) throw new Error("signContext no puede llevar un kino.secret(): llámalo dentro de sign()");
-  return { signing: true, signContext: typeof ctx === "string" ? ctx : "" };
+  return { signing: true, signContext: typeof ctx === "string" ? ctx : "", alternateHosts: alternateHostsOf(value, alternateOk, drop) };
 }
 
-function stream(value, { manifest, servers, allowDrm, liveChannel = false, inline = false }) {
+/** [url] with its authority (`host` or `host:port`, no port = the scheme's default) replaced, or null when it is not one. */
+function withAuthority(url, authority) {
+  if (!re(o().signing.alternateHosts.pattern).test(authority)) return null;
+  const [host, port] = authority.split(":");
+  if (port !== undefined && !(Number(port) >= 1 && Number(port) <= 65535)) return null;
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  u.hostname = host;
+  // The URL setter ignores (or rewrites) a host it can't take: such an entry is not an authority.
+  if (u.hostname !== host.toLowerCase()) return null;
+  u.port = port === undefined ? "" : String(Number(port));
+  return u;
+}
+
+/** `host`, or `host:port` when the port is not the scheme's default (the URL drops a default port itself). */
+const authorityOf = (u) => (u.port ? `${u.hostname}:${u.port}` : u.hostname);
+
+/**
+ * A signed Stream's `alternateHosts`, as PluginOutput.alternateHostsOf: the wrong type refuses the
+ * Stream; an entry that is not an authority, fails the stream URL's own rule once put in its place,
+ * or repeats the stream's host or a kept one is dropped; once `maxEntries` are kept the rest is ignored (one line).
+ */
+function alternateHostsOf(value, alternateOk, drop) {
+  const raw = value.alternateHosts;
+  if (raw === undefined || raw === null) return [];
+  const invalid = 'El dato "alternateHosts" no es válido';
+  if (!Array.isArray(raw) || raw.some((e) => typeof e !== "string")) throw new Error(invalid);
+  const max = o().signing.alternateHosts.maxEntries;
+  let primary;
+  try { primary = new URL(value.url); } catch { return []; }
+  const seen = new Set([authorityOf(primary)]);
+  const kept = [];
+  for (const [i, entry] of raw.entries()) {
+    // Full: the rest is not even looked at, one line says how many (as the app).
+    if (kept.length >= max) { drop(`alternateHosts: ${max} kept, ${raw.length - i} more ignored`); break; }
+    const swapped = withAuthority(value.url, entry);
+    if (!swapped) { drop(`alternateHosts: "${entry.slice(0, 100)}" is not a host or host:port, dropped`); continue; }
+    const authority = authorityOf(swapped);
+    if (seen.has(authority)) { drop(`alternateHosts: ${authority} repeats the stream's host or another entry, dropped`); continue; }
+    seen.add(authority);
+    const refusal = alternateOk(swapped.toString());
+    if (refusal) { drop(`alternateHosts: ${authority} dropped: ${refusal}`); continue; }
+    kept.push(authority);
+  }
+  return kept;
+}
+
+function stream(value, { manifest, servers, allowDrm, liveChannel = false, inline = false, drop = () => {} }) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("El plugin no devolvió un video");
   const check = urlChecker(manifest, servers);
   const drm = drmOf(value, check, allowDrm);
@@ -620,9 +667,15 @@ function stream(value, { manifest, servers, allowDrm, liveChannel = false, inlin
   // side subtitles and audio tracks; never the license. On a live channel it is the live rule.
   const anyVideo = !liveChannel && manifest.streamHostsAny;
   const anyPublic = liveStreamUrlAllowed(manifest, servers);
-  if ((liveChannel && manifest.liveStreamHostsAny) || manifest.streamHostsAny) {
+  const anyHost = (liveChannel && manifest.liveStreamHostsAny) || manifest.streamHostsAny;
+  if (anyHost) {
     if (!anyPublic(value.url)) throw new Error("El video apunta a una dirección local");
   } else check(value.url, "El video");
+  // An alternate host meets the stream URL's own rule: the refusal's sentence, or null.
+  const alternateOk = (url) => {
+    if (anyHost) return anyPublic(url) ? null : `El servidor alternativo apunta a ${new URL(url).hostname}, una dirección local`;
+    try { check(url, "El servidor alternativo"); return null; } catch (e) { return e.message; }
+  };
   const sideOk = (url, what) => {
     if (anyVideo) return anyPublic(url);
     try { check(url, what); return true; } catch { return false; }
@@ -637,8 +690,8 @@ function stream(value, { manifest, servers, allowDrm, liveChannel = false, inlin
     audioUrls.add(a.url);
     return true;
   });
-  const sig = signingOf(value, manifest, drm, inline);
-  const { signing: _signing, signContext: _signContext, ...rest } = value;
+  const sig = signingOf(value, manifest, drm, inline, alternateOk, drop);
+  const { signing: _signing, signContext: _signContext, alternateHosts: _alternateHosts, ...rest } = value;
   const out = { ...rest, headers: headersOf(value.headers), subtitles, audioTracks, expiresInSeconds: expires, drm };
   return sig ? { ...out, ...sig } : out;
 }
@@ -928,7 +981,7 @@ export function checkOutput(fn, value, manifest, servers = [], { liveChannel = f
     case "categories": return { value: categories(parsed, ctx, drop), drops };
     case "episodes": return { value: episodes(parsed, drop, servers), drops };
     // Widevine is the `drm` capability (apiVersion 2 by the manifest rules): without it every DRM-shaped key refuses the stream.
-    case "resolve": return { value: stream(parsed, { manifest, servers, allowDrm: manifest.capabilities.includes("drm"), liveChannel }), drops };
+    case "resolve": return { value: stream(parsed, { manifest, servers, allowDrm: manifest.capabilities.includes("drm"), liveChannel, drop }), drops };
     case "sign": {
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || parsed.headers === null || typeof parsed.headers !== "object" || Array.isArray(parsed.headers)) {
         throw new Error("sign no devolvió { headers }");

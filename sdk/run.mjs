@@ -8,6 +8,7 @@
 //   node sdk/run.mjs ./plugin.js episodes '<series ref>'
 //   node sdk/run.mjs ./plugin.js resolve '<ref>'
 //   node sdk/run.mjs ./plugin.js sign '{"url":"https://…/seg.ts","kind":"segment","ref":"<ref>","context":"<signContext>"}'   (apiVersion 6)
+//     (with alternateHosts, Kino signs the URL of the host it is asking: pass "url" on each host to try its token)
 //   node sdk/run.mjs ./plugin.js migrate '{"kind":"title","ref":"<old ref>"}'   (apiVersion 6)
 // The settings form (apiVersion 6; not capabilities, they run even with a required setting empty):
 //   node sdk/run.mjs <plugin dir> settingsStatus

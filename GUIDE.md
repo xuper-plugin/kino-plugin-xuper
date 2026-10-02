@@ -553,6 +553,25 @@ Kino plays the stream through a local proxy. Before every playlist and segment r
   elsewhere: get another one) or `"expired"`, `attempt` from 1 to 3. The budget refills once the
   video has played well for a minute; after the third retry the person sees the error. `options` is `undefined`
   on a normal call, and only apiVersion 6 plugins ever get it.
+- **Other hosts that serve the same stream** (`alternateHosts`, up to 6 `"host"` or `"host:port"`, no
+  scheme or path): Kino tries the playlist on each, the one that served last first, for up to 3 rounds,
+  and moves a segment, key or map to another host when its own fails 3 times. `sign()` always gets the
+  URL of the host being asked, so choose that host's token from `context`. Each entry meets the same
+  host rule as `url`: a declared host (plain http only on one declared `insecureHttp`), or any public
+  host under `liveStreamHosts: "any"`, never a local one. An entry that fails it, repeats `url`'s host
+  or another entry, or comes after the sixth is dropped (`run.mjs` and `validate.mjs` show it as
+  `[dropped by Kino]`); a value that is not an array of strings refuses the stream with
+  `El dato "alternateHosts" no es válido`. With them, the stream counts as `"expired"` only when
+  **every** host rejected the signature, and as `"conflict"` only when the last one answered 409; a
+  host answering 404 or not at all just moves Kino on. A host the playlist names that is not one of
+  these is never swapped. Ignored without `signing`.
+
+  ```js
+  return { url: "http://cdn1.example/live/ch.m3u8", signing: "request",
+           alternateHosts: ["cdn2.example", "cdn3.example:8080"],
+           signContext: JSON.stringify({ "cdn1.example": t1, "cdn2.example": t2, "cdn3.example:8080": t3 }) };
+  // sign({ url, context }): const tokens = JSON.parse(context); const token = tokens[new URL(url).host];
+  ```
 
 Test it from your terminal: `node sdk/run.mjs ./plugin.js sign '{"url":"https://cdn.example/seg.ts","kind":"segment","ref":"<ref>","context":"<signContext>"}'`
 runs `sign` in the same restricted lane, and `node sdk/run.mjs --retry conflict:1 ./plugin.js resolve '<ref>'`

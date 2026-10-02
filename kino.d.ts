@@ -179,6 +179,16 @@ interface KinoStream {
    * `kino.secret()` inside `sign()` itself.
    */
   signContext?: string;
+  /**
+   * apiVersion 6, with `signing`: other hosts serving this same stream at the same path and scheme, up
+   * to 6, each `"host"` or `"host:port"` (no scheme, no path, no IPv6). Kino tries the playlist on each
+   * (3 rounds, the one that served last first) and moves a segment, key or map to another one when its
+   * own fails 3 times. `sign()` always gets the URL of the host being asked, so pick that host's token
+   * from `context`. Each entry meets the same host rule as `url` (declared hosts, or any public host
+   * under `liveStreamHosts: "any"`); one that fails it, repeats `url`'s host or another entry, or comes
+   * after the sixth is dropped. Not an array of strings: the stream is refused. Ignored without `signing`.
+   */
+  alternateHosts?: string[];
 }
 
 /** apiVersion 3, capability "channels": a section of the En vivo tab. */

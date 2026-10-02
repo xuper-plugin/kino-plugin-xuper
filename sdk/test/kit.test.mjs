@@ -2484,6 +2484,77 @@ test("validate --run resolve and run.mjs refuse a signed stream from a plugin th
   }
 });
 
+// --- alternateHosts (apiVersion 6, only with signing: "request"), as PluginOutput.alternateHostsOf ---
+
+const cdns = () => v6({ hosts: ["cdn.example", ...[2, 3, 4, 5, 6, 7, 8].map((n) => `cdn${n}.example`)] });
+const signedWith = (alternateHosts, url = "https://cdn.example/live/a.m3u8") => ({ url, signing: "request", alternateHosts });
+
+test("a signed stream carries its other hosts, lowercased, a default port dropped and another one kept", () => {
+  const { value, drops } = checkOutput("resolve", signedWith(["cdn2.example", "CDN3.example:8443", "cdn4.example:443"]), cdns());
+  assert.deepEqual(value.alternateHosts, ["cdn2.example", "cdn3.example:8443", "cdn4.example"]);
+  assert.deepEqual(drops, []);
+  assert.equal(contract.output.signing.alternateHosts.maxEntries, 6);
+});
+
+test("an alternate host failing the stream URL's own rule, repeating one, or past six is dropped, never fatal", () => {
+  const { value, drops } = checkOutput("resolve", signedWith(["evil.example", "192.168.1.5", "localhost", "cdn.example", "CDN.example:443", "cdn2.example", "cdn2.EXAMPLE",
+    "https://cdn3.example", "cdn3.example/x", "[::1]", "cdn4.example:99999", "cdn5.example:0"]), cdns());
+  assert.deepEqual(value.alternateHosts, ["cdn2.example"]);
+  const all = drops.join("\n");
+  assert.match(all, /alternateHosts: evil\.example dropped: El servidor alternativo apunta a evil\.example, que el plugin no declaró/);
+  assert.match(all, /alternateHosts: cdn\.example repeats the stream's host or another entry, dropped/);
+  assert.match(all, /alternateHosts: "cdn3\.example\/x" is not a host or host:port, dropped/);
+  const many = checkOutput("resolve", signedWith([2, 3, 4, 5, 6, 7, 8].map((n) => `cdn${n}.example`)), cdns());
+  assert.deepEqual(many.value.alternateHosts, [2, 3, 4, 5, 6, 7].map((n) => `cdn${n}.example`));
+  assert.deepEqual(many.drops, ["alternateHosts: 6 kept, 1 more ignored"]);
+  const long = [...[2, 3, 4, 5, 6, 7].map((n) => `cdn${n}.example`), ...Array.from({ length: 200 }, (_, n) => (n % 2 ? `evil${n}.example` : `bad/${n}`))];
+  const capped = checkOutput("resolve", signedWith(long), cdns());
+  assert.deepEqual(capped.value.alternateHosts, [2, 3, 4, 5, 6, 7].map((n) => `cdn${n}.example`));
+  assert.deepEqual(capped.drops, ["alternateHosts: 6 kept, 200 more ignored"]);
+  // Another port of the primary's host is another authority.
+  assert.deepEqual(checkOutput("resolve", signedWith(["cdn.example:8080"]), cdns()).value.alternateHosts, ["cdn.example:8080"]);
+});
+
+test("alternateHosts of the wrong type refuses the signed stream, and means nothing without signing", () => {
+  for (const bad of ["cdn2.example", [5], ["cdn2.example", null], {}, true]) {
+    assert.throws(() => checkOutput("resolve", signedWith(bad), cdns()), /El dato "alternateHosts" no es válido/, JSON.stringify(bad));
+  }
+  assert.deepEqual(checkOutput("resolve", signedWith(null), cdns()).value.alternateHosts, []);
+  const plain = checkOutput("resolve", { url: "https://cdn.example/live/a.m3u8", alternateHosts: 5 }, cdns()).value;
+  assert.notEqual(plain.signing, true);
+  assert.deepEqual(plain.alternateHosts, []);
+  // Below apiVersion 6 the whole signing block is unknown: nothing kept, nothing refused.
+  const v5 = checkOutput("resolve", signedWith(["cdn2.example"]), { ...cdns(), apiVersion: 5 }).value;
+  assert.equal(v5.alternateHosts, undefined);
+});
+
+test("under liveStreamHosts any an alternate may be any public name or IPv4 literal, never a local one", () => {
+  const m = v6({ hosts: ["portal.example"], liveStreamHostsAny: true });
+  const { value } = checkOutput("resolve", signedWith(["203.0.113.7:8080", "other-cdn.net", "10.0.0.1", "localhost", "printer.local"], "http://190.2.3.4/live/a.m3u8"), m, [], { liveChannel: true });
+  assert.deepEqual(value.alternateHosts, ["203.0.113.7:8080", "other-cdn.net"]);
+});
+
+test("validate --run resolve and run.mjs surface the kept alternate hosts and say which were dropped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "kino-alt-"));
+  try {
+    writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6, hosts: ["cdn.example", "cdn2.example"] }));
+    writeFileSync(join(dir, "plugin.js"), "export async function search(){ return { items: [] } }\n" +
+      "export async function resolve(){ return { url: 'https://cdn.example/a.m3u8', signing: 'request', alternateHosts: ['cdn.example', 'cdn2.example', 'evil.example'] } }\n" +
+      "export async function sign(r){ return { headers: {} } }");
+    const r = await validate(dir, { run: "resolve", args: ["R"] });
+    assert.equal(r.ok, true, r.problems.join("\n"));
+    assert.deepEqual(r.output.alternateHosts, ["cdn2.example"]);
+    assert.match(r.drops.join("\n"), /alternateHosts: cdn\.example repeats the stream's host/);
+    assert.match(r.drops.join("\n"), /alternateHosts: evil\.example dropped/);
+    const cli = spawnSync(process.execPath, [join(here, "..", "run.mjs"), dir, "resolve", "R"], { encoding: "utf8" });
+    assert.equal(cli.status, 0, cli.stdout + cli.stderr);
+    assert.deepEqual(JSON.parse(cli.stdout).alternateHosts, ["cdn2.example"]);
+    assert.match(cli.stderr, /\[dropped by Kino\] alternateHosts: evil\.example dropped/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("validate --run sign runs sign() in the signing lane, like run.mjs and the app", async () => {
   const dir = mkdtempSync(join(tmpdir(), "kino-lane-"));
   try {

@@ -96,7 +96,8 @@
       "value": "request",
       "apiVersion": 6,
       "maxContextChars": 4096,
-      "hlsMimes": ["application/x-mpegurl", "application/vnd.apple.mpegurl", "audio/mpegurl"]
+      "hlsMimes": ["application/x-mpegurl", "application/vnd.apple.mpegurl", "audio/mpegurl"],
+      "alternateHosts": { "apiVersion": 6, "maxEntries": 6, "pattern": "^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$" }
     },
     "itemIdPattern": "^[A-Za-z0-9._~-]{1,128}$",
     "maxSearchItems": 100,
