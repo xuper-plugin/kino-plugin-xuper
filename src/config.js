@@ -2,6 +2,10 @@
 // the host list are NOT here: they are credentials-grade values injected at runtime.
 export const hosts = [];
 
+// The owner supplies the real values (not secrets per the spec, but not known here): left empty.
+export const APP_ID = "";
+export const APK_VERSION = "";
+
 export const PORTAL_CODE = "masnew";
 export const SPKG_VER = "2025-08-07 05:40:11_36_16_";
 // Fixed literal of the `apkVer` header: a different field from the device dict's `apkVersion`.
