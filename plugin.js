@@ -526,7 +526,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
         if (await refreshSeeds() && await switchToBackup(view().userToken)) {
           const retry = await attempt();
-          if (!retry.err || !SESSION_DEAD.has(retry.err.code)) return settle(retry);
+          if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
+            exhausted = false;
+            return settle(retry);
+          }
         }
       }
       exhausted = true;
@@ -2240,9 +2243,10 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
   const fresh = (state) => state && clock2.now() - state.at < ttlMs;
   const digest = (key) => {
     try {
-      return String(kino2.crypto.hash("md5", String(key))).slice(0, 16);
+      const d = kino2.crypto.hash("md5", String(key));
+      return typeof d === "string" && d !== "" ? d.slice(0, 16) : null;
     } catch (_) {
-      return String(key).slice(0, 16);
+      return null;
     }
   };
   function parse(raw) {
@@ -2315,7 +2319,7 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
   function onRefused(channel, currentSn, pool, refusedKey) {
     const state = read(channel) || empty();
     const key = digest(refusedKey);
-    if (state.last === key) return state.active !== null;
+    if (key !== null && state.last === key) return state.active !== null;
     state.last = key;
     const refused = state.active ?? currentSn;
     if (!state.tried.includes(refused)) state.tried.push(refused);
@@ -2329,14 +2333,7 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
     write(channel, state);
     return next !== null;
   }
-  function reset(channel) {
-    memory.delete(channel);
-    try {
-      kino2.storage.remove(keyOf(channel));
-    } catch (_) {
-    }
-  }
-  return { activeSn, triedCount, onRefused, reset };
+  return { activeSn, triedCount, onRefused };
 }
 
 // src/live.js
@@ -2358,7 +2355,9 @@ var TEXT = {
   // live_no_license
   noToken: "No se pudo abrir el canal: el servidor de vivo no trae su token",
   // live_no_cfl_token
+  badHost: "No se pudo abrir el canal: Xuper dio una direcci\xF3n de servidor de vivo que no es v\xE1lida",
   tooLong: "No se pudo abrir el canal: los datos de la se\xF1al son demasiado largos",
+  unknownChannel: "No se encontr\xF3 ese canal en Xuper",
   generic: "Xuper no est\xE1 disponible ahora"
 };
 function bareHost(mainAddr) {
@@ -2408,9 +2407,10 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     } catch (_) {
     }
   };
+  const channelNotFound = (e) => e.code === "not_found" ? kino2.error("not_found", TEXT.unknownChannel) : e;
   const surface = (e) => {
-    if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
-    if (isKinoError(e)) return e;
+    if (e instanceof PortalError) return channelNotFound(mapPortalError(e.code, e.message, kino2));
+    if (isKinoError(e)) return channelNotFound(e);
     return unavailable(TEXT.generic);
   };
   function noteServed(code, license) {
@@ -2448,8 +2448,10 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     const all = liveCdns(slb);
     if (all.length === 0) throw unavailable(TEXT.noCdn);
     if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
-    const cdns = all.filter((d) => tokenOf(d.authBase) !== "" && ALTERNATE_HOST.test(d.cflHost));
-    if (cdns.length === 0) throw unavailable(TEXT.noToken);
+    const withToken = all.filter((d) => tokenOf(d.authBase) !== "");
+    if (withToken.length === 0) throw unavailable(TEXT.noToken);
+    const cdns = withToken.filter((d) => ALTERNATE_HOST.test(d.cflHost));
+    if (cdns.length === 0) throw unavailable(TEXT.badHost);
     const built = buildSignContext(signal.license, cdns);
     if (!built) throw unavailable(TEXT.tooLong);
     const primary = built.kept[0].cflHost;
@@ -2504,8 +2506,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
       throw surface(e);
     }
   }
-  const sign2 = async (request) => signRequest(request, clock2.now());
-  return { resolveLive, sign: sign2 };
+  return { resolveLive };
 }
 
 // src/wiring.js

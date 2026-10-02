@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput, validateManifest } from "../sdk/contract.mjs";
-import { makeLive, bareHost, isChannelRef } from "../src/live.js";
+import { makeLive, bareHost } from "../src/live.js";
+import { isChannelRef } from "../src/refs.js";
 import { makeResolve } from "../src/resolve.js";
 import { makeSession } from "../src/session.js";
 import { PortalError } from "../src/portal.js";
@@ -181,9 +182,9 @@ test("every cfl url_list item of every live cdn counts; no free-tag check; not v
 });
 
 test("bareHost strips the scheme and the path, keeps a port", () => {
-  assert.equal(bareHost("http://primero.cdn/v3/youshi/"), "primero.cdn");
-  assert.equal(bareHost("https://segundo.cdn"), "segundo.cdn");
-  assert.equal(bareHost("tercero.cdn:8080/x"), "tercero.cdn:8080");
+  assert.equal(bareHost("http://primero.test/v3/youshi/"), "primero.test");
+  assert.equal(bareHost("https://segundo.test"), "segundo.test");
+  assert.equal(bareHost("tercero.test:8080/x"), "tercero.test:8080");
   assert.equal(bareHost(""), "");
 });
 
@@ -202,6 +203,15 @@ test("a CDN without token=<32 hex> is dropped; none left: live_no_cfl_token", as
   assert.deepEqual(out.alternateHosts, []);
   const none = setup({ queues: okQueues(playLive({ playCode: "pc", license: "L" }), liveSlb([["live.test.cdn", "sign_type=cfl&token=corto"]])) });
   await rejectsWith(none.live.resolveLive("c"), "unavailable", "No se pudo abrir el canal: el servidor de vivo no trae su token");
+});
+
+test("a CDN whose host is not a plain host[:port] is dropped on its own reason: not the misleading 'no token'", async () => {
+  const badOnly = setup({ queues: okQueues(playLive({ playCode: "pc", license: "L" }), liveSlb([["http://bad_host.live.test", auth(TOKEN_A)]])) });
+  await rejectsWith(badOnly.live.resolveLive("c"), "unavailable", "No se pudo abrir el canal: Xuper dio una dirección de servidor de vivo que no es válida");
+  // one good CDN beside the bad one still opens (the bad one is only dropped)
+  const mixed = setup({ queues: okQueues(playLive({ playCode: "pc", license: "L" }), liveSlb([["http://bad_host.live.test", auth(TOKEN_A)], ["http://ok.live.test", auth(TOKEN_B)]])) });
+  const out = await mixed.live.resolveLive("c");
+  assert.equal(out.url, "http://ok.live.test/live/pc.m3u8");
 });
 
 // ---- expiry -------------------------------------------------------------------------------
@@ -244,8 +254,7 @@ test("sign() with that stream's context signs each CDN host with its own token",
   const slb = liveSlb([["http://cdn1.live.test", auth(TOKEN_A)], ["http://cdn2.live.test:8080", auth(TOKEN_B)]]);
   const t = setup({ queues: okQueues(OK_PLAY, slb) });
   const out = await t.live.resolveLive("c");
-  t.clock.t = NOW + 1234;
-  const one = await t.live.sign({ url: out.url, kind: "playlist", ref: "c", context: out.signContext });
+  const one = signRequest({ url: out.url, kind: "playlist", ref: "c", context: out.signContext }, NOW + 1234);
   assert.ok(one.headers["Content-Auth"].endsWith(`start_moment=${NOW + 1234}&sign2=${signO3(TOKEN_A, NOW + 1234)}`));
   assert.equal(one.headers["Content-License"], "LIC-CORRECTO");
   const two = signRequest({ url: "http://cdn2.live.test:8080/live/seg.ts", kind: "segment", ref: "c", context: out.signContext }, NOW);
@@ -274,6 +283,15 @@ test("geo-blocked and not-found portal codes keep their meaning", async () => {
   await rejectsWith(gone2.live.resolveLive("x"), "not_found");
   const other = setup({ queues: { "v4/startPlayLive": [OK_PLAY], "v14/getSlbInfo": [new PortalError("p9", "x")] } });
   await rejectsWith(other.live.resolveLive("x"), "unavailable", "Xuper no está disponible ahora");
+});
+
+test("an unknown channel code is a clear Spanish not_found; an answer with no addresses stays unavailable (cannot be told apart from a known channel with no signal)", async () => {
+  for (const err of [new PortalError("portal100004", ""), new PortalError("p9", "频道不存在")]) {
+    const gone = setup({ queues: { "v4/startPlayLive": [err] } });
+    await rejectsWith(gone.live.resolveLive("no-such-channel"), "not_found", "No se encontró ese canal en Xuper");
+  }
+  const empty = setup({ queues: { "v4/startPlayLive": [{ liveAddressList: [] }] } });
+  await rejectsWith(empty.live.resolveLive("known-without-signal"), "unavailable", "No se pudo abrir el canal: Xuper no dio la dirección de la señal");
 });
 
 test("a failing ensure() surfaces as the mapped error and nothing is asked", async () => {

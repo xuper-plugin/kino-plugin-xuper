@@ -255,7 +255,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   /**
    * Runs `block({userId, userToken})` (token read from storage on EVERY attempt, so a retry sees
-   * the renewed one). Geo-block, dead token and dead seed rescue as native withValidSession;
+   * the renewed one). It does NOT call `ensure()` first: callers (catalog, resolve, live...) do,
+   * because only they know whether a missing session is an error or just "not minted yet". Geo-block, dead token and dead seed rescue as native withValidSession;
    * never loops: at most 1 + geo 1 + reauth 1 + 3 rescue runs.
    */
   async function withValidSession(block) {
@@ -292,7 +293,11 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
         if ((await refreshSeeds()) && (await switchToBackup(view().userToken))) {
           const retry = await attempt();
-          if (!retry.err || !SESSION_DEAD.has(retry.err.code)) return settle(retry);
+          if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
+            // The rescue got a session that answers (even with an error that is not "dead"): the pool is not exhausted.
+            exhausted = false;
+            return settle(retry);
+          }
         }
       }
       exhausted = true;

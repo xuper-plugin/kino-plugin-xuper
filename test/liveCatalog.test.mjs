@@ -284,3 +284,19 @@ test("adult: if the categories cannot be read at all, channels fail closed on pa
   await assert.rejects(() => live.liveChannels({ categoryId: "76183" }), (e) => e.code === "unavailable");
   assert.equal(portal.count("v6/getLiveData"), 0);
 });
+
+test("adult: a later EMPTY categories answer does not wipe the adult ids from the last non-empty one", async () => {
+  const { live, portal } = setup({ queues: { getNextColumns: [categories(), { recommendList: [] }], "v6/getLiveData": [page(chan("A"))] } });
+  assert.ok((await live.liveCategories()).length > 0);
+  assert.deepEqual(await live.liveCategories(), []);
+  assert.deepEqual(await live.liveChannels({ categoryId: "76184" }), { items: [] }, "the adult category is still known as adult");
+  assert.equal(portal.count("v6/getLiveData"), 0);
+  assert.equal(portal.count("getNextColumns"), 2, "channels re-read nothing");
+});
+
+test("adult: a page-2 call with no adult ids known and a failing categories re-read ends the listing, with no channel call", async () => {
+  const { live, portal } = setup({ queues: { getNextColumns: [new TypeError("down")], "v6/getLiveData": [page(chan("A"))] } });
+  assert.deepEqual(await live.liveChannels({ categoryId: "76183", cursor: "2" }), { items: [] });
+  assert.equal(portal.count("v6/getLiveData"), 0);
+  assert.equal(portal.count("getNextColumns"), 1);
+});

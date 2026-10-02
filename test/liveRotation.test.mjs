@@ -103,14 +103,13 @@ test("the same refusal repeated counts once", () => {
   assert.notEqual(r.activeSn("ch1"), first);
 });
 
-test("channels are independent and reset gives a channel a fresh budget", () => {
+test("channels are independent: one channel's refusals never touch another's budget", () => {
   const { r } = setup({ max: 1 });
   assert.equal(r.onRefused("ch1", "a", pool, "k-a"), true);
   assert.equal(r.activeSn("ch2"), null);
   assert.equal(r.onRefused("ch1", r.activeSn("ch1"), pool, "k-x"), false);
-  r.reset("ch1");
-  assert.equal(r.activeSn("ch1"), null);
-  assert.equal(r.onRefused("ch1", "a", pool, "k-a"), true);
+  assert.equal(r.activeSn("ch2"), null);
+  assert.equal(r.onRefused("ch2", "a", pool, "k-a"), true);
 });
 
 test("the pick comes from the injected random: 0 takes the first untried seed in pool order", () => {
@@ -131,6 +130,24 @@ test("the state is kept in kino.storage with a short ttl, never the refused key 
     assert.ok(!w.v.includes("LICENSE-SECRET-VALUE"), "only a digest of the refused key is stored");
     assert.ok(!w.v.includes("t-"), "no seed token is stored, only sns");
   }
+});
+
+test("when the host cannot hash, no license reaches storage (and nothing is deduped)", () => {
+  const base = fakeKino();
+  const stored = [];
+  const kino = {
+    ...base,
+    crypto: { ...base.crypto, hash: () => { throw new Error("no hash"); } },
+    storage: { ...base.storage, set: (k, v, o) => { stored.push(v); base.storage.set(k, v, o); } },
+  };
+  const rot = makeLiveRotation({ kino, clock: { now: () => 1 }, random: () => 0, maxRotations: 3 });
+  const LICENSE = "LICENSE-SECRET-VALUE-0123456789";
+  assert.equal(rot.onRefused("ch1", "own-sn", pool, LICENSE), true);
+  assert.ok(stored.length >= 1);
+  for (const v of stored) assert.ok(!v.includes("LICENSE"), "not even a prefix of the license is stored: " + v);
+  // an unknown digest cannot prove "the same refusal": the same key twice counts twice
+  assert.equal(rot.onRefused("ch1", "own-sn", pool, LICENSE), true);
+  assert.equal(rot.triedCount("ch1"), 2);
 });
 
 test("a storage that refuses writes (quota) or reads never fails the rotation", () => {

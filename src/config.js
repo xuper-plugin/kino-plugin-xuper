@@ -19,7 +19,7 @@ export const LIVE_USER_AGENT = "Ranger/4.9.4-17294ac0";
 export const LIVE_APP = "com.android.msandroid";
 export const LIVE_APP_VERSION = "49902";
 export const LIVE_X_BUFFER = "0";
-export const CONTENT_TYPE ="application/json;charset=utf-8";
+export const CONTENT_TYPE = "application/json;charset=utf-8";
 export const RATE_LIMIT_MS = 400;
 export const REQUEST_TIMEOUT_MS = 25000;
 

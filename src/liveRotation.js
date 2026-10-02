@@ -22,9 +22,14 @@ export function makeLiveRotation({ kino, clock, random, maxRotations = MAX_ROTAT
 
   const keyOf = (channel) => PREFIX + channel;
   const fresh = (state) => state && clock.now() - state.at < ttlMs;
-  // What was refused, as a short digest: the refused key is a license.
+  // What was refused, as a short digest: the refused key is a license, so it is never stored as it
+  // is. If the host cannot hash, the digest is `null` ("unknown"): nothing is stored and the
+  // "same refusal twice counts once" shortcut is simply not applied.
   const digest = (key) => {
-    try { return String(kino.crypto.hash("md5", String(key))).slice(0, 16); } catch (_) { return String(key).slice(0, 16); }
+    try {
+      const d = kino.crypto.hash("md5", String(key));
+      return typeof d === "string" && d !== "" ? d.slice(0, 16) : null;
+    } catch (_) { return null; }
   };
 
   function parse(raw) {
@@ -100,7 +105,7 @@ export function makeLiveRotation({ kino, clock, random, maxRotations = MAX_ROTAT
   function onRefused(channel, currentSn, pool, refusedKey) {
     const state = read(channel) || empty();
     const key = digest(refusedKey);
-    if (state.last === key) return state.active !== null;
+    if (key !== null && state.last === key) return state.active !== null;
     state.last = key;
     const refused = state.active ?? currentSn;
     if (!state.tried.includes(refused)) state.tried.push(refused);
@@ -115,11 +120,5 @@ export function makeLiveRotation({ kino, clock, random, maxRotations = MAX_ROTAT
     return next !== null;
   }
 
-  /** Forgets [channel]: back to the device's own session with a fresh budget. */
-  function reset(channel) {
-    memory.delete(channel);
-    try { kino.storage.remove(keyOf(channel)); } catch (_) { /* nothing to undo */ }
-  }
-
-  return { activeSn, triedCount, onRefused, reset };
+  return { activeSn, triedCount, onRefused };
 }

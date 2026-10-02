@@ -376,6 +376,51 @@ test("seed rescue: the first non-session-dead result wins and clears seedsExhaus
   assert.equal(session.seedsExhausted(), false);
 });
 
+test("a rescue retry that ends in an error that is not 'dead' clears seedsExhausted too", async () => {
+  const pool = [seed(1), seed(2)];
+  const { portal, session } = setup({ stored: sess("T1", "sn-own"), seeds: pool, fetchAnswer: pool, random: () => 0 });
+  portal.queue("v8/active", new PortalError("aaa100099", "x"), new PortalError("aaa100099", "x"));
+  await assert.rejects(session.withValidSession(async () => { throw dead(); }), (e) => e.code === "auth_required");
+  assert.equal(session.seedsExhausted(), true, "every round was dead: exhausted");
+  let runs = 0;
+  await assert.rejects(
+    session.withValidSession(async () => {
+      runs++;
+      if (runs <= 2) throw dead();
+      throw new PortalError("portal100006", "剧集不存在");
+    }),
+    (e) => e.code === "not_found");
+  assert.equal(runs, 3);
+  assert.equal(session.seedsExhausted(), false, "the retry reached a live session");
+});
+
+test("geo-blocked anonymous with an EMPTY pool: no swap, no download, one reauth, then the mapped geo error", async () => {
+  const { portal, session, fetches } = setup({ stored: sess("T1", "sn-own") });
+  portal.queue("v8/active", act("T2"));
+  let runs = 0;
+  await assert.rejects(
+    session.withValidSession(async () => { runs++; throw new PortalError("portal100024", "区域"); }),
+    (e) => e.code === "geo_blocked" && e.message === "Este contenido no está disponible en tu región");
+  assert.equal(runs, 2, "first try + the one after the reauth");
+  assert.deepEqual(portal.paths(), ["v8/active"]);
+  assert.equal(fetches.length, 0, "a geo block alone never downloads the pool");
+  assert.equal(session.seedsExhausted(), false);
+});
+
+test("a half session (sn saved, empty token) after a failed mint is completed by the next ensure, without a second device", async () => {
+  const { portal, session, read } = setup();
+  portal.queue("v3/snToken", { snToken: "TOK" });
+  portal.queue("v8/active", new PortalError("portal100099", "down"));
+  await assert.rejects(session.ensure(), (e) => e.code === "unavailable");
+  const sn = md5("TOK" + SNTOKEN_SALT);
+  assert.deepEqual(read(), { userId: "", userToken: "", jwtToken: "", sn });
+  portal.queue("v8/active", act("T5"));
+  await session.ensure();
+  assert.deepEqual(portal.paths(), ["v3/snToken", "v8/active", "v8/active"], "reactivated the saved sn: no second mint");
+  assert.equal(portal.calls[2].opts.sn, sn);
+  assert.deepEqual(read(), { userId: "u1", userToken: "T5", jwtToken: "jwt", sn });
+});
+
 test("rescue never runs for an account", async () => {
   const { portal, session, fetches } = setup({ config: account, stored: sess("T1"), seeds: [seed(1)] });
   portal.queue("v8/login", act("T2"));

@@ -364,7 +364,8 @@ test("TMDB-derived forms: localized, original, English and up to 3 Spanish ones 
   const out = await catalog.search(q("Spider-Man Sin camino", { type: "movie", tmdbId: 99 }));
   assert.equal(out[0].title, "No Way Home", "the original form ranks the real one first");
   assert.deepEqual(portal.values().slice(0, 6), ["Spider-Man Sin camino", "Sin camino a casa", "No Way Home", "Spider Home", "Uno", "Dos tres"]);
-  assert.ok(!portal.values().includes("Seis siete") && !portal.values().includes("Cuatro cinco") || portal.values().indexOf("Cuatro cinco") > 5);
+  assert.ok(portal.values().includes("Cuatro cinco"), "the third Spanish form is still asked");
+  assert.ok(!portal.values().includes("Seis siete"), "the fourth one is over the cap of 3");
 });
 
 test("TMDB type: movie only for movie, tv for anything else", async () => {

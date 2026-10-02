@@ -4,9 +4,8 @@
 // the CDN headers per request from the signContext; the other CDNs of the same answer go out as
 // `alternateHosts`, so the app's proxy fails over between them as the native proxy did.
 import { PortalError, mapPortalError } from "./portal.js";
-export { isChannelRef } from "./refs.js";
 import { isCfl, slbBean } from "./resolve.js";
-import { buildSignContext, signRequest, tokenOf } from "./liveSign.js";
+import { buildSignContext, tokenOf } from "./liveSign.js";
 import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
 
@@ -26,7 +25,9 @@ const TEXT = {
   noCdn: "No se pudo abrir el canal: Xuper no dio un servidor de vivo", // live_no_cfl_cdn
   noLicense: "No se pudo abrir el canal: Xuper no dio la licencia de la señal", // live_no_license
   noToken: "No se pudo abrir el canal: el servidor de vivo no trae su token", // live_no_cfl_token
+  badHost: "No se pudo abrir el canal: Xuper dio una dirección de servidor de vivo que no es válida",
   tooLong: "No se pudo abrir el canal: los datos de la señal son demasiado largos",
+  unknownChannel: "No se encontró ese canal en Xuper",
   generic: "Xuper no está disponible ahora",
 };
 
@@ -87,9 +88,13 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
   const unavailable = (text) => kino.error("unavailable", text);
   const log = (line) => { try { kino.log("xuper live: " + line); } catch (_) { /* never fails a call */ } };
 
+  // A refused "not found" is about THIS channel (a junk ref that looks like a channel code lands
+  // here too), so it says so. An answer with no addresses stays `unavailable`: the portal gives no
+  // way to tell a code that never existed from a known channel that has no signal right now.
+  const channelNotFound = (e) => (e.code === "not_found" ? kino.error("not_found", TEXT.unknownChannel) : e);
   const surface = (e) => {
-    if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino);
-    if (isKinoError(e)) return e;
+    if (e instanceof PortalError) return channelNotFound(mapPortalError(e.code, e.message, kino));
+    if (isKinoError(e)) return channelNotFound(e);
     return unavailable(TEXT.generic);
   };
 
@@ -134,8 +139,12 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
     // A CDN whose authBase has no token cannot be signed for: it is dropped (native refused the
     // channel when the FIRST one had none, see the report).
-    const cdns = all.filter((d) => tokenOf(d.authBase) !== "" && ALTERNATE_HOST.test(d.cflHost));
-    if (cdns.length === 0) throw unavailable(TEXT.noToken);
+    const withToken = all.filter((d) => tokenOf(d.authBase) !== "");
+    if (withToken.length === 0) throw unavailable(TEXT.noToken);
+    // A host that is not a plain host[:port] cannot go out as an alternate host: it is dropped too,
+    // and if that leaves nothing the reason is the address, not the token.
+    const cdns = withToken.filter((d) => ALTERNATE_HOST.test(d.cflHost));
+    if (cdns.length === 0) throw unavailable(TEXT.badHost);
 
     const built = buildSignContext(signal.license, cdns);
     if (!built) throw unavailable(TEXT.tooLong);
@@ -203,8 +212,5 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     }
   }
 
-  /** `sign()` with this module's clock (the export in plugin.js uses wiring's clock directly). */
-  const sign = async (request) => signRequest(request, clock.now());
-
-  return { resolveLive, sign };
+  return { resolveLive };
 }
