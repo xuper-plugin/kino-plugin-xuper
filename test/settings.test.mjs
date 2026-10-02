@@ -4,10 +4,13 @@ import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { PortalError } from "../src/portal.js";
 import { makeSession } from "../src/session.js";
+import { makeCrypto } from "../src/crypto.js";
+import { makePortal } from "../src/portal.js";
 import { makeSettings } from "../src/settings.js";
 import { checkSettingsOutput } from "../sdk/contract.mjs";
 
 const manifest = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
+const reply = (obj) => ({ text: () => JSON.stringify(obj) });
 const PW = "stand-in-pw-9"; // never a real credential
 
 // What the app keeps of an answer, asserting the kit drops nothing and every text fits.
@@ -344,4 +347,85 @@ test("manifest: the account form has the actions and no leftover portalUrl", () 
   const valueless = manifest.settings.filter((s) => ["section", "status", "action"].includes(s.type));
   assert.ok(valueless.length <= 8);
   assert.ok(manifest.settings.length - valueless.length <= 12);
+});
+
+// ---- a slow or hung portal: the plugin answers inside the app's caps -------------------------
+// Real portal + real session over a scripted kino.fetch that spends injected-clock time. The app
+// caps validateSettings at 20 s and an action at 30 s; going over counts against the plugin.
+
+function slowWorld({ hosts = ["h1.test", "h2.test"], config = {}, seeds = null, onFetch }) {
+  const clock = { t: 5_000_000, now() { return this.t; } };
+  const fetches = [];
+  const base = fakeKino({
+    config,
+    fetch: async (url, opts) => {
+      const f = { url, host: new URL(url).host, timeoutMs: opts && opts.timeoutMs, at: clock.t };
+      fetches.push(f);
+      return onFetch(f, clock);
+    },
+  });
+  const kino = Object.freeze({ ...base, sleep: async () => {} });
+  kino.storage.set("session", JSON.stringify(STORED));
+  if (seeds) kino.storage.set("seeds", JSON.stringify(seeds));
+  const crypto = makeCrypto(kino);
+  let session = null;
+  const portal = makePortal({ kino, crypto, clock, snProvider: () => session.current().sn,
+    config: { hosts, appId: "app-1", apkVersion: "9.9" } });
+  session = makeSession({ kino, portal, clock, random: () => 0 });
+  const settings = makeSettings({ kino, session, clock });
+  return { kino, clock, fetches, session, settings, started: clock.t, elapsed: () => clock.t - 5_000_000 };
+}
+// A hung host: kino.fetch gives up at its timeoutMs, so that is the time spent (at most `ms`).
+const hang = (ms) => (f, clock) => { clock.t += Math.min(ms, f.timeoutMs); throw new Error("timed out"); };
+const seeds5 = [1, 2, 3, 4, 5].map((n) => ({ sn: "seed-" + n, userId: "", userToken: "st" + n }));
+
+test("slow portal: validateSettings throws unavailable inside 20 s, failover included, session untouched", async () => {
+  const w = slowWorld({ onFetch: hang(12_000) });
+  const before = w.kino.storage.get("session");
+  await assert.rejects(w.settings.validateSettings({ email: "ana@x.test", password: PW }), (e) => {
+    assert.equal(e.name, "KinoError_unavailable");
+    assert.ok(!e.message.includes(PW));
+    return true;
+  });
+  assert.deepEqual(w.fetches.map((f) => f.timeoutMs), [12_000, 5_000], "second host only gets what is left");
+  assert.ok(w.elapsed() <= 17_000 && w.elapsed() < 20_000, `elapsed ${w.elapsed()}`);
+  assert.equal(w.kino.storage.get("session"), before);
+});
+
+test("slow portal: the login action throws unavailable inside 30 s", async () => {
+  const w = slowWorld({ onFetch: hang(12_000), config: { email: "ana@x.test", password: PW } });
+  await assert.rejects(w.settings.action("login"), (e) => e.name === "KinoError_unavailable" && !e.message.includes(PW));
+  assert.deepEqual(w.fetches.map((f) => f.timeoutMs), [12_000, 12_000]);
+  assert.ok(w.elapsed() < 30_000, `elapsed ${w.elapsed()}`);
+});
+
+test("slow portal: switchSeed probes with 5 s requests and stops after ~22 s; nothing reachable is 'Sin conexión'", async () => {
+  const w = slowWorld({ seeds: seeds5, onFetch: hang(8_000) }); // two hosts: each probe spends 10 s
+  const out = await w.settings.action("switchSeed");
+  assert.equal(out.message, "Sin conexión, reintenta");
+  // probes at +0 and +10 get 5 s per host; the third (+20) only the 2 s left before ~22 s; no fourth
+  assert.deepEqual(w.fetches.map((f) => f.timeoutMs), [5_000, 5_000, 5_000, 5_000, 2_000]);
+  assert.ok(w.elapsed() <= 22_000 && w.elapsed() < 30_000, `elapsed ${w.elapsed()}`);
+  keptAction(out);
+});
+
+test("slow portal: probes the portal answered count in 'Probé n semillas', never past the cap", async () => {
+  const w = slowWorld({ hosts: ["h1.test"], seeds: seeds5,
+    onFetch: (f, clock) => { clock.t += 8_000; return reply({ returnCode: "aaa100080", errorMessage: "no" }); } });
+  const out = await w.settings.action("switchSeed");
+  assert.equal(out.message, "Probé 3 semillas y ninguna funcionó");
+  assert.equal(w.fetches.length, 3);
+  assert.ok(w.elapsed() < 30_000);
+  // fast refusals still try all five
+  const fast = slowWorld({ hosts: ["h1.test"], seeds: seeds5, onFetch: () => reply({ returnCode: "aaa100080", errorMessage: "no" }) });
+  assert.equal((await fast.settings.action("switchSeed")).message, "Probé 5 semillas y ninguna funcionó");
+});
+
+test("refreshSeeds downloads with a 10 s timeout and a failure reads 'Sin conexión'", async () => {
+  const w = slowWorld({ onFetch: hang(10_000) });
+  const out = await w.settings.action("refreshSeeds");
+  assert.equal(out.message, "Sin conexión, reintenta");
+  assert.equal(w.fetches.length, 1);
+  assert.equal(w.fetches[0].timeoutMs, 10_000);
+  assert.ok(w.elapsed() <= 10_000);
 });

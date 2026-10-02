@@ -5,6 +5,7 @@ import {
 } from "./config.js";
 
 const MAX_SLEEP_MS = 5000; // kino.sleep ceiling
+const MAX_REQUEST_MS = 30000; // kino.fetch ceiling
 
 /** The portal answered with a non-zero returnCode: final, never retried on another host. */
 export class PortalError extends Error {
@@ -70,7 +71,12 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
   }
 
   async function call(path, bean = {}, opts = {}) {
-    const { baseFields = true, userId = "", userToken = "", sn = null } = opts;
+    const { baseFields = true, userId = "", userToken = "", sn = null, timeoutMs, deadline } = opts;
+    // Optional bounds for callers with a cap of their own: a per-request timeout (default
+    // REQUEST_TIMEOUT_MS, clamped like kino.fetch) and an absolute `deadline` on the injected
+    // clock that no request, failover included, may run past.
+    const requested = Math.trunc(Number(timeoutMs));
+    const perRequest = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_REQUEST_MS) : REQUEST_TIMEOUT_MS;
     const body = {
       ...(baseFields ? { portalCode: PORTAL_CODE, userId, userToken } : {}),
       ...bean,
@@ -89,10 +95,16 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
 
     let lastError = null;
     for (const host of hostOrder()) {
+      let requestMs = perRequest;
+      if (typeof deadline === "number") {
+        const left = Math.floor(deadline - clock.now());
+        if (left < 1) break;
+        requestMs = Math.min(perRequest, left);
+      }
       let answer;
       try {
         const res = await kino.fetch(`https://${host}/api/portalCore/${path}`, {
-          method: "POST", headers, body: wire, cookies: false, timeoutMs: REQUEST_TIMEOUT_MS,
+          method: "POST", headers, body: wire, cookies: false, timeoutMs: requestMs,
         });
         answer = JSON.parse(res.text());
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");

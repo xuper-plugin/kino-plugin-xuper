@@ -74,9 +74,19 @@ test("a chapter ref with no usable number takes the given episode; the ref's own
   assert.equal(decode(clash.ref).episode, 3);
 });
 
-test("a chapter with no chapter number anywhere is not claimed", async () => {
-  assert.equal(await migrate({ kind: "chapter", ref: "magis1:teleplay:0:S9", season: 1, episode: null }), null);
-  assert.equal(await migrate({ kind: "chapter", ref: "magis1:teleplay:0:S9", season: 1, episode: 0 }), null);
+test("a chapter whose ref says 'first' and with no episode given is chapter 1, as resolve reads it", async () => {
+  for (const episode of [null, 0, undefined]) {
+    const out = await migrate({ kind: "chapter", ref: "magis1:teleplay:0:S9", season: 1, episode });
+    assert.deepEqual(out, { kind: "episode", ref: "magis1:teleplay:1:S9", season: 1, number: 1 });
+  }
+  const items = [{ seriesNumber: "1", contentId: "c1" }, { seriesNumber: "2", contentId: "c2" }];
+  // the old ref (episode 0) played items[0]; the migrated one finds the same chapter
+  assert.equal(findChapter(items, 0).contentId, findChapter(items, decode("magis1:teleplay:1:S9").episode).contentId);
+});
+
+test("a chapter whose series id cannot be an item id is not claimed", async () => {
+  assert.equal(await migrate({ kind: "chapter", ref: "magis1:teleplay:2:has space", season: 1, episode: 2 }), null);
+  assert.equal(await migrate({ kind: "chapter", ref: "magis1:teleplay:2:a:b", season: 1, episode: 2 }), null);
 });
 
 test("a migrated chapter round-trips refs.decode and findChapter", async () => {

@@ -4,6 +4,17 @@
 const STATUS_MAX = 200;
 const MESSAGE_MAX = 300;
 
+// The app caps validateSettings at 20 s and an action at 30 s, and a call it has to time out counts
+// against the plugin. So every portal exchange here carries its own bounds, measured on the injected
+// clock, and a slow portal ends as an error the plugin itself throws.
+const VALIDATE_REQUEST_MS = 12_000; // one request of the pre-save credential check
+const VALIDATE_TOTAL_MS = 17_000; // the whole check, failover included (cap 20 s)
+const LOGIN_REQUEST_MS = 12_000;
+const LOGIN_TOTAL_MS = 25_000; // cap 30 s
+const SEED_PROBE_MS = 5_000; // one "Cambiar semilla" probe
+const SEED_SWITCH_TOTAL_MS = 22_000; // no probe starts after this (cap 30 s)
+const SEED_DOWNLOAD_MS = 10_000;
+
 const SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
 const LOGOUT_MESSAGE = "Sesión cerrada. Borra tu correo y contraseña de estos ajustes para que no se vuelva a iniciar sesión sola.";
 
@@ -13,7 +24,7 @@ const clip = (text, max) => (text.length <= max ? text : text.slice(0, max - 1) 
 const refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
 const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
-export function makeSettings({ kino, session }) {
+export function makeSettings({ kino, session, clock }) {
   // Kino errors (already Spanish, already free of secrets) pass; anything else is a fixed text, so
   // an underlying message that might echo the password never reaches the person.
   const surface = (e) => {
@@ -45,7 +56,8 @@ export function makeSettings({ kino, session }) {
   async function login() {
     const { email, password } = savedAccount();
     if (email === "" || password === "") throw kino.error("auth_required", "Escribe tu correo y contraseña en Ajustes");
-    try { await session.login(email, password); }
+    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock.now() + LOGIN_TOTAL_MS };
+    try { await session.login(email, password, bounds); }
     catch (e) {
       throw refusedCredentials(e) ? kino.error("auth_required", "Credenciales de Xuper inválidas") : surface(e);
     }
@@ -60,9 +72,10 @@ export function makeSettings({ kino, session }) {
 
   async function switchSeed() {
     let r;
-    try { r = await session.switchSeed(); }
+    try { r = await session.switchSeed({ timeoutMs: SEED_PROBE_MS, deadline: clock.now() + SEED_SWITCH_TOTAL_MS }); }
     catch (e) { throw surface(e); }
     const message = r.result === "ok" ? `Semilla cambiada (intento ${r.tries})`
+      : r.result === "offline" ? "Sin conexión, reintenta"
       : r.result === "account_linked" ? "Tu cuenta no usa semillas"
         : r.result === "no_other_seed" ? "No hay otra semilla para probar"
           : `Probé ${r.tries} semillas y ninguna funcionó`;
@@ -71,7 +84,7 @@ export function makeSettings({ kino, session }) {
 
   async function refreshSeeds() {
     let ok;
-    try { ok = await session.refreshSeeds(); }
+    try { ok = await session.refreshSeeds({ timeoutMs: SEED_DOWNLOAD_MS }); }
     catch (e) { throw surface(e); }
     return { message: ok ? `${session.seedPool().length} semillas cargadas` : "Sin conexión, reintenta", refresh: true };
   }
@@ -102,7 +115,8 @@ export function makeSettings({ kino, session }) {
     else if (!email.includes("@")) errors.email = "Escribe un correo válido";
     if (password === "") errors.password = "Escribe tu contraseña";
     if (Object.keys(errors).length > 0) return errors;
-    try { await session.login(email, password); return null; }
+    const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
+    try { await session.login(email, password, bounds); return null; }
     catch (e) {
       if (refusedCredentials(e)) return { password: "Credenciales de Xuper inválidas" };
       throw surface(e);

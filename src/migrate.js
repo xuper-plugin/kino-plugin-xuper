@@ -34,11 +34,11 @@ function title(input) {
 
 function chapter(input) {
   const magis = ownRef(input.ref);
-  if (!magis) return null;
+  if (!magis || !ITEM_ID.test(magis.contentId)) return null;
   // The number the ref carries is what resolve() looks the chapter up by, so it wins; a ref that
   // says "first chapter" (<= 0) takes the number the app saved next to it.
-  const number = whole(magis.episode, MAX_NUMBER) ?? whole(input.episode, MAX_NUMBER);
-  if (number === null) return null;
+  // None at all: resolve() reads "no chapter" (<= 0) as the first one (findChapter), so 1 is faithful.
+  const number = whole(magis.episode, MAX_NUMBER) ?? whole(input.episode, MAX_NUMBER) ?? 1;
   const out = { kind: "episode", ref: encodeChapter(number, magis.contentId), number };
   const season = whole(input.season, MAX_SEASON);
   if (season !== null) out.season = season;

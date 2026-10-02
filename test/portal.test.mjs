@@ -211,3 +211,29 @@ test("pacing: four parallel calls start >= 400 ms apart (the slot is taken under
   for (let i = 1; i < 4; i++) assert.ok(starts[i] - starts[i - 1] >= 400, `gap ${i}: ${starts[i] - starts[i - 1]}`);
   assert.deepEqual(sleeps, [400, 400, 400]); // first call never waits; one wait per later call
 });
+
+// ---- optional bounds for callers with a cap of their own --------------------------------------
+
+test("opts.timeoutMs reaches kino.fetch: default 25 s, clamped to 1..30 s", async () => {
+  const { portal, calls } = setup({ script: () => reply({ v: 1 }) });
+  await portal.call("x", {});
+  await portal.call("x", {}, { timeoutMs: 5000 });
+  await portal.call("x", {}, { timeoutMs: 99999 });
+  await portal.call("x", {}, { timeoutMs: 0 });
+  await portal.call("x", {}, { timeoutMs: "nope" });
+  assert.deepEqual(calls.map((c) => c.opts.timeoutMs), [25000, 5000, 30000, 25000, 25000]);
+});
+
+test("opts.deadline shortens a request and stops failover once passed", async () => {
+  const { portal, calls, clock } = setup({
+    script: () => { clock.advance(12000); throw new Error("slow"); },
+  });
+  const deadline = clock.now() + 17000;
+  await assert.rejects(portal.call("x", {}, { timeoutMs: 12000, deadline }), (e) => e.name === "KinoError_unavailable");
+  assert.deepEqual(calls.map((c) => c.opts.timeoutMs), [12000, 5000]);
+
+  const second = setup({ script: () => { throw new Error("slow"); } });
+  second.clock.advance(100);
+  await assert.rejects(second.portal.call("x", {}, { deadline: second.clock.now() - 1 }), (e) => e.name === "KinoError_unavailable");
+  assert.equal(second.calls.length, 0, "a passed deadline starts no request");
+});

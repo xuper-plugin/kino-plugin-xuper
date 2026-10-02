@@ -133,14 +133,15 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     throw direct;
   }
 
-  async function loginUnlocked(email, password) {
+  // `bounds` ({ timeoutMs, deadline }) go straight to portal.call: for callers with their own cap.
+  async function loginUnlocked(email, password, bounds = {}) {
     const bean = {
       accountType: "2", userName: email, password: kino.crypto.hash("md5", password + PASSWORD_SALT),
       type: "1", macAddr: FIXED_MAC, areaCode: "", verificationCode: "", verificationToken: "",
       matadata: "", signdata: "", channel: "default",
     };
     // Logging in does NOT activate the device: that would burn an activation per sn.
-    const j = await portal.call("v8/login", bean, { baseFields: false, sn: readSession().sn || null });
+    const j = await portal.call("v8/login", bean, { baseFields: false, sn: readSession().sn || null, ...bounds });
     if (blank(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
     saveFromResponse(j);
   }
@@ -183,10 +184,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     return true;
   });
 
-  async function fetchSeeds() {
+  async function fetchSeeds(timeoutMs) {
     let list;
     try {
-      const res = await kino.fetch(seedsUrl, { timeoutMs: 15000 });
+      const res = await kino.fetch(seedsUrl, { timeoutMs });
       list = JSON.parse(res.text());
     } catch (_) { return; }
     if (!Array.isArray(list)) return;
@@ -200,7 +201,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   }
 
   /** Re-downloads the pool; true when a non-empty pool is available afterwards. */
-  function refreshSeeds({ periodic = false } = {}) {
+  function refreshSeeds({ periodic = false, timeoutMs = 15000 } = {}) {
     return poolLock(async () => {
       if (periodic) {
         if (!regionBlocked() || account()) return seedPool().length > 0;
@@ -211,7 +212,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       if (lastPoolRefreshMs !== null && now - lastPoolRefreshMs < POOL_REFRESH_COOLDOWN_MS) {
         return seedPool().length > 0;
       }
-      await fetchSeeds();
+      await fetchSeeds(timeoutMs);
       const ok = seedPool().length > 0;
       if (ok) lastPoolRefreshMs = now;
       return ok;
@@ -224,9 +225,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     try { await lock(ensureUnlocked); } catch (e) { throw surface(e); }
   }
 
-  async function login(email, password) {
+  async function login(email, password, bounds = {}) {
     await null;
-    try { await lock(() => loginUnlocked(email, password)); }
+    try { await lock(() => loginUnlocked(email, password, bounds)); }
     catch (e) {
       if (e instanceof PortalError) throw kino.error("auth_required", "Credenciales de Xuper inválidas");
       throw e;
@@ -300,7 +301,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   }
 
   /** Manual "Cambiar semilla": probes other pool seeds for real; the first token wins. */
-  async function switchSeed() {
+  async function switchSeed({ timeoutMs, deadline } = {}) {
     await null;
     return lock(async () => {
       if (account()) return { result: "account_linked", tries: 0 };
@@ -312,15 +313,21 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       }
       if (candidates.length === 0) return { result: "no_other_seed", tries: 0 };
       let tries = 0;
+      let reached = false; // some probe got an answer from the portal (even a refusal)
       for (const c of candidates.slice(0, SEED_SWITCH_TRIES)) {
+        // A caller with its own cap sets a deadline on the injected clock: no new probe after it.
+        if (typeof deadline === "number" && clock.now() >= deadline) break;
         tries++;
         try {
-          const j = await portal.call("v8/active", activateBean(""), { baseFields: false, sn: c.sn });
+          const j = await portal.call("v8/active", activateBean(""), { baseFields: false, sn: c.sn, timeoutMs, deadline });
+          reached = true;
           if (blank(j && j.userToken)) continue;
           writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: c.sn });
           return { result: "ok", tries };
-        } catch (_) { /* this seed does not work right now: next */ }
+        } catch (e) { if (e instanceof PortalError) reached = true; /* this seed does not work right now: next */ }
       }
+      // Bounded run where no probe even reached the portal: the person is offline, not out of seeds.
+      if (typeof deadline === "number" && !reached) return { result: "offline", tries };
       return { result: "all_failed", tries };
     });
   }

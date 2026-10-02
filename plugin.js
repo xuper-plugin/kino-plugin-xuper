@@ -90,6 +90,7 @@ var FINGERPRINT_FIXED = Object.freeze({
 
 // src/portal.js
 var MAX_SLEEP_MS = 5e3;
+var MAX_REQUEST_MS = 3e4;
 var PortalError = class extends Error {
   constructor(code, message) {
     super(message || code);
@@ -145,7 +146,9 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
     };
   }
   async function call(path, bean = {}, opts = {}) {
-    const { baseFields = true, userId = "", userToken = "", sn = null } = opts;
+    const { baseFields = true, userId = "", userToken = "", sn = null, timeoutMs, deadline } = opts;
+    const requested = Math.trunc(Number(timeoutMs));
+    const perRequest = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_REQUEST_MS) : REQUEST_TIMEOUT_MS;
     const body = {
       ...baseFields ? { portalCode: PORTAL_CODE, userId, userToken } : {},
       ...bean,
@@ -162,6 +165,12 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
     await waitTurn();
     let lastError = null;
     for (const host of hostOrder()) {
+      let requestMs = perRequest;
+      if (typeof deadline === "number") {
+        const left = Math.floor(deadline - clock2.now());
+        if (left < 1) break;
+        requestMs = Math.min(perRequest, left);
+      }
       let answer;
       try {
         const res = await kino2.fetch(`https://${host}/api/portalCore/${path}`, {
@@ -169,7 +178,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
           headers,
           body: wire,
           cookies: false,
-          timeoutMs: REQUEST_TIMEOUT_MS
+          timeoutMs: requestMs
         });
         answer = JSON.parse(res.text());
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
@@ -342,7 +351,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     }
     throw direct;
   }
-  async function loginUnlocked(email, password) {
+  async function loginUnlocked(email, password, bounds = {}) {
     const bean = {
       accountType: "2",
       userName: email,
@@ -356,7 +365,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       signdata: "",
       channel: "default"
     };
-    const j = await portal.call("v8/login", bean, { baseFields: false, sn: readSession().sn || null });
+    const j = await portal.call("v8/login", bean, { baseFields: false, sn: readSession().sn || null, ...bounds });
     if (blank(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
     saveFromResponse(j);
   }
@@ -397,10 +406,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     writeSession(seedSession(pick(pool)));
     return true;
   });
-  async function fetchSeeds() {
+  async function fetchSeeds(timeoutMs) {
     let list;
     try {
-      const res = await kino2.fetch(seedsUrl, { timeoutMs: 15e3 });
+      const res = await kino2.fetch(seedsUrl, { timeoutMs });
       list = JSON.parse(res.text());
     } catch (_) {
       return;
@@ -411,7 +420,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     writeJson("seeds", clean);
     writeJson("seedsAt", clock2.now());
   }
-  function refreshSeeds({ periodic = false } = {}) {
+  function refreshSeeds({ periodic = false, timeoutMs = 15e3 } = {}) {
     return poolLock(async () => {
       if (periodic) {
         if (!regionBlocked() || account()) return seedPool().length > 0;
@@ -422,7 +431,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       if (lastPoolRefreshMs !== null && now - lastPoolRefreshMs < POOL_REFRESH_COOLDOWN_MS) {
         return seedPool().length > 0;
       }
-      await fetchSeeds();
+      await fetchSeeds(timeoutMs);
       const ok = seedPool().length > 0;
       if (ok) lastPoolRefreshMs = now;
       return ok;
@@ -436,10 +445,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       throw surface(e);
     }
   }
-  async function login(email, password) {
+  async function login(email, password, bounds = {}) {
     await null;
     try {
-      await lock(() => loginUnlocked(email, password));
+      await lock(() => loginUnlocked(email, password, bounds));
     } catch (e) {
       if (e instanceof PortalError) throw kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas");
       throw e;
@@ -508,7 +517,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     }
     return settle(result);
   }
-  async function switchSeed() {
+  async function switchSeed({ timeoutMs, deadline } = {}) {
     await null;
     return lock(async () => {
       if (account()) return { result: "account_linked", tries: 0 };
@@ -520,16 +529,21 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       }
       if (candidates.length === 0) return { result: "no_other_seed", tries: 0 };
       let tries = 0;
+      let reached = false;
       for (const c of candidates.slice(0, SEED_SWITCH_TRIES)) {
+        if (typeof deadline === "number" && clock2.now() >= deadline) break;
         tries++;
         try {
-          const j = await portal.call("v8/active", activateBean(""), { baseFields: false, sn: c.sn });
+          const j = await portal.call("v8/active", activateBean(""), { baseFields: false, sn: c.sn, timeoutMs, deadline });
+          reached = true;
           if (blank(j && j.userToken)) continue;
           writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: c.sn });
           return { result: "ok", tries };
-        } catch (_) {
+        } catch (e) {
+          if (e instanceof PortalError) reached = true;
         }
       }
+      if (typeof deadline === "number" && !reached) return { result: "offline", tries };
       return { result: "all_failed", tries };
     });
   }
@@ -2574,9 +2588,8 @@ function title(input) {
 }
 function chapter(input) {
   const magis = ownRef(input.ref);
-  if (!magis) return null;
-  const number = whole(magis.episode, MAX_NUMBER) ?? whole(input.episode, MAX_NUMBER);
-  if (number === null) return null;
+  if (!magis || !ITEM_ID3.test(magis.contentId)) return null;
+  const number = whole(magis.episode, MAX_NUMBER) ?? whole(input.episode, MAX_NUMBER) ?? 1;
   const out = { kind: "episode", ref: encodeChapter(number, magis.contentId), number };
   const season = whole(input.season, MAX_SEASON);
   if (season !== null) out.season = season;
@@ -2605,13 +2618,20 @@ function makeMigrate() {
 // src/settings.js
 var STATUS_MAX = 200;
 var MESSAGE_MAX = 300;
+var VALIDATE_REQUEST_MS = 12e3;
+var VALIDATE_TOTAL_MS = 17e3;
+var LOGIN_REQUEST_MS = 12e3;
+var LOGIN_TOTAL_MS = 25e3;
+var SEED_PROBE_MS = 5e3;
+var SEED_SWITCH_TOTAL_MS = 22e3;
+var SEED_DOWNLOAD_MS = 1e4;
 var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
 var LOGOUT_MESSAGE = "Sesi\xF3n cerrada. Borra tu correo y contrase\xF1a de estos ajustes para que no se vuelva a iniciar sesi\xF3n sola.";
 var str3 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
 var isKinoError6 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
-function makeSettings({ kino: kino2, session }) {
+function makeSettings({ kino: kino2, session, clock: clock2 }) {
   const surface = (e) => {
     if (isKinoError6(e)) return e;
     try {
@@ -2640,8 +2660,9 @@ function makeSettings({ kino: kino2, session }) {
   async function login() {
     const { email, password } = savedAccount();
     if (email === "" || password === "") throw kino2.error("auth_required", "Escribe tu correo y contrase\xF1a en Ajustes");
+    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock2.now() + LOGIN_TOTAL_MS };
     try {
-      await session.login(email, password);
+      await session.login(email, password, bounds);
     } catch (e) {
       throw refusedCredentials(e) ? kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas") : surface(e);
     }
@@ -2658,17 +2679,17 @@ function makeSettings({ kino: kino2, session }) {
   async function switchSeed() {
     let r;
     try {
-      r = await session.switchSeed();
+      r = await session.switchSeed({ timeoutMs: SEED_PROBE_MS, deadline: clock2.now() + SEED_SWITCH_TOTAL_MS });
     } catch (e) {
       throw surface(e);
     }
-    const message = r.result === "ok" ? `Semilla cambiada (intento ${r.tries})` : r.result === "account_linked" ? "Tu cuenta no usa semillas" : r.result === "no_other_seed" ? "No hay otra semilla para probar" : `Prob\xE9 ${r.tries} semillas y ninguna funcion\xF3`;
+    const message = r.result === "ok" ? `Semilla cambiada (intento ${r.tries})` : r.result === "offline" ? "Sin conexi\xF3n, reintenta" : r.result === "account_linked" ? "Tu cuenta no usa semillas" : r.result === "no_other_seed" ? "No hay otra semilla para probar" : `Prob\xE9 ${r.tries} semillas y ninguna funcion\xF3`;
     return { message, refresh: true };
   }
   async function refreshSeeds() {
     let ok;
     try {
-      ok = await session.refreshSeeds();
+      ok = await session.refreshSeeds({ timeoutMs: SEED_DOWNLOAD_MS });
     } catch (e) {
       throw surface(e);
     }
@@ -2692,8 +2713,9 @@ function makeSettings({ kino: kino2, session }) {
     else if (!email.includes("@")) errors.email = "Escribe un correo v\xE1lido";
     if (password === "") errors.password = "Escribe tu contrase\xF1a";
     if (Object.keys(errors).length > 0) return errors;
+    const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
     try {
-      await session.login(email, password);
+      await session.login(email, password, bounds);
       return null;
     } catch (e) {
       if (refusedCredentials(e)) return { password: "Credenciales de Xuper inv\xE1lidas" };
