@@ -104,14 +104,17 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
           answer = { ok: answer };
         }
       } catch (e) {
-        lastError = e instanceof SyntaxError ? new Error("respuesta del portal ilegible") : e;
+        lastError = e;
+        // Debug trail only: one truncated line, never the wire, token or headers.
+        try { kino.log("portal " + path + ": " + String(e && e.message).replace(/\s+/g, " ").slice(0, 200)); } catch (_) {}
         continue;
       }
       if (answer.portalFailure) throw answer.portalFailure;
       return answer.ok;
     }
-    const detail = lastError && typeof lastError.message === "string" && lastError.message
-      ? lastError.message : "sin hosts configurados";
+    // Fixed text: the underlying error may echo the URL (host) and must not reach the caller.
+    const detail = lastError === null
+      ? "sin hosts configurados" : "No se pudo contactar a Xuper; intenta de nuevo en un momento";
     throw kino.error("unavailable", detail);
   }
 

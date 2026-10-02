@@ -160,14 +160,14 @@ test("fetch options: POST, encrypted hex body, no cookies, 25 s timeout", async 
   assert.equal(o.timeoutMs, 25000);
 });
 
-test("pacing: calls start >= 400 ms apart, one wait per call, none for host retries", async () => {
+test("pacing: calls start >= 400 ms apart, one wait per call, none for host failover", async () => {
   const { portal, sleeps, clock, calls } = setup({
     script: (host) => { if (host === "h1.test") throw new Error("down"); return reply({}); },
   });
   await portal.call("x", {});
   assert.deepEqual(sleeps, []); // first call never waits
   clock.advance(100);
-  await portal.call("x", {}); // retried host: still a single wait
+  await portal.call("x", {}); // host failover inside the call: still a single wait
   assert.deepEqual(sleeps, [300]);
   assert.equal(calls.length, 3); // h1,h2 then h2 (preferred)
   clock.advance(1000);
@@ -181,9 +181,13 @@ test("no hosts: unavailable with a Spanish message", async () => {
     e.code === "unavailable" && e.message === "sin hosts configurados");
 });
 
-test("all hosts down: unavailable carrying the last host error", async () => {
-  const { portal } = setup({ script: (h) => { throw new Error("boom " + h); } });
-  await assert.rejects(portal.call("x", {}), (e) => e.code === "unavailable" && /boom h2\.test/.test(e.message));
+test("all hosts down: fixed Spanish message, no host or raw error text leaks", async () => {
+  const { portal } = setup({
+    script: (h) => { throw new Error("fetch https://" + h + "/api/portalCore/x failed SECRET-DETAIL"); },
+  });
+  await assert.rejects(portal.call("x", {}), (e) =>
+    e.code === "unavailable" && e.message.length > 0 &&
+    !/SECRET-DETAIL|h1\.test|h2\.test|https?:/.test(e.message));
 });
 
 test("mapPortalError follows section 10", () => {
