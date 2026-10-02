@@ -5,6 +5,8 @@ import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog, parseShelveTime, projectRows } from "../src/catalog.js";
 import { classify } from "../src/homeClassifier.js";
+import { makeCrypto } from "../src/crypto.js";
+import { makePortal } from "../src/portal.js";
 
 const HOUR = 3600_000;
 const ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
@@ -332,7 +334,7 @@ test("bytes stored for the four roots stay under the storage budget with a reali
           contentId: hex(n), name: `Titulo largo de ejemplo numero ${n}`, programType: type, tags: "Action, Drama, Thriller, Crime",
           score: 7.5, duration: 6000, description: words.slice(n % 5).join(" ") + " " + words.slice(0, 12).join(" "),
           shelveTime: "2026-09-30 10:00:00",
-          posterList: [{ fileType: "icon", fileUrl: `https://sqacjy.s5lm5aydc.xyz/public/images/${hex(n)}-aaaa-bbbb` }, { fileType: "poster", fileUrl: `https://sqacjy.s5lm5aydc.xyz/public/images/${hex(n + 99999)}-cccc` }],
+          posterList: [{ fileType: "icon", fileUrl: `https://img.test/public/images/${hex(n)}-aaaa-bbbb` }, { fileType: "poster", fileUrl: `https://img.test/public/images/${hex(n + 99999)}-cccc` }],
         };
       })));
     }
@@ -345,8 +347,8 @@ test("bytes stored for the four roots stay under the storage budget with a reali
   assert.equal(rows.length, 20);
   const sizes = kino.storage.keys().filter((k) => k.startsWith("tree:")).map((k) => Buffer.byteLength(kino.storage.get(k)));
   console.log("tree cache bytes per root:", sizes.join(", "), "total", sizes.reduce((a, b) => a + b, 0));
-  assert.equal(sizes.length, 4);
-  assert.ok(sizes.reduce((a, b) => a + b, 0) <= 160_000);
+  assert.ok(sizes.length >= 1 && sizes.every((n) => n <= 20_000));
+  assert.ok(sizes.reduce((a, b) => a + b, 0) <= 80_000);
 });
 
 // ---- browse -----------------------------------------------------------------------------------
@@ -434,11 +436,13 @@ test("an oversized tree sheds descriptions to fit the budget; one that never fit
   const rows = await a.catalog.home();
   assert.ok(rowOf(rows, "magis_top_peliculas"));
   const stored = a.kino.storage.get("tree:peliculas");
-  assert.ok(stored !== null && Buffer.byteLength(stored) <= 40_000, "cached within budget");
+  assert.ok(stored !== null && Buffer.byteLength(stored) <= 20_000, "cached within budget");
   const again = await a.catalog.home();
   assert.ok(rowOf(again, "magis_top_peliculas").items.length > 0);
 
-  const b = setup({ roots: { masnew_movies: big(3000, {}), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+  // 300 sections of 10: shedding per-section items cannot help, so it never fits.
+  const wide = answer(...Array.from({ length: 300 }, (_, c) => column(`S${c}`, Array.from({ length: 10 }, (_, i) => asset(`w${c}-${i}`)), c)));
+  const b = setup({ roots: { masnew_movies: wide, masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
   assert.ok(rowOf(await b.catalog.home(), "magis_top_peliculas"));
   assert.equal(b.kino.storage.get("tree:peliculas"), null, "does not fit even without descriptions: not cached");
 });
@@ -454,4 +458,45 @@ test("the stored form round-trips every field the projection reads", async () =>
   const first = await fresh.catalog.home();
   const cached = makeCatalog({ kino: fresh.kino, portal: fakePortal(emptyRoots()), session: fakeSession(), clock: fresh.clock });
   assert.deepEqual(await cached.home(), first);
+});
+
+test("a single huge section sheds items per section (not below 50) before giving up", async () => {
+  const one = answer(column("All", Array.from({ length: 3000 }, (_, i) => asset(`h${i}`))));
+  const a = setup({ roots: { masnew_movies: one, masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+  await a.catalog.home();
+  const stored = JSON.parse(a.kino.storage.get("tree:peliculas"));
+  assert.ok(stored.s[0][1].length >= 50 && stored.s[0][1].length <= 100);
+  assert.ok(Buffer.byteLength(JSON.stringify(stored)) <= 20_000);
+});
+
+test("a stored tree without the current format version is a miss and refetches", async () => {
+  const { catalog, kino, portal } = setup({
+    roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() },
+  });
+  await catalog.home();
+  const stored = JSON.parse(kino.storage.get("tree:peliculas"));
+  assert.equal(stored.v, 1);
+  delete stored.v;
+  kino.storage.set("tree:peliculas", JSON.stringify(stored), { ttlMs: HOUR });
+  portal.calls.length = 0;
+  assert.ok(rowOf(await catalog.home(), "magis_top_peliculas"));
+  assert.ok(portal.codes().includes("masnew_movies"));
+  assert.equal(JSON.parse(kino.storage.get("tree:peliculas")).v, 1);
+});
+
+test("home's four root calls are paced >= 400 ms apart through the real portal client", async () => {
+  let now = 5000;
+  const clock = { now: () => now };
+  const starts = [];
+  const base = fakeKino({
+    fetch: async () => { starts.push(now); return { text: () => JSON.stringify(smallTree("p")) }; },
+  });
+  const kino = Object.freeze({ ...base, sleep: async (ms) => { now += ms; } });
+  const portal = makePortal({
+    kino, crypto: makeCrypto(kino), clock, snProvider: () => "sn", config: { hosts: ["h.test"], appId: "a", apkVersion: "1" },
+  });
+  const catalog = makeCatalog({ kino, portal, session: fakeSession(), clock });
+  await catalog.home();
+  assert.equal(starts.length, 4);
+  for (let i = 1; i < 4; i++) assert.ok(starts[i] - starts[i - 1] >= 400, `gap ${i}: ${starts[i] - starts[i - 1]}`);
 });

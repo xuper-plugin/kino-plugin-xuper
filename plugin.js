@@ -115,13 +115,20 @@ function makePortal({ kino: kino2, crypto, config, clock, snProvider }) {
     if (preferredHost === null) return hosts2;
     return [preferredHost, ...hosts2.filter((h) => h !== preferredHost)];
   };
-  async function waitTurn() {
-    const now = clock.now();
-    if (lastCallMs !== null) {
-      const wait = Math.min(MAX_SLEEP_MS, Math.ceil(RATE_LIMIT_MS - (now - lastCallMs)));
-      if (wait > 0) await kino2.sleep(wait);
-    }
-    lastCallMs = clock.now();
+  let slotTail = Promise.resolve();
+  function waitTurn() {
+    const run = slotTail.then(async () => {
+      const now = clock.now();
+      if (lastCallMs !== null) {
+        const wait = Math.min(MAX_SLEEP_MS, Math.ceil(RATE_LIMIT_MS - (now - lastCallMs)));
+        if (wait > 0) await kino2.sleep(wait);
+      }
+      lastCallMs = clock.now();
+    });
+    slotTail = run.then(() => {
+    }, () => {
+    });
+    return run;
   }
   function deviceDict(sn) {
     return {
@@ -798,11 +805,13 @@ function cut(text, max) {
   const end = text.charCodeAt(max - 1) >= 55296 && text.charCodeAt(max - 1) < 56320 ? max - 1 : max;
   return text.slice(0, end);
 }
-function encodeTree(sections, descMax = Infinity) {
+var TREE_FORMAT = 1;
+function encodeTree(sections, { descMax = Infinity, genres = true, backdrop = true, perSection = Infinity } = {}) {
+  sections = sections.map((s2) => s2.items.length > perSection ? { ...s2, items: s2.items.slice(0, perSection) } : s2);
   const urls = [];
   for (const s2 of sections) for (const i of s2.items) {
     if (i.poster) urls.push(i.poster);
-    if (i.backdrop) urls.push(i.backdrop);
+    if (backdrop && i.backdrop) urls.push(i.backdrop);
   }
   const p = commonPrefix(urls);
   const strip = (u) => u === null ? null : u.slice(p.length);
@@ -813,10 +822,10 @@ function encodeTree(sections, descMax = Infinity) {
       i.id,
       i.title,
       strip(i.poster),
-      strip(i.backdrop),
+      backdrop ? strip(i.backdrop) : null,
       i.durationS,
       i.type,
-      i.genres,
+      genres ? i.genres : [],
       i.score,
       cut(i.description, descMax),
       i.shelvedAtMs
@@ -828,11 +837,11 @@ function encodeTree(sections, descMax = Infinity) {
     }
     return table.get(key);
   })]);
-  return JSON.stringify({ p, i: items, s });
+  return JSON.stringify({ v: TREE_FORMAT, p, i: items, s });
 }
 function decodeTree(text) {
   const o = JSON.parse(text);
-  if (o === null || typeof o !== "object" || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
+  if (o === null || typeof o !== "object" || o.v !== TREE_FORMAT || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
     throw new Error("stored tree is malformed");
   }
   const full = (u) => typeof u === "string" ? o.p + u : null;
@@ -866,8 +875,16 @@ function decodeTree(text) {
 var ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
 var TREE_TTL_MS = 2 * 36e5;
 var TREE_PAGE_SIZE = 60;
-var TREE_BUDGET_BYTES = 4e4;
-var DESCRIPTION_STEPS = [Infinity, 300, 120, 0];
+var TREE_BUDGET_BYTES = 2e4;
+var SHED_STEPS = [
+  {},
+  { descMax: 120 },
+  { descMax: 0 },
+  { descMax: 0, genres: false },
+  { descMax: 0, genres: false, backdrop: false },
+  { descMax: 0, genres: false, backdrop: false, perSection: 100 },
+  { descMax: 0, genres: false, backdrop: false, perSection: 50 }
+];
 var BROWSE_PAGE = 50;
 var MAX_HOME_ROWS = 20;
 var MAX_ROW_ITEMS = 60;
@@ -920,8 +937,8 @@ function makeCatalog({ kino: kino2, portal, session, clock }) {
     }
   }
   function writeTree(root, sections) {
-    for (const max of DESCRIPTION_STEPS) {
-      const text = encodeTree(sections, max);
+    for (const shed of SHED_STEPS) {
+      const text = encodeTree(sections, shed);
       if (utf8Length(text) > TREE_BUDGET_BYTES) continue;
       try {
         kino2.storage.set(key(root), text, { ttlMs: TREE_TTL_MS });

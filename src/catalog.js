@@ -11,10 +11,20 @@ export { parseShelveTime };
 const ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
 const TREE_TTL_MS = 2 * 3600_000;
 const TREE_PAGE_SIZE = 60;
-// Per-root budget for the stored tree (the plugin's whole storage is 256 KB, shared with the session
-// and the seed pool): descriptions are cut in steps before giving up on caching that root.
-const TREE_BUDGET_BYTES = 40_000;
-const DESCRIPTION_STEPS = [Infinity, 300, 120, 0];
+// Per-root budget for the stored tree: kino.storage is 256 KB for the whole plugin and a set over
+// the cap throws, so the four home trees together get 80 KB. A tree that does not fit is shed in
+// this order until it does: description to 120 chars, to 0, genres, backdrop, then fewer items per
+// section (never below 50, one browse page); if it still does not fit it is not cached.
+const TREE_BUDGET_BYTES = 20_000;
+const SHED_STEPS = [
+  {},
+  { descMax: 120 },
+  { descMax: 0 },
+  { descMax: 0, genres: false },
+  { descMax: 0, genres: false, backdrop: false },
+  { descMax: 0, genres: false, backdrop: false, perSection: 100 },
+  { descMax: 0, genres: false, backdrop: false, perSection: 50 },
+];
 
 const BROWSE_PAGE = 50;
 const MAX_HOME_ROWS = 20; // SDK output caps
@@ -80,8 +90,8 @@ export function makeCatalog({ kino, portal, session, clock }) {
   // Never called with an empty tree. A tree that does not fit even without descriptions is simply
   // not cached (the next call refetches it).
   function writeTree(root, sections) {
-    for (const max of DESCRIPTION_STEPS) {
-      const text = encodeTree(sections, max);
+    for (const shed of SHED_STEPS) {
+      const text = encodeTree(sections, shed);
       if (utf8Length(text) > TREE_BUDGET_BYTES) continue;
       try { kino.storage.set(key(root), text, { ttlMs: TREE_TTL_MS }); } catch (_) { /* storage full: serve uncached */ }
       return;

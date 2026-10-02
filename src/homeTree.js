@@ -84,7 +84,7 @@ export function parseTree(response) {
 export const refOf = (item) => encode({ contentId: item.id, programType: item.type, episode: 0 });
 
 // ---- compact storage form -----------------------------------------------------------------------
-// { p: common image url prefix, i: [[id,title,poster,backdrop,durationS,type,genres,score,desc,shelvedAtMs]...],
+// { v: format version, p: common image url prefix, i: [[id,title,poster,backdrop,durationS,type,genres,score,desc,shelvedAtMs]...],
 //   s: [[name,[index into i...]]...] }. Items are deduplicated (an item shows in several sections), the
 // url prefix is kept once, and descriptions can be cut to fit the storage budget.
 
@@ -111,27 +111,34 @@ function cut(text, max) {
   return text.slice(0, end);
 }
 
-export function encodeTree(sections, descMax = Infinity) {
+export const TREE_FORMAT = 1;
+
+/**
+ * `shed` trims what the stored form keeps: `descMax` (description length), `genres` and `backdrop`
+ * (false drops them) and `perSection` (items kept per section).
+ */
+export function encodeTree(sections, { descMax = Infinity, genres = true, backdrop = true, perSection = Infinity } = {}) {
+  sections = sections.map((s) => (s.items.length > perSection ? { ...s, items: s.items.slice(0, perSection) } : s));
   const urls = [];
-  for (const s of sections) for (const i of s.items) { if (i.poster) urls.push(i.poster); if (i.backdrop) urls.push(i.backdrop); }
+  for (const s of sections) for (const i of s.items) { if (i.poster) urls.push(i.poster); if (backdrop && i.backdrop) urls.push(i.backdrop); }
   const p = commonPrefix(urls);
   const strip = (u) => (u === null ? null : u.slice(p.length));
   const table = new Map();
   const items = [];
   const s = sections.map((sec) => [sec.name, sec.items.map((i) => {
-    const rec = [i.id, i.title, strip(i.poster), strip(i.backdrop), i.durationS, i.type, i.genres, i.score,
+    const rec = [i.id, i.title, strip(i.poster), backdrop ? strip(i.backdrop) : null, i.durationS, i.type, genres ? i.genres : [], i.score,
       cut(i.description, descMax), i.shelvedAtMs];
     const key = JSON.stringify(rec);
     if (!table.has(key)) { table.set(key, items.length); items.push(rec); }
     return table.get(key);
   })]);
-  return JSON.stringify({ p, i: items, s });
+  return JSON.stringify({ v: TREE_FORMAT, p, i: items, s });
 }
 
 /** The sections of a stored tree; throws when the stored value is not one (the caller treats it as a miss). */
 export function decodeTree(text) {
   const o = JSON.parse(text);
-  if (o === null || typeof o !== "object" || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
+  if (o === null || typeof o !== "object" || o.v !== TREE_FORMAT || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
     throw new Error("stored tree is malformed");
   }
   const full = (u) => (typeof u === "string" ? o.p + u : null);
