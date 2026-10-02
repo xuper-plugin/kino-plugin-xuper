@@ -1,11 +1,13 @@
 // The TMDB read the search needs: the other titles a work is known by (native TmdbApi.detail, only
 // the title forms). TMDB is an enrichment, never a requirement: with no key declared, a failing
 // request or an unreadable body the answer is simply `null` and the search goes on without it.
-// Episodes' enrichment (4c) extends this module.
+// The episodes' enrichment reads (native TmdbApi.seriesByImdb / seasonEpisodes) live here too.
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANGUAGE = "es-MX";
 const TIMEOUT_MS = 8000;
+const IMG = "https://image.tmdb.org/t/p";
+const IMDB_ID = /^tt\d{7,}$/;
 
 const text = (v) => (typeof v === "string" ? v : "");
 const blank = (s) => s.trim() === "";
@@ -44,6 +46,49 @@ export function parseTitleForms(type, body) {
   };
 }
 
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const INT = /^[+-]?\d+$/;
+
+// org.json optInt: a number truncated, a numeric string parsed, anything else 0.
+function optInt(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string" && INT.test(v.trim())) return Number(v.trim());
+  return 0;
+}
+
+// A blank path (or the text "null") is no image; otherwise the CDN url at the given size.
+const imageUrl = (path, size) => (typeof path !== "string" || blank(path) || path === "null" ? "" : `${IMG}/${size}${path}`);
+
+/**
+ * The series a TMDB /find answer names (native TmdbApi.seriesByImdb): the first tv result with a
+ * positive id. `null` when the body is not JSON or has no usable tv result.
+ */
+export function parseSeriesByImdb(body) {
+  let o;
+  try { o = JSON.parse(body); } catch (_) { return null; }
+  const tv = isObject(o) && Array.isArray(o.tv_results) && isObject(o.tv_results[0]) ? o.tv_results[0] : null;
+  if (tv === null) return null;
+  const tmdbId = optInt(tv.id);
+  if (tmdbId <= 0) return null;
+  return { tmdbId, title: text(tv.name), poster: imageUrl(tv.poster_path, "w500"), backdrop: imageUrl(tv.backdrop_path, "w1280") };
+}
+
+/**
+ * A season's episodes (native parseSeasonEpisodes): `null` = the question could not be answered (not
+ * a JSON object), `[]` = TMDB answered and the season has none. A blank name reads "Episodio N".
+ */
+export function parseSeasonEpisodes(body) {
+  let o;
+  try { o = JSON.parse(body); } catch (_) { return null; }
+  if (!isObject(o)) return null;
+  const list = Array.isArray(o.episodes) ? o.episodes : [];
+  return list.filter(isObject).map((e) => {
+    const episode = optInt(e.episode_number);
+    const name = text(e.name);
+    return { episode, name: blank(name) ? `Episodio ${episode}` : name, overview: text(e.overview), still: imageUrl(e.still_path, "w300") };
+  });
+}
+
 export function makeTmdb({ kino }) {
   // The key is a sealed secret the host swaps into the URL; a plugin that does not declare it gets
   // a throw here, which just means "no TMDB".
@@ -67,5 +112,32 @@ export function makeTmdb({ kino }) {
     }
   }
 
-  return { titleForms };
+  async function read(path, language) {
+    try {
+      const key = keyMarker();
+      if (!key) return null;
+      const sep = path.includes("?") ? "&" : "?";
+      const res = await kino.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs: TIMEOUT_MS });
+      if (!res || !res.ok) return null;
+      return res.text();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** `{ tmdbId, title, poster, backdrop }` of the series with that IMDb id, or null. */
+  async function seriesByImdb(imdbId) {
+    if (typeof imdbId !== "string" || !IMDB_ID.test(imdbId)) return null;
+    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE);
+    return body === null ? null : parseSeriesByImdb(body);
+  }
+
+  /** The season's `[{ episode, name, overview, still }]`, or null when it could not be had. `language` overrides es-MX. */
+  async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE) {
+    if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
+    const body = await read(`/tv/${tvId}/season/${season}`, language);
+    return body === null ? null : parseSeasonEpisodes(body);
+  }
+
+  return { titleForms, seriesByImdb, seasonEpisodes };
 }

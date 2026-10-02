@@ -35,3 +35,10 @@ test("search goes through the catalog: an empty query is [], with no configured 
   assert.deepEqual(await plugin.search({ q: "  ", type: "any", season: 0, episode: 0, tmdbId: 0 }), []);
   await assert.rejects(() => plugin.search({ q: "Dune", type: "any", season: 0, episode: 0, tmdbId: 0 }), (e) => e.code === "unavailable");
 });
+
+test("episodes goes through the catalog: a ref that is not Xuper's is a Spanish unavailable, with no configured host a real ref is too", async () => {
+  assert.equal(typeof getDeps().catalog.episodes, "function");
+  assert.equal(typeof getDeps().catalog.portalChapters, "function");
+  await assert.rejects(() => plugin.episodes("https://example.com/x"), (e) => e.code === "unavailable" && e.message === "ese ref no es de Xuper: no se pueden listar capítulos");
+  await assert.rejects(() => plugin.episodes("magis1:teleplay:0:ABC"), (e) => e.code === "unavailable");
+});

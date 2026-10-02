@@ -699,8 +699,112 @@ function classify(roots) {
 var PREFIX = "magis1";
 var SERIES = /* @__PURE__ */ new Set(["teleplay", "series", "variety"]);
 var isSeries = (programType) => SERIES.has(programType);
+var blank2 = (s) => typeof s !== "string" || s.trim() === "";
+var INT = /^[+-]?\d+$/;
+function toIntOrNull(text2) {
+  if (!INT.test(text2)) return null;
+  const n = Number(text2);
+  return n >= -2147483648 && n <= 2147483647 ? n : null;
+}
+var make = (contentId, programType, episode) => ({ contentId, programType, episode, isSeries: isSeries(programType) });
 function encode({ contentId, programType = "movie", episode = 0 }) {
   return `${PREFIX}:${programType || "movie"}:${episode}:${contentId}`;
+}
+function encodeChapter(seriesNumber, seasonContentId) {
+  return encode({ contentId: seasonContentId, programType: "teleplay", episode: seriesNumber });
+}
+var ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+function base64UrlToText(data) {
+  const body = data.replace(/={1,2}$/, "");
+  if (body.length % 4 === 1 || /[^A-Za-z0-9_-]/.test(body)) return null;
+  const bytes = [];
+  let acc = 0, bits = 0;
+  for (const ch of body) {
+    acc = acc << 6 | ALPHABET.indexOf(ch);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push(acc >> bits & 255);
+      acc &= (1 << bits) - 1;
+    }
+  }
+  return utf8(bytes);
+}
+function utf8(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; ) {
+    const b = bytes[i];
+    if (b < 128) {
+      out += String.fromCharCode(b);
+      i++;
+      continue;
+    }
+    const need = b >= 194 && b < 224 ? 1 : b >= 224 && b < 240 ? 2 : b >= 240 && b < 245 ? 3 : 0;
+    if (need === 0 || i + need > bytes.length - 1) {
+      out += "\uFFFD";
+      i++;
+      continue;
+    }
+    let cp = b & 255 >> need + 2;
+    let ok = true;
+    for (let k = 1; k <= need; k++) {
+      const c = bytes[i + k];
+      if ((c & 192) !== 128) {
+        ok = false;
+        break;
+      }
+      cp = cp << 6 | c & 63;
+    }
+    if (!ok || cp > 1114111) {
+      out += "\uFFFD";
+      i++;
+      continue;
+    }
+    out += String.fromCodePoint(cp);
+    i += need + 1;
+  }
+  return out;
+}
+var optString = (v) => v === null || v === void 0 ? "" : typeof v === "string" ? v : String(v);
+function optInt(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string") {
+    const n = Number(v.trim());
+    return v.trim() !== "" && Number.isFinite(n) ? Math.trunc(n) : 0;
+  }
+  return 0;
+}
+function fromGatewayRef(ref) {
+  const dot = ref.indexOf(".");
+  if (dot < 0) return null;
+  const data = ref.slice(0, dot);
+  if (blank2(data)) return null;
+  let json;
+  try {
+    const text2 = base64UrlToText(data);
+    json = text2 === null ? null : JSON.parse(text2);
+  } catch (_) {
+    return null;
+  }
+  if (json === null || typeof json !== "object" || Array.isArray(json)) return null;
+  if (optString(json.s) !== "magis") return null;
+  const p = json.p;
+  if (p === null || typeof p !== "object" || Array.isArray(p)) return null;
+  const contentId = optString(p.content_id);
+  if (blank2(contentId)) return null;
+  return make(contentId, optString(p.program_type).trim() === "" ? "movie" : optString(p.program_type), optInt(p.episode));
+}
+function decode(ref) {
+  if (typeof ref !== "string" || blank2(ref)) return null;
+  if (ref.startsWith(PREFIX + ":")) {
+    const parts = ref.split(":");
+    if (parts.length < 4) return null;
+    const contentId = parts.slice(3).join(":");
+    if (blank2(contentId)) return null;
+    const type = parts[1];
+    return make(contentId, type.trim() === "" ? "movie" : type, toIntOrNull(parts[2]) ?? 0);
+  }
+  return fromGatewayRef(ref);
 }
 
 // src/homeTree.js
@@ -711,12 +815,12 @@ var nonBlank = (v) => {
   const s = asText(v);
   return s.trim() === "" ? null : s;
 };
-var INT = /^[+-]?\d+$/;
+var INT2 = /^[+-]?\d+$/;
 var DEC = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 function intOrNull(v) {
   if (v === null || v === void 0) return null;
   const s = String(v);
-  if (!INT.test(s)) return null;
+  if (!INT2.test(s)) return null;
   const n = Number(s);
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
@@ -871,6 +975,59 @@ function decodeTree(text2) {
   });
 }
 
+// src/byteCache.js
+var isObject2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+function makeByteCache({ kino: kino2, key, budgetBytes, clock, ttlMs, valid = () => true }) {
+  const decode2 = (raw) => {
+    try {
+      const o = JSON.parse(raw);
+      if (!isObject2(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
+      return o.e.filter((x) => isObject2(x) && typeof x.k === "string" && Number.isFinite(x.s) && x.i !== void 0 && valid(x.i));
+    } catch (_) {
+      return [];
+    }
+  };
+  const encode2 = (entries) => JSON.stringify({ v: 1, e: entries });
+  function read() {
+    try {
+      const raw = kino2.storage.get(key);
+      return raw === null || raw === void 0 ? [] : decode2(raw);
+    } catch (_) {
+      return [];
+    }
+  }
+  const fresh = (entry, nowMs) => nowMs - entry.s < ttlMs;
+  function get(k, entries = read(), nowMs = clock.now()) {
+    const hit = entries.find((e) => e.k === k && fresh(e, nowMs));
+    return hit === void 0 ? void 0 : hit.i;
+  }
+  function write(added, touched = []) {
+    try {
+      const now = clock.now();
+      let entries = read().filter((e) => fresh(e, now));
+      for (const k of touched) {
+        const at = entries.findIndex((e) => e.k === k);
+        if (at >= 0) entries.push(...entries.splice(at, 1));
+      }
+      for (const a of added) {
+        const entry = { k: a.k, s: now, i: a.i };
+        if (utf8Length(encode2([entry])) > budgetBytes) continue;
+        entries = entries.filter((e) => e.k !== a.k);
+        entries.push(entry);
+      }
+      let text2 = encode2(entries);
+      while (utf8Length(text2) > budgetBytes && entries.length > 0) {
+        entries.shift();
+        text2 = encode2(entries);
+      }
+      if (entries.length === 0) return;
+      kino2.storage.set(key, text2);
+    } catch (_) {
+    }
+  }
+  return { read, get, fresh, write };
+}
+
 // src/search.js
 var ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 var MAX_OUTPUT_ITEMS = 100;
@@ -910,18 +1067,18 @@ function sortSeasons(items) {
   return out;
 }
 var str2 = (v) => typeof v === "string" ? v : "";
-var isObject2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-var INT2 = /^[+-]?\d+$/;
+var isObject3 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var INT3 = /^[+-]?\d+$/;
 function intOrNull2(v) {
   if (typeof v === "number") return Number.isInteger(v) ? v : null;
-  if (typeof v === "string" && INT2.test(v)) {
+  if (typeof v === "string" && INT3.test(v)) {
     const n = Number(v);
     return n >= -2147483648 && n <= 2147483647 ? n : null;
   }
   return null;
 }
 function slim(raw) {
-  if (!isObject2(raw)) return null;
+  if (!isObject3(raw)) return null;
   const c = str2(raw.contentId);
   if (c.trim() === "") return null;
   const alias = str2(raw.alias);
@@ -936,7 +1093,7 @@ function slim(raw) {
   if (n !== 0) out.n = n;
   if (Array.isArray(raw.posterList)) {
     for (const p of raw.posterList) {
-      if (!isObject2(p)) continue;
+      if (!isObject3(p)) continue;
       const key = p.fileType === "icon" ? "m" : p.fileType === "poster" ? "b" : null;
       const url = str2(p.fileUrl);
       if (key !== null && url.trim() !== "" && out[key] === void 0) out[key] = url;
@@ -946,26 +1103,18 @@ function slim(raw) {
 }
 var eachObject = (list, f) => {
   if (Array.isArray(list)) {
-    for (const x of list) if (isObject2(x)) f(x);
+    for (const x of list) if (isObject3(x)) f(x);
   }
 };
 function flatten(response) {
   const out = [];
-  if (isObject2(response)) {
+  if (isObject3(response)) {
     eachObject(response.searchItemList, (group) => eachObject(group.itemList, (x) => out.push(x)));
     if (out.length === 0) eachObject(Array.isArray(response.assetList) ? response.assetList : response.list, (x) => out.push(x));
   }
   return out;
 }
-function decodeCache(raw) {
-  try {
-    const o = JSON.parse(raw);
-    if (!isObject2(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
-    return o.e.filter((x) => isObject2(x) && typeof x.k === "string" && Number.isFinite(x.s) && Array.isArray(x.i) && x.i.every((it) => isObject2(it) && typeof it.c === "string" && typeof it.t === "string"));
-  } catch (_) {
-    return [];
-  }
-}
+var validEntryItems = (items) => Array.isArray(items) && items.every((it) => isObject3(it) && typeof it.c === "string" && typeof it.t === "string");
 var isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 var intOr0 = (v) => typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0;
 var distinctBy2 = (list, keyOf) => {
@@ -989,38 +1138,9 @@ function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
     } catch (_) {
     }
   };
-  function readEntries() {
-    try {
-      const raw = kino2.storage.get(CACHE_KEY);
-      return raw === null || raw === void 0 ? [] : decodeCache(raw);
-    } catch (_) {
-      return [];
-    }
-  }
-  function writeEntries(added, touched) {
-    try {
-      const now = clock.now();
-      let entries = readEntries().filter((e) => now - e.s < CACHE_FRESH_MS);
-      for (const k of touched) {
-        const at = entries.findIndex((e) => e.k === k);
-        if (at >= 0) entries.push(...entries.splice(at, 1));
-      }
-      for (const a of added) {
-        entries = entries.filter((e) => e.k !== a.k);
-        entries.push({ k: a.k, s: now, i: a.i });
-      }
-      let text2 = JSON.stringify({ v: 1, e: entries });
-      while (utf8Length(text2) > CACHE_BUDGET_BYTES && entries.length > 0) {
-        entries.shift();
-        text2 = JSON.stringify({ v: 1, e: entries });
-      }
-      if (entries.length === 0) return;
-      kino2.storage.set(CACHE_KEY, text2);
-    } catch (_) {
-    }
-  }
+  const cache = makeByteCache({ kino: kino2, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, valid: validEntryItems });
   function contextOf(query) {
-    const q = isObject2(query) ? query : {};
+    const q = isObject3(query) ? query : {};
     const rawType = typeof q.type === "string" ? q.type.trim() : "";
     return {
       q: typeof q.q === "string" ? q.q.trim() : "",
@@ -1054,7 +1174,7 @@ function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
     if (ctx.q === "") return [];
     const forms = await titleForms(ctx);
     const queries = distinctBy2(forms.map((f) => kino2.rank.shortQuery(f)), (f) => f.toLowerCase());
-    const entries = readEntries();
+    const entries = cache.read();
     const nowMs = clock.now();
     const touched = [];
     const added = [];
@@ -1076,9 +1196,9 @@ function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
       for (const q of qs) {
         const key = q.toLowerCase();
         let part = null;
-        const hit = entries.find((e) => e.k === key && nowMs - e.s < CACHE_FRESH_MS);
-        if (hit) {
-          part = hit.i;
+        const hit = cache.get(key, entries, nowMs);
+        if (hit !== void 0) {
+          part = hit;
           touched.push(key);
         } else {
           try {
@@ -1116,7 +1236,7 @@ function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
         }
       }
     } finally {
-      if (added.length > 0 || touched.length > 0) writeEntries(added, touched);
+      if (added.length > 0 || touched.length > 0) cache.write(added, touched);
     }
     if ((ctx.type === "tv" || ctx.type === "anime") && ctx.season > 0) {
       const matching = items.filter((it) => !isSeries(it.p ?? "movie") || seasonFromName(it.t) === ctx.season);
@@ -1145,6 +1265,168 @@ function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
     return out;
   }
   return { search: search2 };
+}
+
+// src/episodes.js
+var CACHE_KEY2 = "chapters:v1";
+var CACHE_BUDGET_BYTES2 = 32e3;
+var CACHE_FRESH_MS2 = 6 * 36e5;
+var IMDB = /^tt\d{7,}$/;
+var MAX_EPISODES = 5e3;
+var MAX_SEASONS = 50;
+var isObject4 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var INT4 = /^[+-]?\d+$/;
+function toIntOrNull2(v) {
+  const text2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+  if (text2 === null || !INT4.test(text2)) return null;
+  const n = Number(text2);
+  return n >= -2147483648 && n <= 2147483647 ? n || 0 : null;
+}
+var optString2 = (v) => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
+function parseSeasonList(list, ownId) {
+  let own = null;
+  const all = [];
+  const entries = Array.isArray(list) ? list : [];
+  for (const entry of entries) {
+    if (!isObject4(entry)) continue;
+    const id = optString2(entry.contentId);
+    const number = toIntOrNull2(entry.seasonNumber);
+    if (id === ownId) own = number;
+    if (id.trim() !== "" && number !== null) all.push({ id, number });
+  }
+  if (own === null && entries.length === 0) own = 1;
+  all.sort((a, b) => a.number - b.number);
+  return { own, all };
+}
+var validPayload = (p) => isObject4(p) && typeof p.i === "string" && Array.isArray(p.a) && Array.isArray(p.e) && p.e.every((x) => Array.isArray(x) && typeof x[1] === "string" && typeof x[2] === "string") && p.a.every((x) => Array.isArray(x) && typeof x[0] === "string" && Number.isInteger(x[1])) && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d));
+function pack(raw) {
+  return {
+    i: raw.imdb,
+    s: raw.season,
+    d: raw.declared,
+    a: raw.seasons.map((x) => [x.id, x.number]),
+    e: raw.items.map((it) => it.duration === void 0 ? [it.seriesNumber, it.contentId, it.name] : [it.seriesNumber, it.contentId, it.name, it.duration])
+  };
+}
+var unpack = (p) => ({
+  items: p.e.map((x) => ({ seriesNumber: x[0], contentId: x[1], name: x[2], duration: x[3] })),
+  imdb: p.i,
+  season: p.s,
+  declared: p.d,
+  seasons: p.a.map((x) => ({ id: x[0], number: x[1] }))
+});
+function makePortalChapters({ kino: kino2, portal, session, clock }) {
+  const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
+  const isKinoError3 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+  async function fetchDetail(seriesId) {
+    let response;
+    try {
+      await session.ensure();
+      response = await session.withValidSession(({ userId, userToken }) => portal.call(
+        "v4/getItemData",
+        { contentId: seriesId, type: "0", sortType: "0", language: "en", macAddr: FIXED_MAC },
+        { baseFields: true, userId, userToken }
+      ));
+    } catch (e) {
+      if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
+      if (isKinoError3(e)) throw e;
+      throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
+    }
+    const data = isObject4(response) ? response.assetData : void 0;
+    if (!isObject4(data)) throw kino2.error("unavailable", "Xuper devolvi\xF3 una cap\xEDtulos sin datos");
+    return data;
+  }
+  return async function portalChapters(seriesId) {
+    const cached = cache.get(seriesId);
+    if (cached !== void 0) return unpack(cached);
+    const data = await fetchDetail(seriesId);
+    const items = (Array.isArray(data.simpleProgramList) ? data.simpleProgramList : []).filter(isObject4).map((it) => {
+      const seriesNumber = typeof it.seriesNumber === "string" ? it.seriesNumber : typeof it.seriesNumber === "number" ? String(it.seriesNumber) : null;
+      const item = { seriesNumber, contentId: optString2(it.contentId), name: optString2(it.name), duration: void 0 };
+      if (typeof it.duration === "string" || typeof it.duration === "number" && Number.isFinite(it.duration)) item.duration = it.duration;
+      return item;
+    });
+    const seasonList = parseSeasonList(data.sameSeasonSeriesList, seriesId);
+    const raw = { items, imdb: optString2(data.keyWords), season: seasonList.own, declared: toIntOrNull2(data.volumnCount), seasons: seasonList.all };
+    if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
+    return raw;
+  };
+}
+function makeEpisodes({ kino: kino2, tmdb = null, portalChapters }) {
+  async function enrich(raw) {
+    const none = { extra: /* @__PURE__ */ new Map(), series: null };
+    if (!tmdb || !IMDB.test(raw.imdb) || raw.season === null) return none;
+    try {
+      const series = await tmdb.seriesByImdb(raw.imdb);
+      if (!series) return none;
+      const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season);
+      if (!fromTmdb) return { extra: /* @__PURE__ */ new Map(), series };
+      const expected = raw.declared !== null && raw.declared > 0 ? raw.declared : raw.items.length;
+      if (expected !== fromTmdb.length) return { extra: /* @__PURE__ */ new Map(), series };
+      const rows = /* @__PURE__ */ new Map();
+      for (const c of fromTmdb) {
+        const row2 = { still: c.still.trim() !== "" ? c.still : null, title: c.name.trim() !== "" ? c.name : null, overview: c.overview.trim() !== "" ? c.overview : null };
+        if (row2.still !== null || row2.title !== null || row2.overview !== null) rows.set(c.episode, row2);
+        else rows.delete(c.episode);
+      }
+      const missing = new Set([...rows].filter(([, r]) => r.overview === null).map(([n]) => n));
+      if (missing.size === 0) return { extra: rows, series };
+      let inEnglish = [];
+      try {
+        inEnglish = await tmdb.seasonEpisodes(series.tmdbId, raw.season, "en-US") ?? [];
+      } catch (_) {
+        inEnglish = [];
+      }
+      for (const c of inEnglish) {
+        if (missing.has(c.episode) && c.overview.trim() !== "") rows.set(c.episode, { ...rows.get(c.episode), overview: c.overview });
+      }
+      return { extra: rows, series };
+    } catch (_) {
+      return none;
+    }
+  }
+  return async function episodes2(ref) {
+    const magis = decode(ref);
+    if (!magis) throw kino2.error("unavailable", "ese ref no es de Xuper: no se pueden listar cap\xEDtulos");
+    const raw = await portalChapters(magis.contentId);
+    const { extra, series } = await enrich(raw);
+    const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
+      const number = toIntOrNull2(it.seriesNumber) ?? 0;
+      const ep = {
+        number,
+        title: it.name.trim() !== "" ? it.name : `Cap\xEDtulo ${number}`,
+        // The series plus the number: whoever plays it looks the chapter back up in the list.
+        ref: encodeChapter(number, magis.contentId)
+      };
+      const t = extra.get(number);
+      if (t?.still) ep.still = t.still;
+      if (t?.title) ep.tmdbTitle = t.title;
+      if (t?.overview) ep.overview = t.overview;
+      if (raw.season !== null) ep.season = raw.season;
+      return ep;
+    });
+    const out = { episodes: list };
+    if (IMDB.test(raw.imdb)) {
+      out.series = {
+        ids: { imdb: raw.imdb, tmdb: series?.tmdbId ?? 0 },
+        seasonNumber: raw.season ?? 0,
+        title: series?.title ?? "",
+        poster: series?.poster ?? "",
+        backdrop: series?.backdrop ?? ""
+      };
+    }
+    if (raw.seasons.length > 0) {
+      out.seasons = raw.seasons.slice(0, MAX_SEASONS).map((s) => ({
+        id: s.id,
+        // A season IS a portal title of the same kind: its ref is what a search would give it.
+        ref: encode({ contentId: s.id, programType: magis.programType, episode: 0 }),
+        title: `Temporada ${s.number}`,
+        number: s.number,
+        current: s.id === magis.contentId
+      }));
+    }
+    return out;
+  };
 }
 
 // src/catalog.js
@@ -1194,9 +1476,9 @@ function projectRows(rows, nowMs) {
   return out.slice(0, MAX_HOME_ROWS);
 }
 var hasItems = (sections) => sections.some((s) => s.items.length > 0);
-var INT3 = /^[+-]?\d+$/;
+var INT5 = /^[+-]?\d+$/;
 function offsetOf(cursor) {
-  if (typeof cursor !== "string" || !INT3.test(cursor)) return 0;
+  if (typeof cursor !== "string" || !INT5.test(cursor)) return 0;
   const n = Number(cursor);
   return n > 0 && n <= 2147483647 ? n : 0;
 }
@@ -1272,15 +1554,19 @@ function makeCatalog({ kino: kino2, portal, session, clock, tmdb = null }) {
     return next < row2.all.length ? { items, next: String(next) } : { items };
   }
   const { search: search2 } = makeSearch({ kino: kino2, portal, session, clock, tmdb });
-  return { home: home2, browse: browse2, search: search2 };
+  const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock });
+  const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters });
+  return { home: home2, browse: browse2, search: search2, episodes: episodes2, portalChapters };
 }
 
 // src/tmdb.js
 var TMDB_BASE = "https://api.themoviedb.org/3";
 var TMDB_LANGUAGE = "es-MX";
 var TIMEOUT_MS = 8e3;
+var IMG = "https://image.tmdb.org/t/p";
+var IMDB_ID = /^tt\d{7,}$/;
 var text = (v) => typeof v === "string" ? v : "";
-var blank2 = (s) => s.trim() === "";
+var blank3 = (s) => s.trim() === "";
 function parseTitleForms(type, body) {
   let o;
   try {
@@ -1302,7 +1588,7 @@ function parseTitleForms(type, body) {
     if (t.iso_639_1 !== "es") continue;
     const title = titleOf(t);
     const key = title.trim().toLowerCase();
-    if (blank2(title) || key === localized.toLowerCase() || seen.has(key)) continue;
+    if (blank3(title) || key === localized.toLowerCase() || seen.has(key)) continue;
     seen.add(key);
     spanish.push(title);
   }
@@ -1312,6 +1598,42 @@ function parseTitleForms(type, body) {
     englishTitle: englishEntry ? titleOf(englishEntry) : "",
     spanishTitles: spanish
   };
+}
+var isObject5 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var INT6 = /^[+-]?\d+$/;
+function optInt2(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string" && INT6.test(v.trim())) return Number(v.trim());
+  return 0;
+}
+var imageUrl = (path, size) => typeof path !== "string" || blank3(path) || path === "null" ? "" : `${IMG}/${size}${path}`;
+function parseSeriesByImdb(body) {
+  let o;
+  try {
+    o = JSON.parse(body);
+  } catch (_) {
+    return null;
+  }
+  const tv = isObject5(o) && Array.isArray(o.tv_results) && isObject5(o.tv_results[0]) ? o.tv_results[0] : null;
+  if (tv === null) return null;
+  const tmdbId = optInt2(tv.id);
+  if (tmdbId <= 0) return null;
+  return { tmdbId, title: text(tv.name), poster: imageUrl(tv.poster_path, "w500"), backdrop: imageUrl(tv.backdrop_path, "w1280") };
+}
+function parseSeasonEpisodes(body) {
+  let o;
+  try {
+    o = JSON.parse(body);
+  } catch (_) {
+    return null;
+  }
+  if (!isObject5(o)) return null;
+  const list = Array.isArray(o.episodes) ? o.episodes : [];
+  return list.filter(isObject5).map((e) => {
+    const episode = optInt2(e.episode_number);
+    const name = text(e.name);
+    return { episode, name: blank3(name) ? `Episodio ${episode}` : name, overview: text(e.overview), still: imageUrl(e.still_path, "w300") };
+  });
 }
 function makeTmdb({ kino: kino2 }) {
   function keyMarker() {
@@ -1335,7 +1657,29 @@ function makeTmdb({ kino: kino2 }) {
       return null;
     }
   }
-  return { titleForms };
+  async function read(path, language) {
+    try {
+      const key = keyMarker();
+      if (!key) return null;
+      const sep = path.includes("?") ? "&" : "?";
+      const res = await kino2.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs: TIMEOUT_MS });
+      if (!res || !res.ok) return null;
+      return res.text();
+    } catch (_) {
+      return null;
+    }
+  }
+  async function seriesByImdb(imdbId) {
+    if (typeof imdbId !== "string" || !IMDB_ID.test(imdbId)) return null;
+    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE);
+    return body === null ? null : parseSeriesByImdb(body);
+  }
+  async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE) {
+    if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
+    const body = await read(`/tv/${tvId}/season/${season}`, language);
+    return body === null ? null : parseSeasonEpisodes(body);
+  }
+  return { titleForms, seriesByImdb, seasonEpisodes };
 }
 
 // src/wiring.js
@@ -1380,9 +1724,9 @@ async function browse(ref, cursor) {
   await null;
   return guarded(({ catalog }) => catalog.browse(ref, cursor));
 }
-async function episodes() {
+async function episodes(ref) {
   await null;
-  throw kino.error("not_found", "todav\xEDa no");
+  return guarded(({ catalog }) => catalog.episodes(ref));
 }
 async function resolve() {
   await null;

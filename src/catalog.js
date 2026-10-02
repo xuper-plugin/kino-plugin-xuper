@@ -1,10 +1,10 @@
 // Home and browse over the Magis catalog (native-magis.md §4.1, §4.2); `search` lives in search.js
-// (§4.4) and is composed in. `episodes` joins the returned object in a later step; each public function is self-contained and shares only the
-// private helpers below.
+// (§4.4) and `episodes` in episodes.js (§4.3); both are composed in. Each public function is self-contained.
 import { classify, KINDS } from "./homeClassifier.js";
 import { parseTree, encodeTree, decodeTree, utf8Length, refOf, parseShelveTime } from "./homeTree.js";
 import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
+import { makePortalChapters, makeEpisodes } from "./episodes.js";
 
 export { parseShelveTime };
 
@@ -150,5 +150,9 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
 
   const { search } = makeSearch({ kino, portal, session, clock, tmdb });
 
-  return { home, browse, search };
+  // The chapter list is shared with resolve, which looks a chapter up by its number.
+  const portalChapters = makePortalChapters({ kino, portal, session, clock });
+  const episodes = makeEpisodes({ kino, tmdb, portalChapters });
+
+  return { home, browse, search, episodes, portalChapters };
 }
