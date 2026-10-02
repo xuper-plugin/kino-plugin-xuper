@@ -7,13 +7,17 @@ import { makeCatalog } from "./catalog.js";
 import { makeTmdb } from "./tmdb.js";
 import { makeResolve } from "./resolve.js";
 import { makeLiveCatalog } from "./liveCatalog.js";
+import { makeLive } from "./live.js";
 import * as constants from "./config.js";
 
 let deps = null;
 
+// The real clock. `sign()` reads it too: it runs in the signing lane, where only kino.crypto,
+// kino.secret, kino.config, kino.html and kino.log exist, so `Date` is the only time it has.
+export const clock = { now: () => Date.now() };
+
 export function getDeps() {
   if (deps) return deps;
-  const clock = { now: () => Date.now() };
   const crypto = makeCrypto(kino);
   const config = { hosts: constants.hosts, appId: constants.APP_ID, apkVersion: constants.APK_VERSION };
   let session = null; // the portal needs the session's sn and the session needs the portal: wired lazily
@@ -21,10 +25,12 @@ export function getDeps() {
   session = makeSession({ kino, portal, clock });
   const tmdb = makeTmdb({ kino });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
-  // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).
-  const resolve = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters });
   const live = makeLiveCatalog({ kino, portal, session, clock });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live };
+  // A bare channel code resolves through liveStream; the rest stays VOD.
+  const liveStream = makeLive({ kino, portal, session, clock, config });
+  // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).
+  const resolve = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream };
   return deps;
 }
 

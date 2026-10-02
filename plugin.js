@@ -48,6 +48,10 @@ var SPKG_VER = "2025-08-07 05:40:11_36_16_";
 var APK_VER_HEADER = "43404";
 var USER_AGENT = "okhttp/3.12.12";
 var UA_CDN = "Ranger/4.9.4-17294ac0";
+var LIVE_USER_AGENT = "Ranger/4.9.4-17294ac0";
+var LIVE_APP = "com.android.msandroid";
+var LIVE_APP_VERSION = "49902";
+var LIVE_X_BUFFER = "0";
 var CONTENT_TYPE = "application/json;charset=utf-8";
 var RATE_LIMIT_MS = 400;
 var REQUEST_TIMEOUT_MS = 25e3;
@@ -108,7 +112,7 @@ function mapPortalError(code, message, kino2) {
   return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
 }
 var isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-function makePortal({ kino: kino2, crypto, config, clock, snProvider }) {
+function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) {
   let preferredHost = null;
   let lastCallMs = null;
   const hostOrder = () => {
@@ -119,12 +123,12 @@ function makePortal({ kino: kino2, crypto, config, clock, snProvider }) {
   let slotTail = Promise.resolve();
   function waitTurn() {
     const run = slotTail.then(async () => {
-      const now = clock.now();
+      const now = clock2.now();
       if (lastCallMs !== null) {
         const wait = Math.min(MAX_SLEEP_MS, Math.ceil(RATE_LIMIT_MS - (now - lastCallMs)));
         if (wait > 0) await kino2.sleep(wait);
       }
-      lastCallMs = clock.now();
+      lastCallMs = clock2.now();
     });
     slotTail = run.then(() => {
     }, () => {
@@ -221,7 +225,7 @@ function makeLock() {
     return run;
   };
 }
-function makeSession({ kino: kino2, portal, clock, seedsUrl = DEFAULT_SEEDS_URL, random }) {
+function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SEEDS_URL, random }) {
   const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
   const lock = makeLock();
   const poolLock = makeLock();
@@ -405,16 +409,16 @@ function makeSession({ kino: kino2, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const clean = list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken)).slice(0, MAX_SEEDS).map((e) => ({ sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) }));
     if (clean.length === 0) return;
     writeJson("seeds", clean);
-    writeJson("seedsAt", clock.now());
+    writeJson("seedsAt", clock2.now());
   }
   function refreshSeeds({ periodic = false } = {}) {
     return poolLock(async () => {
       if (periodic) {
         if (!regionBlocked() || account()) return seedPool().length > 0;
         const at = readJson("seedsAt");
-        if (typeof at === "number" && clock.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
+        if (typeof at === "number" && clock2.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
       }
-      const now = clock.now();
+      const now = clock2.now();
       if (lastPoolRefreshMs !== null && now - lastPoolRefreshMs < POOL_REFRESH_COOLDOWN_MS) {
         return seedPool().length > 0;
       }
@@ -807,6 +811,10 @@ function decode(ref) {
   }
   return fromGatewayRef(ref);
 }
+var CHANNEL_CODE = /^[A-Za-z0-9._~-]{1,128}$/;
+function isChannelRef(ref) {
+  return typeof ref === "string" && CHANNEL_CODE.test(ref) && !ref.startsWith("~") && decode(ref) === null;
+}
 
 // src/homeTree.js
 var PORTAL_OFFSET_MS = 8 * 36e5;
@@ -979,7 +987,7 @@ function decodeTree(text2) {
 
 // src/byteCache.js
 var isObject2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-function makeByteCache({ kino: kino2, key, budgetBytes, clock, ttlMs, valid = () => true }) {
+function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid = () => true }) {
   const decode2 = (raw) => {
     try {
       const o = JSON.parse(raw);
@@ -999,13 +1007,13 @@ function makeByteCache({ kino: kino2, key, budgetBytes, clock, ttlMs, valid = ()
     }
   }
   const fresh = (entry, nowMs) => nowMs - entry.s < ttlMs;
-  function get(k, entries = read(), nowMs = clock.now()) {
+  function get(k, entries = read(), nowMs = clock2.now()) {
     const hit = entries.find((e) => e.k === k && fresh(e, nowMs));
     return hit === void 0 ? void 0 : hit.i;
   }
   function write(added, touched = []) {
     try {
-      const now = clock.now();
+      const now = clock2.now();
       let entries = read().filter((e) => fresh(e, now));
       for (const k of touched) {
         const at = entries.findIndex((e) => e.k === k);
@@ -1128,7 +1136,7 @@ var distinctBy2 = (list, keyOf) => {
     return true;
   });
 };
-function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
+function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }) {
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
     if (isKinoError(e)) return e;
@@ -1140,7 +1148,7 @@ function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
     } catch (_) {
     }
   };
-  const cache = makeByteCache({ kino: kino2, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, valid: validEntryItems });
+  const cache = makeByteCache({ kino: kino2, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock: clock2, ttlMs: CACHE_FRESH_MS, valid: validEntryItems });
   function contextOf(query) {
     const q = isObject3(query) ? query : {};
     const rawType = typeof q.type === "string" ? q.type.trim() : "";
@@ -1177,7 +1185,7 @@ function makeSearch({ kino: kino2, portal, session, clock, tmdb = null }) {
     const forms = await titleForms(ctx);
     const queries = distinctBy2(forms.map((f) => kino2.rank.shortQuery(f)), (f) => f.toLowerCase());
     const entries = cache.read();
-    const nowMs = clock.now();
+    const nowMs = clock2.now();
     const touched = [];
     const added = [];
     const seen = /* @__PURE__ */ new Set();
@@ -1321,9 +1329,9 @@ var unpack = (p) => ({
   declared: p.d,
   seasons: p.a.map((x) => ({ id: x[0], number: x[1] }))
 });
-function makePortalChapters({ kino: kino2, portal, session, clock }) {
-  const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
-  const isKinoError5 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
+  const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock: clock2, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
+  const isKinoError6 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
   async function fetchDetail(seriesId) {
     let response;
     try {
@@ -1335,7 +1343,7 @@ function makePortalChapters({ kino: kino2, portal, session, clock }) {
       ));
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
-      if (isKinoError5(e)) throw e;
+      if (isKinoError6(e)) throw e;
       throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
     }
     const data = isObject4(response) ? response.assetData : void 0;
@@ -1488,7 +1496,7 @@ function offsetOf(cursor) {
   const n = Number(cursor);
   return n > 0 && n <= 2147483647 ? n : 0;
 }
-function makeCatalog({ kino: kino2, portal, session, clock, tmdb = null }) {
+function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null }) {
   const key = (root) => `tree:${root}`;
   function readTree(root) {
     try {
@@ -1548,19 +1556,19 @@ function makeCatalog({ kino: kino2, portal, session, clock, tmdb = null }) {
     return classify(roots);
   }
   async function home2() {
-    return projectRows(await buildRows(), clock.now());
+    return projectRows(await buildRows(), clock2.now());
   }
   async function browse2(ref, cursor) {
     const row2 = typeof ref === "string" ? (await buildRows()).find((r) => r.id === ref) : void 0;
     if (!row2) throw kino2.error("not_found", "No se encontr\xF3 esa lista");
     const offset = offsetOf(cursor);
-    const nowMs = clock.now();
+    const nowMs = clock2.now();
     const items = row2.all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
     return next < row2.all.length ? { items, next: String(next) } : { items };
   }
-  const { search: search2 } = makeSearch({ kino: kino2, portal, session, clock, tmdb });
-  const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock });
+  const { search: search2 } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb });
+  const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
   const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters });
   return { home: home2, browse: browse2, search: search2, episodes: episodes2, portalChapters };
 }
@@ -1765,27 +1773,27 @@ function slbLifetime(slb, nowMs) {
   if (!m) return declared;
   return Math.min(declared, Number(m[1]) - Math.floor(nowMs / 1e3) - AUTH_MARGIN_S);
 }
-var slbBean = (apkVersion) => ({
+var slbBean = (apkVersion, liveCodes = ["masnew_live"]) => ({
   hasPay: "0",
   userIdentity: "1",
   type: "merge",
   appVer: apkVersion,
   lang: "es",
   encMediaSupported: 1,
-  liveCodeList: ["masnew_live"],
+  liveCodeList: [...liveCodes],
   appParams: "",
   reserve1: FIXED_MAC,
   pipFlag: "0"
 });
-function makeResolve({ kino: kino2, portal, session, clock, config, portalChapters }) {
+function makeResolve({ kino: kino2, portal, session, clock: clock2, config, portalChapters, live = null }) {
   const unavailable = (text2) => kino2.error("unavailable", text2);
   let slbCache = null;
   const sessionSlb = () => session.withValidSession(async ({ userId, userToken }) => {
-    if (slbCache && slbCache.token === userToken && clock.now() < slbCache.expiresMs) return slbCache.slb;
+    if (slbCache && slbCache.token === userToken && clock2.now() < slbCache.expiresMs) return slbCache.slb;
     const answer = await portal.call("v14/getSlbInfo", slbBean(config.apkVersion), { baseFields: true, userId, userToken });
     const fresh = isObject6(answer) ? answer : {};
-    const ttl = slbLifetime(fresh, clock.now());
-    slbCache = ttl > 0 ? { slb: fresh, token: userToken, expiresMs: clock.now() + ttl * 1e3 } : null;
+    const ttl = slbLifetime(fresh, clock2.now());
+    slbCache = ttl > 0 ? { slb: fresh, token: userToken, expiresMs: clock2.now() + ttl * 1e3 } : null;
     return fresh;
   });
   async function chapterFrom(magis) {
@@ -1826,7 +1834,8 @@ function makeResolve({ kino: kino2, portal, session, clock, config, portalChapte
       durationMs: chapter ? portalDurationMs(chapter.duration) : portalDurationMs(best.duration)
     };
   }
-  async function resolve2(ref) {
+  async function resolve2(ref, options) {
+    if (live && isChannelRef(ref)) return live.resolveLive(ref, options);
     try {
       const magis = decode(ref);
       if (!magis) throw unavailable("ese ref no es de Xuper: no se puede reproducir");
@@ -1953,11 +1962,569 @@ function makeLiveCatalog({ kino: kino2, portal, session }) {
   return { liveCategories: liveCategories2, liveChannels: liveChannels2 };
 }
 
+// src/tweakedMd5.js
+var K = Object.freeze([
+  3614090360,
+  3905402710,
+  606105819,
+  3250441966,
+  4118548399,
+  1200080426,
+  2821735955,
+  4249261313,
+  1770035416,
+  2336552879,
+  4294925233,
+  2304563134,
+  1804603682,
+  4254626195,
+  2792965006,
+  1236535329,
+  4129170786,
+  3225465664,
+  643717713,
+  3921069994,
+  3593408605,
+  38016083,
+  3634488961,
+  3889429448,
+  568446438,
+  3275163606,
+  4107603335,
+  1163531501,
+  2850285829,
+  4243563512,
+  1735328473,
+  2368359562,
+  4294588738,
+  2272392833,
+  1839030562,
+  4259657740,
+  2763975236,
+  1272893353,
+  4139469664,
+  3200236656,
+  681279174,
+  3936430074,
+  3564056709,
+  76029189,
+  // [42] tweaked: standard d4ef3085
+  3654602809,
+  3871185381,
+  530742520,
+  3299628645,
+  // [45] tweaked: standard e6db99e5
+  4096336452,
+  1126891415,
+  2878612391,
+  4237533241,
+  1700485571,
+  2399980690,
+  4293706877,
+  2240044497,
+  // [54] tweaked: standard ffeff47d
+  1873313359,
+  4264355552,
+  2734768916,
+  1309151649,
+  4149444226,
+  3174756917,
+  765973179,
+  3951481745
+  // [62] tweaked: standard 2ad7d2bb
+]);
+var TWEAKED_STEPS = Object.freeze([42, 45, 54, 62]);
+var S = [
+  7,
+  12,
+  17,
+  22,
+  7,
+  12,
+  17,
+  22,
+  7,
+  12,
+  17,
+  22,
+  7,
+  12,
+  17,
+  22,
+  5,
+  9,
+  14,
+  20,
+  5,
+  9,
+  14,
+  20,
+  5,
+  9,
+  14,
+  20,
+  5,
+  9,
+  14,
+  20,
+  4,
+  11,
+  16,
+  23,
+  4,
+  11,
+  16,
+  23,
+  4,
+  11,
+  16,
+  23,
+  4,
+  11,
+  16,
+  23,
+  6,
+  10,
+  15,
+  21,
+  6,
+  10,
+  15,
+  21,
+  6,
+  10,
+  15,
+  21,
+  6,
+  10,
+  15,
+  21
+];
+var ROUND1 = [10, 11, 12, 13, 14, 15, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5];
+var G = Array.from({ length: 64 }, (_, i) => i < 16 ? ROUND1[i] : i < 32 ? (5 * i + 1) % 16 : i < 48 ? (3 * i + 5) % 16 : 7 * i % 16);
+var SALT = new Uint8Array([
+  115,
+  97,
+  108,
+  116,
+  51,
+  51,
+  51,
+  51,
+  61,
+  52,
+  152,
+  13,
+  10,
+  21,
+  50,
+  201,
+  195,
+  130,
+  23,
+  8,
+  192
+]);
+var rotl = (x, n) => (x << n | x >>> 32 - n) >>> 0;
+function compress(state, block, off) {
+  const m = new Array(16);
+  for (let j = 0; j < 16; j++) {
+    const p = off + j * 4;
+    m[j] = (block[p] | block[p + 1] << 8 | block[p + 2] << 16 | block[p + 3] << 24) >>> 0;
+  }
+  let [a, b, c, d] = state;
+  for (let i = 0; i < 64; i++) {
+    let f;
+    if (i < 16) f = b & c | ~b & d;
+    else if (i < 32) f = d & b | ~d & c;
+    else if (i < 48) f = b ^ c ^ d;
+    else f = c ^ (b | ~d);
+    const sum = f + a + K[i] + m[G[i]] >>> 0;
+    a = d;
+    d = c;
+    c = b;
+    b = b + rotl(sum, S[i]) >>> 0;
+  }
+  state[0] = state[0] + a >>> 0;
+  state[1] = state[1] + b >>> 0;
+  state[2] = state[2] + c >>> 0;
+  state[3] = state[3] + d >>> 0;
+}
+function digestHex(bytes) {
+  const state = [1732584193, 4023233417, 2562383102, 271733878];
+  const len = bytes.length;
+  const padLen = (56 - (len + 1) % 64 + 64) % 64;
+  const total = new Uint8Array(len + 1 + padLen + 8);
+  total.set(bytes, 0);
+  total[len] = 128;
+  const bits = BigInt(len) * 8n;
+  for (let i = 0; i < 8; i++) total[len + 1 + padLen + i] = Number(bits >> BigInt(8 * i) & 0xffn);
+  for (let off = 0; off < total.length; off += 64) compress(state, total, off);
+  let out = "";
+  for (const w of state) for (let i = 0; i < 4; i++) out += (w >>> 8 * i & 255).toString(16).padStart(2, "0");
+  return out;
+}
+function signO3(token, startMomentMs) {
+  const head = new TextEncoder().encode(
+    `token=${token}&sign2_method=sign_o3&instance=0&start_moment=${startMomentMs}`
+  );
+  const msg = new Uint8Array(head.length + SALT.length);
+  msg.set(head, 0);
+  msg.set(SALT, head.length);
+  return digestHex(msg);
+}
+
+// src/liveSign.js
+var MAX_CONTEXT_CHARS = 4096;
+var TOKEN = /token=([0-9A-Fa-f]{32})/;
+var HEX32 = /^[0-9A-Fa-f]{32}$/;
+var AUTHORITY = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/;
+function tokenOf(authBase) {
+  const m = TOKEN.exec(typeof authBase === "string" ? authBase : "");
+  return m ? m[1] : "";
+}
+var normalize = (authority) => String(authority).toLowerCase().replace(/:80$/, "");
+function authorityOf(url) {
+  const m = AUTHORITY.exec(typeof url === "string" ? url : "");
+  if (!m) return "";
+  const at = m[1].lastIndexOf("@");
+  return normalize(at >= 0 ? m[1].slice(at + 1) : m[1]);
+}
+function buildSignContext(license, cdns) {
+  const encode2 = (list, withToken) => JSON.stringify({
+    l: license,
+    c: list.map((d) => withToken ? { h: d.cflHost, a: d.authBase, t: tokenOf(d.authBase) } : { h: d.cflHost, a: d.authBase })
+  });
+  const full = encode2(cdns, true);
+  if (full.length <= MAX_CONTEXT_CHARS) return { context: full, kept: cdns };
+  for (let n = cdns.length; n >= 1; n--) {
+    const kept = cdns.slice(0, n);
+    const context = encode2(kept, false);
+    if (context.length <= MAX_CONTEXT_CHARS) return { context, kept };
+  }
+  return null;
+}
+function readContext(context) {
+  let ctx;
+  try {
+    ctx = JSON.parse(context);
+  } catch (_) {
+    ctx = null;
+  }
+  const ok = ctx && typeof ctx === "object" && typeof ctx.l === "string" && Array.isArray(ctx.c) && ctx.c.length > 0 && ctx.c.every((d) => d && typeof d.h === "string" && typeof d.a === "string");
+  if (!ok) throw new Error("live signContext is not readable");
+  return ctx;
+}
+function signRequest({ url, context }, nowMs) {
+  const ctx = readContext(context);
+  const want = authorityOf(url);
+  const cdn = ctx.c.find((d) => normalize(d.h) === want) || ctx.c[0];
+  const token = typeof cdn.t === "string" && HEX32.test(cdn.t) ? cdn.t : tokenOf(cdn.a);
+  if (token === "") throw new Error("live CDN entry without a token");
+  const moment = Math.trunc(nowMs);
+  return {
+    headers: {
+      "Content-Auth": `${cdn.a}&sign2_method=sign_o3&instance=0&start_moment=${moment}&sign2=${signO3(token, moment)}`,
+      "Content-License": ctx.l,
+      "User-Agent": LIVE_USER_AGENT,
+      App: LIVE_APP,
+      "App-Version": LIVE_APP_VERSION,
+      "X-Buffer": LIVE_X_BUFFER
+    }
+  };
+}
+
+// src/liveRotation.js
+var MAX_ROTATIONS = 3;
+var ROTATION_TTL_MS = 30 * 6e4;
+var MAX_CHANNELS = 12;
+var PREFIX2 = "liveRot:";
+var isBlank3 = (s) => typeof s !== "string" || s.trim() === "";
+var empty = () => ({ tried: [], active: null, last: null, at: 0 });
+function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = MAX_ROTATIONS, ttlMs = ROTATION_TTL_MS }) {
+  const memory = /* @__PURE__ */ new Map();
+  const keyOf = (channel) => PREFIX2 + channel;
+  const fresh = (state) => state && clock2.now() - state.at < ttlMs;
+  const digest = (key) => {
+    try {
+      return String(kino2.crypto.hash("md5", String(key))).slice(0, 16);
+    } catch (_) {
+      return String(key).slice(0, 16);
+    }
+  };
+  function parse(raw) {
+    try {
+      const o = JSON.parse(raw);
+      if (!o || typeof o !== "object" || !Array.isArray(o.t)) return null;
+      return {
+        tried: o.t.filter((s) => typeof s === "string"),
+        active: typeof o.a === "string" ? o.a : null,
+        last: typeof o.k === "string" ? o.k : null,
+        at: typeof o.at === "number" ? o.at : 0
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+  function read(channel) {
+    const mem = memory.get(channel);
+    if (mem) {
+      if (fresh(mem)) return mem;
+      memory.delete(channel);
+    }
+    let raw = null;
+    try {
+      raw = kino2.storage.get(keyOf(channel));
+    } catch (_) {
+    }
+    const stored = typeof raw === "string" ? parse(raw) : null;
+    if (stored) remember(channel, stored);
+    return stored;
+  }
+  function remember(channel, state) {
+    memory.delete(channel);
+    memory.set(channel, state);
+    while (memory.size > MAX_CHANNELS) memory.delete(memory.keys().next().value);
+  }
+  function evictFor(channel) {
+    try {
+      const own = keyOf(channel);
+      const keys = kino2.storage.keys().filter((k) => k.startsWith(PREFIX2) && k !== own);
+      if (keys.length < MAX_CHANNELS) return;
+      const aged = keys.map((k) => {
+        let at = 0;
+        try {
+          at = parse(kino2.storage.get(k))?.at ?? 0;
+        } catch (_) {
+        }
+        return { k, at };
+      }).sort((x, y) => x.at - y.at);
+      for (const { k } of aged.slice(0, keys.length - MAX_CHANNELS + 1)) kino2.storage.remove(k);
+    } catch (_) {
+    }
+  }
+  function write(channel, state) {
+    state.at = clock2.now();
+    remember(channel, state);
+    try {
+      let exists = false;
+      try {
+        exists = kino2.storage.get(keyOf(channel)) !== null;
+      } catch (_) {
+      }
+      if (!exists) evictFor(channel);
+      kino2.storage.set(keyOf(channel), JSON.stringify({ t: state.tried, a: state.active, k: state.last, at: state.at }), { ttlMs });
+    } catch (_) {
+    }
+  }
+  const activeSn = (channel) => read(channel)?.active ?? null;
+  const triedCount = (channel) => read(channel)?.tried.length ?? 0;
+  function onRefused(channel, currentSn, pool, refusedKey) {
+    const state = read(channel) || empty();
+    const key = digest(refusedKey);
+    if (state.last === key) return state.active !== null;
+    state.last = key;
+    const refused = state.active ?? currentSn;
+    if (!state.tried.includes(refused)) state.tried.push(refused);
+    const rotationsSoFar = state.tried.length - 1;
+    let next = null;
+    if (rotationsSoFar < maxRotations) {
+      const candidates = (Array.isArray(pool) ? pool : []).filter((e) => e && !isBlank3(e.sn) && !state.tried.includes(e.sn));
+      if (candidates.length > 0) next = candidates[Math.min(candidates.length - 1, Math.floor(random() * candidates.length))].sn;
+    }
+    state.active = next;
+    write(channel, state);
+    return next !== null;
+  }
+  function reset(channel) {
+    memory.delete(channel);
+    try {
+      kino2.storage.remove(keyOf(channel));
+    } catch (_) {
+    }
+  }
+  return { activeSn, triedCount, onRefused, reset };
+}
+
+// src/live.js
+var DEFAULT_TTL_S = 300;
+var MIN_EXPIRES_S = 30;
+var MAX_EXPIRES_S = 86400;
+var MAX_ALTERNATE_HOSTS = 6;
+var NOT_LOGGED_IN = "aaa100028";
+var INT9 = /^[+-]?\d+$/;
+var AUTHORITY2 = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/;
+var SERVED_MEMORY = 64;
+var TEXT = {
+  noAccount: "Este canal necesita una cuenta de Xuper (para pel\xEDculas y series no hace falta). Vinc\xFAlala en Ajustes \u25B8 Plugins \u25B8 Xuper.",
+  noAddresses: "No se pudo abrir el canal: Xuper no dio la direcci\xF3n de la se\xF1al",
+  // live_no_addresses
+  noCdn: "No se pudo abrir el canal: Xuper no dio un servidor de vivo",
+  // live_no_cfl_cdn
+  noLicense: "No se pudo abrir el canal: Xuper no dio la licencia de la se\xF1al",
+  // live_no_license
+  noToken: "No se pudo abrir el canal: el servidor de vivo no trae su token",
+  // live_no_cfl_token
+  tooLong: "No se pudo abrir el canal: los datos de la se\xF1al son demasiado largos",
+  generic: "Xuper no est\xE1 disponible ahora"
+};
+var isObject8 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var isKinoError4 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var optString4 = (v) => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
+var objects2 = (v) => Array.isArray(v) ? v.filter(isObject8) : [];
+var notBlank2 = (s) => s.trim() !== "";
+function bareHost(mainAddr) {
+  let s = typeof mainAddr === "string" ? mainAddr : "";
+  if (s.startsWith("https://")) s = s.slice(8);
+  if (s.startsWith("http://")) s = s.slice(7);
+  const slash = s.indexOf("/");
+  return slash >= 0 ? s.slice(0, slash) : s;
+}
+function signalFrom(play) {
+  let firstLicense = null;
+  for (const a of objects2(isObject8(play) ? play.liveAddressList : null)) {
+    const license = optString4(a.license);
+    const playCode = optString4(a.playCode);
+    if (firstLicense === null) firstLicense = license;
+    if (notBlank2(playCode) && notBlank2(license)) return { playCode, license };
+  }
+  return firstLicense === null ? null : { playCode: "", license: firstLicense };
+}
+function liveCdns(slb) {
+  const out = [];
+  for (const cdn of objects2(isObject8(slb) ? slb.cdn_list : null)) {
+    if (optString4(cdn.tag) !== "live") continue;
+    for (const u of objects2(cdn.url_list)) {
+      const url = optString4(u.url);
+      if (!isCfl(url) && optString4(u.sign_type) !== "cfl") continue;
+      const host = bareHost(optString4(cdn.main_addr));
+      if (notBlank2(host)) out.push({ cflHost: host, authBase: url });
+    }
+  }
+  return out;
+}
+function expiresOf(slb) {
+  const text2 = optString4(isObject8(slb) ? slb.invalidTime : "");
+  const n = INT9.test(text2) ? Number(text2) : NaN;
+  const ttl = n > 0 ? n : DEFAULT_TTL_S;
+  return Math.min(MAX_EXPIRES_S, Math.max(MIN_EXPIRES_S, ttl));
+}
+function makeLive({ kino: kino2, portal, session, clock: clock2, config, random }) {
+  const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
+  const rotation = makeLiveRotation({ kino: kino2, clock: clock2, random: rand });
+  const served = /* @__PURE__ */ new Map();
+  const unavailable = (text2) => kino2.error("unavailable", text2);
+  const log = (line) => {
+    try {
+      kino2.log("xuper live: " + line);
+    } catch (_) {
+    }
+  };
+  const surface = (e) => {
+    if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
+    if (isKinoError4(e)) return e;
+    return unavailable(TEXT.generic);
+  };
+  function noteServed(code, license) {
+    served.delete(code);
+    served.set(code, license);
+    while (served.size > SERVED_MEMORY) served.delete(served.keys().next().value);
+  }
+  async function open(code, seed) {
+    let lastCode = null;
+    let call;
+    if (seed) {
+      call = (path, bean) => portal.call(path, bean, { baseFields: true, userId: seed.userId, userToken: seed.userToken, sn: seed.sn });
+    } else {
+      await session.ensure();
+      call = (path, bean) => session.withValidSession(async ({ userId, userToken }) => {
+        try {
+          return await portal.call(path, bean, { baseFields: true, userId, userToken });
+        } catch (e) {
+          lastCode = e instanceof PortalError ? e.code : null;
+          throw e;
+        }
+      });
+    }
+    let play;
+    try {
+      play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" });
+    } catch (e) {
+      const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError4(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
+      if (notLoggedIn) throw kino2.error("auth_required", TEXT.noAccount);
+      throw e;
+    }
+    const signal = signalFrom(play);
+    if (!signal) throw unavailable(TEXT.noAddresses);
+    const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]));
+    const all = liveCdns(slb);
+    if (all.length === 0) throw unavailable(TEXT.noCdn);
+    if (!notBlank2(signal.license)) throw unavailable(TEXT.noLicense);
+    const cdns = all.filter((d) => tokenOf(d.authBase) !== "" && AUTHORITY2.test(d.cflHost));
+    if (cdns.length === 0) throw unavailable(TEXT.noToken);
+    const built = buildSignContext(signal.license, cdns);
+    if (!built) throw unavailable(TEXT.tooLong);
+    const primary = built.kept[0].cflHost;
+    const alternates = [];
+    for (const d of built.kept.slice(1)) {
+      if (d.cflHost.toLowerCase() === primary.toLowerCase() || alternates.some((h) => h.toLowerCase() === d.cflHost.toLowerCase())) continue;
+      if (alternates.length < MAX_ALTERNATE_HOSTS) alternates.push(d.cflHost);
+    }
+    const playCode = notBlank2(signal.playCode) ? signal.playCode : code;
+    noteServed(code, signal.license);
+    return {
+      url: `http://${primary}/live/${playCode}.m3u8`,
+      mime: "application/x-mpegurl",
+      signing: "request",
+      signContext: built.context,
+      alternateHosts: alternates,
+      expiresInSeconds: expiresOf(slb)
+    };
+  }
+  const seedBySn = (sn) => sn === null ? null : session.seedPool().find((e) => e.sn === sn) || null;
+  function onConflict(code, attempt) {
+    const activeSn = rotation.activeSn(code);
+    if (session.kind() !== "seed" && activeSn === null) return;
+    const current = activeSn ?? session.current().sn;
+    const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
+    const moved = rotation.onRefused(code, current, session.seedPool(), refusedKey);
+    log(`409 on a channel: ${moved ? "next open uses another seed" : "no seed left, back to the own session"} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
+  }
+  async function openWithRotation(code) {
+    let seed = seedBySn(rotation.activeSn(code));
+    if (!seed) return open(code, null);
+    for (let i = 0; i < MAX_ROTATIONS + 1; i++) {
+      try {
+        return await open(code, seed);
+      } catch (_) {
+        log("a rotated seed could not open the channel: next");
+        const moved = rotation.onRefused(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`);
+        const next = seedBySn(rotation.activeSn(code));
+        if (!next || !moved) return open(code, null);
+        seed = next;
+      }
+    }
+    return open(code, null);
+  }
+  async function resolveLive(code, options) {
+    await null;
+    try {
+      const retry = isObject8(options) && isObject8(options.retry) ? options.retry : null;
+      if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
+      return await openWithRotation(code);
+    } catch (e) {
+      throw surface(e);
+    }
+  }
+  const sign2 = async (request) => signRequest(request, clock2.now());
+  return { resolveLive, sign: sign2 };
+}
+
 // src/wiring.js
 var deps = null;
+var clock = { now: () => Date.now() };
 function getDeps() {
   if (deps) return deps;
-  const clock = { now: () => Date.now() };
   const crypto = makeCrypto(kino);
   const config = { hosts, appId: APP_ID, apkVersion: APK_VERSION };
   let session = null;
@@ -1965,17 +2532,18 @@ function getDeps() {
   session = makeSession({ kino, portal, clock });
   const tmdb = makeTmdb({ kino });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
-  const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters });
   const live = makeLiveCatalog({ kino, portal, session, clock });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live };
+  const liveStream = makeLive({ kino, portal, session, clock, config });
+  const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live, liveStream };
   return deps;
 }
-var isKinoError4 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+var isKinoError5 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function guarded(body) {
   try {
     return await body(getDeps());
   } catch (e) {
-    if (isKinoError4(e)) throw e;
+    if (isKinoError5(e)) throw e;
     try {
       kino.log("xuper: " + String(e && e.name || "error"));
     } catch (_) {
@@ -2005,6 +2573,19 @@ async function resolve(ref, options) {
   await null;
   return guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options));
 }
+async function sign(request) {
+  await null;
+  try {
+    return signRequest(request, clock.now());
+  } catch (e) {
+    if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) throw e;
+    try {
+      kino.log("xuper sign: " + String(e && e.name || "error"));
+    } catch (_) {
+    }
+    throw kino.error("unavailable", "No se pudo firmar la petici\xF3n del canal");
+  }
+}
 async function liveCategories() {
   await null;
   return guarded(({ live }) => live.liveCategories());
@@ -2030,5 +2611,6 @@ export {
   liveChannels,
   resolve,
   search,
-  settingsStatus
+  settingsStatus,
+  sign
 };

@@ -55,3 +55,13 @@ test("liveCategories and liveChannels go through the live catalog: bad input is 
   await assert.rejects(() => plugin.liveCategories(), (e) => e.code === "unavailable");
   await assert.rejects(() => plugin.liveChannels({ categoryId: "76183" }), (e) => e.code === "unavailable");
 });
+
+test("a bare channel code resolves through the live stream: with no configured host it is a kino unavailable, never a VOD 'no es de Xuper'", async () => {
+  assert.equal(typeof getDeps().liveStream.resolveLive, "function");
+  await assert.rejects(() => plugin.resolve("cyx-RCNHD", { retry: { reason: "expired", attempt: 1 } }), (e) => e.code === "unavailable" && !e.message.includes("no es de Xuper"));
+});
+
+test("sign is exported and a broken context is a Spanish unavailable", async () => {
+  assert.equal(typeof plugin.sign, "function");
+  await assert.rejects(() => plugin.sign({ url: "http://x.live.test/a.m3u8", kind: "playlist", ref: "c", context: "nope" }), (e) => e.code === "unavailable" && e.message === "No se pudo firmar la petición del canal");
+});

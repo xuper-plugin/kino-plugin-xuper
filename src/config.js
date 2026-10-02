@@ -13,7 +13,13 @@ export const APK_VER_HEADER = "43404";
 export const USER_AGENT = "okhttp/3.12.12";
 // The `User-Agent` the CDN expects on VOD media requests (not the portal's okhttp one).
 export const UA_CDN = "Ranger/4.9.4-17294ac0";
-export const CONTENT_TYPE = "application/json;charset=utf-8";
+// Every live CDN request (playlist, segment, key) carries these literals (native LiveHlsProxy UA, APP,
+// APP_VERSION and the X-Buffer header): a fixed app id and version, NOT the credentials' ones VOD sends.
+export const LIVE_USER_AGENT = "Ranger/4.9.4-17294ac0";
+export const LIVE_APP = "com.android.msandroid";
+export const LIVE_APP_VERSION = "49902";
+export const LIVE_X_BUFFER = "0";
+export const CONTENT_TYPE ="application/json;charset=utf-8";
 export const RATE_LIMIT_MS = 400;
 export const REQUEST_TIMEOUT_MS = 25000;
 

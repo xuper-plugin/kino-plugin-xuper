@@ -108,3 +108,11 @@ export function decode(ref) {
   }
   return fromGatewayRef(ref);
 }
+
+// What liveChannels hands out as a channel's ref: the bare channelCode (liveCatalog.js).
+const CHANNEL_CODE = /^[A-Za-z0-9._~-]{1,128}$/;
+
+/** A bare live channel code, not a VOD ref of either form (resolve routes it to live). */
+export function isChannelRef(ref) {
+  return typeof ref === "string" && CHANNEL_CODE.test(ref) && !ref.startsWith("~") && decode(ref) === null;
+}

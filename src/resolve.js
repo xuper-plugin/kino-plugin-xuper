@@ -5,7 +5,7 @@
 // Unlike the native bridge, which kept the headers aside, the plugin RETURNS them in `Stream.headers`.
 import { PortalError, mapPortalError } from "./portal.js";
 import { UA_CDN, FIXED_MAC } from "./config.js";
-import { decode } from "./refs.js";
+import { decode, isChannelRef } from "./refs.js";
 import { findChapter } from "./episodes.js";
 
 const SLB_DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime
@@ -102,13 +102,15 @@ export function slbLifetime(slb, nowMs) {
   return Math.min(declared, Number(m[1]) - Math.floor(nowMs / 1000) - AUTH_MARGIN_S);
 }
 
-// The real thing is `liveCodeList: ["masnew_live"]` as a JSON array; `reserve1` is overwritten by the portal's device dict.
-const slbBean = (apkVersion) => ({
+// The real thing is `liveCodeList: ["masnew_live"]` as a JSON array (live: `[channelCode]`, the
+// channel's code, see live.js); `reserve1` is overwritten by the portal's device dict.
+export const slbBean = (apkVersion, liveCodes = ["masnew_live"]) => ({
   hasPay: "0", userIdentity: "1", type: "merge", appVer: apkVersion, lang: "es", encMediaSupported: 1,
-  liveCodeList: ["masnew_live"], appParams: "", reserve1: FIXED_MAC, pipFlag: "0",
+  liveCodeList: [...liveCodes], appParams: "", reserve1: FIXED_MAC, pipFlag: "0",
 });
 
-export function makeResolve({ kino, portal, session, clock, config, portalChapters }) {
+// `live` (live.js) takes a bare channel code; without it every ref is VOD, as before.
+export function makeResolve({ kino, portal, session, clock, config, portalChapters, live = null }) {
   const unavailable = (text) => kino.error("unavailable", text);
   let slbCache = null; // { slb, token, expiresMs }: memory only, never kino.storage
 
@@ -167,7 +169,9 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
     };
   }
 
-  async function resolve(ref) {
+  async function resolve(ref, options) {
+    // A live channel's ref is its bare code (liveCatalog.js): routed before the VOD path, untouched.
+    if (live && isChannelRef(ref)) return live.resolveLive(ref, options);
     try {
       const magis = decode(ref);
       if (!magis) throw unavailable("ese ref no es de Xuper: no se puede reproducir");
