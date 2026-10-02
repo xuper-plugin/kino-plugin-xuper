@@ -149,13 +149,31 @@ test("action login: a refused login is auth_required without the password; a net
   });
 });
 
-test("action logout: drops the session and says the saved account must be cleared by the person", async () => {
+test("action logout: drops the session first, then asks the app to clear email and password", async () => {
   const { settings, sess } = setup({ config: { email: "ana@x.test", password: PW } });
   const out = await settings.action("logout");
   assert.deepEqual(sess.calls, [["logout"]]);
-  assert.equal(out.message, "Sesión cerrada. Borra tu correo y contraseña de estos ajustes para que no se vuelva a iniciar sesión sola.");
-  assert.equal(out.refresh, true);
-  keptAction(out);
+  assert.deepEqual(out, { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password"] });
+  const drops = [];
+  const kept = checkSettingsOutput("action", out, manifest, (t) => t, (d) => drops.push(d));
+  assert.deepEqual(drops, [], "the kit dropped something");
+  assert.deepEqual(kept.clearSettings, ["email", "password"]);
+  assert.equal(kept.message, "Sesión cerrada");
+  assert.equal(kept.refresh, true);
+});
+
+test("action logout: a failing session.logout clears nothing", async () => {
+  const { settings } = setup({ session: fakeSession({ logout: async () => { throw new Error("boom"); } }) });
+  await assert.rejects(settings.action("logout"), (e) => e.name === "KinoError_unavailable");
+});
+
+test("manifest: email and password are declared, valued and not required, so they are clearable", () => {
+  for (const key of ["email", "password"]) {
+    const s = manifest.settings.find((x) => x.key === key);
+    assert.ok(s, key);
+    assert.ok(["text", "password"].includes(s.type));
+    assert.ok(!s.required, key + " must not be required");
+  }
 });
 
 test("action switchSeed: the native texts for each outcome", async () => {

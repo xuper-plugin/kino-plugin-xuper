@@ -16,7 +16,6 @@ const SEED_SWITCH_TOTAL_MS = 22_000; // no probe starts after this (cap 30 s)
 const SEED_DOWNLOAD_MS = 10_000;
 
 const SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
-const LOGOUT_MESSAGE = "Sesión cerrada. Borra tu correo y contraseña de estos ajustes para que no se vuelva a iniciar sesión sola.";
 
 const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
 const clip = (text, max) => (text.length <= max ? text : text.slice(0, max - 1) + "…");
@@ -67,7 +66,8 @@ export function makeSettings({ kino, session, clock }) {
   async function logout() {
     try { await session.logout(); }
     catch (e) { throw surface(e); }
-    return { message: LOGOUT_MESSAGE, refresh: true };
+    // The app clears these only if this action succeeded; session.logout() runs first on purpose.
+    return { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password"] };
   }
 
   async function switchSeed() {

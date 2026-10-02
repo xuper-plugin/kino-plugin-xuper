@@ -2626,7 +2626,6 @@ var SEED_PROBE_MS = 5e3;
 var SEED_SWITCH_TOTAL_MS = 22e3;
 var SEED_DOWNLOAD_MS = 1e4;
 var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
-var LOGOUT_MESSAGE = "Sesi\xF3n cerrada. Borra tu correo y contrase\xF1a de estos ajustes para que no se vuelva a iniciar sesi\xF3n sola.";
 var str3 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
@@ -2674,7 +2673,7 @@ function makeSettings({ kino: kino2, session, clock: clock2 }) {
     } catch (e) {
       throw surface(e);
     }
-    return { message: LOGOUT_MESSAGE, refresh: true };
+    return { message: "Sesi\xF3n cerrada", refresh: true, clearSettings: ["email", "password"] };
   }
   async function switchSeed() {
     let r;
