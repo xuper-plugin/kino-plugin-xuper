@@ -1,0 +1,18 @@
+{
+  "id": "xuper",
+  "name": "Xuper",
+  "version": "0.1.0",
+  "apiVersion": 6,
+  "entry": "plugin.js",
+  "hosts": [],
+  "capabilities": ["search", "home", "browse", "episodes", "resolve"],
+  "settings": [
+    { "key": "account", "label": "Cuenta", "type": "section", "hint": "Opcional. Sin cuenta accedes al catálogo con sesión anónima." },
+    { "key": "email", "label": "Correo electrónico", "type": "text" },
+    { "key": "password", "label": "Contraseña", "type": "password" },
+    { "key": "status", "label": "Estado de sesión", "type": "status" },
+    { "key": "login", "label": "Iniciar sesión", "type": "action" },
+    { "key": "logout", "label": "Cerrar sesión", "type": "action", "confirm": "¿Cerrar sesión de tu cuenta Xuper?" },
+    { "key": "portalUrl", "label": "URL del portal", "type": "url" }
+  ]
+}
