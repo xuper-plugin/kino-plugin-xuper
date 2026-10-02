@@ -15,7 +15,8 @@
     "episodes",
     "resolve",
     "download",
-    "channels"
+    "channels",
+    "migrate"
   ],
   "settings": [
     {

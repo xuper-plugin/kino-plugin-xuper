@@ -1,5 +1,8 @@
 import { guarded, clock } from "./wiring.js";
 import { signRequest } from "./liveSign.js";
+import { makeMigrate } from "./migrate.js";
+
+const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
 export async function search(query) { await null; return guarded(({ catalog }) => catalog.search(query)); }
 export async function home() { await null; return guarded(({ catalog }) => catalog.home()); }
@@ -21,3 +24,14 @@ export async function liveCategories() { await null; return guarded(({ live }) =
 export async function liveChannels(args) { await null; return guarded(({ live }) => live.liveChannels(args)); }
 export async function settingsStatus() { await null; return { text: "todavía no" }; }
 export async function action() { await null; throw kino.error("unavailable", "todavía no"); }
+// Pure like sign: it never builds the other deps. An unreadable value is `null`; only a bug becomes `unavailable`.
+const migrator = makeMigrate();
+export async function migrate(input) {
+  await null;
+  try { return await migrator.migrate(input); }
+  catch (e) {
+    if (isKinoError(e)) throw e;
+    try { kino.log("xuper migrate: " + String((e && e.name) || "error")); } catch (_) {}
+    throw kino.error("unavailable", "Xuper no está disponible ahora");
+  }
+}

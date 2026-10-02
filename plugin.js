@@ -603,7 +603,7 @@ function distinctBy(list, key) {
     return true;
   });
 }
-var row = (id, title, items) => ({ id, title, shown: items.slice(0, MAX_ROW_SIZE), all: items });
+var row = (id, title2, items) => ({ id, title: title2, shown: items.slice(0, MAX_ROW_SIZE), all: items });
 var genresOf = (item) => distinctBy(item.genres.map((g) => GENRES.get(g.trim())).filter((g) => g !== void 0), (g) => g[0]);
 var newestFirst = (items) => items.some((i) => i.shelvedAtMs > 0) ? [...items].sort((a, b) => b.shelvedAtMs - a.shelvedAtMs) : items;
 var playable = (section) => distinctBy(section.items.filter((i) => i.type !== TRAILER), (i) => i.id);
@@ -1331,7 +1331,7 @@ var unpack = (p) => ({
 });
 function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
   const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock: clock2, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
-  const isKinoError6 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+  const isKinoError7 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
   async function fetchDetail(seriesId) {
     let response;
     try {
@@ -1343,7 +1343,7 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
       ));
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
-      if (isKinoError6(e)) throw e;
+      if (isKinoError7(e)) throw e;
       throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
     }
     const data = isObject4(response) ? response.assetData : void 0;
@@ -1600,11 +1600,11 @@ function parseTitleForms(type, body) {
   const seen = /* @__PURE__ */ new Set();
   for (const t of entries) {
     if (t.iso_639_1 !== "es") continue;
-    const title = titleOf(t);
-    const key = title.trim().toLowerCase();
-    if (blank3(title) || key === localized.toLowerCase() || seen.has(key)) continue;
+    const title2 = titleOf(t);
+    const key = title2.trim().toLowerCase();
+    if (blank3(title2) || key === localized.toLowerCase() || seen.has(key)) continue;
     seen.add(key);
-    spanish.push(title);
+    spanish.push(title2);
   }
   return {
     title: localized,
@@ -1785,7 +1785,7 @@ var slbBean = (apkVersion, liveCodes = ["masnew_live"]) => ({
   reserve1: FIXED_MAC,
   pipFlag: "0"
 });
-function makeResolve({ kino: kino2, portal, session, clock: clock2, config, portalChapters, live = null }) {
+function makeResolve({ kino: kino2, portal, session, clock: clock2, config, portalChapters, live: live2 = null }) {
   const unavailable = (text2) => kino2.error("unavailable", text2);
   let slbCache = null;
   const sessionSlb = () => session.withValidSession(async ({ userId, userToken }) => {
@@ -1799,16 +1799,16 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
   async function chapterFrom(magis) {
     const { items } = await portalChapters(magis.contentId);
     if (items.length === 0) throw unavailable(`la serie ${magis.contentId} vino sin cap\xEDtulos`);
-    const chapter = findChapter(items, magis.episode);
-    if (!chapter) throw unavailable(`la serie no tiene el cap\xEDtulo ${magis.episode}`);
-    return chapter;
+    const chapter2 = findChapter(items, magis.episode);
+    if (!chapter2) throw unavailable(`la serie no tiene el cap\xEDtulo ${magis.episode}`);
+    return chapter2;
   }
-  async function resolveVod(magis, chapter) {
+  async function resolveVod(magis, chapter2) {
     await session.ensure();
-    const contentId = chapter && notBlank(chapter.contentId) ? chapter.contentId : magis.contentId;
+    const contentId = chapter2 && notBlank(chapter2.contentId) ? chapter2.contentId : magis.contentId;
     const play = await session.withValidSession(({ userId, userToken }) => portal.call(
       "v10/startPlayVOD",
-      { contentId, seriesContentId: chapter ? magis.contentId : "", startTime: 0, type: "1", columnId: 0, authType: "" },
+      { contentId, seriesContentId: chapter2 ? magis.contentId : "", startTime: 0, type: "1", columnId: 0, authType: "" },
       { baseFields: true, userId, userToken }
     ));
     const best = bestMedia(play);
@@ -1831,16 +1831,16 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
       },
       subtitles: readSubtitles(play),
       // A chapter's own declared duration wins (the portal sends it empty for most series).
-      durationMs: chapter ? portalDurationMs(chapter.duration) : portalDurationMs(best.duration)
+      durationMs: chapter2 ? portalDurationMs(chapter2.duration) : portalDurationMs(best.duration)
     };
   }
   async function resolve2(ref, options) {
-    if (live && isChannelRef(ref)) return live.resolveLive(ref, options);
+    if (live2 && isChannelRef(ref)) return live2.resolveLive(ref, options);
     try {
       const magis = decode(ref);
       if (!magis) throw unavailable("ese ref no es de Xuper: no se puede reproducir");
-      const chapter = magis.isSeries ? await chapterFrom(magis) : null;
-      return await resolveVod(magis, chapter);
+      const chapter2 = magis.isSeries ? await chapterFrom(magis) : null;
+      return await resolveVod(magis, chapter2);
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
       if (isKinoError2(e)) throw e;
@@ -1931,11 +1931,11 @@ function makeLiveCatalog({ kino: kino2, portal, session }) {
     for (const c of list) {
       if (!isObject7(c)) continue;
       const code = asText2(c.channelCode);
-      const title = asText2(c.name);
-      if (isBlank2(code) || isBlank2(title) || !ID.test(code) || code.startsWith("~") || seen.has(code)) continue;
+      const title2 = asText2(c.name);
+      if (isBlank2(code) || isBlank2(title2) || !ID.test(code) || code.startsWith("~") || seen.has(code)) continue;
       seen.add(code);
       const n = intOrNull3(c.channelNumber);
-      const item = { id: code, title, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
+      const item = { id: code, title: title2, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
       const logo = logoOf(c);
       if (logo) item.logo = logo;
       items.push(item);
@@ -2532,10 +2532,10 @@ function getDeps() {
   session = makeSession({ kino, portal, clock });
   const tmdb = makeTmdb({ kino });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
-  const live = makeLiveCatalog({ kino, portal, session, clock });
+  const live2 = makeLiveCatalog({ kino, portal, session, clock });
   const liveStream = makeLive({ kino, portal, session, clock, config });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live, liveStream };
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream };
   return deps;
 }
 var isKinoError5 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
@@ -2552,7 +2552,58 @@ async function guarded(body) {
   }
 }
 
+// src/migrate.js
+var LIVE_PROVIDER = "xuper";
+var ITEM_ID3 = /^[A-Za-z0-9._~-]{1,128}$/;
+var MAX_NUMBER = 99999;
+var MAX_SEASON = 999;
+var isObject9 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var whole = (v, max) => Number.isInteger(v) && v >= 1 && v <= max ? v : null;
+function ownRef(ref) {
+  if (typeof ref !== "string" || ref.startsWith("plg1:")) return null;
+  return decode(ref);
+}
+function title(input) {
+  const magis = ownRef(input.ref);
+  if (!magis || !ITEM_ID3.test(magis.contentId)) return null;
+  return {
+    kind: magis.isSeries ? "series" : "movie",
+    id: magis.contentId,
+    ref: encode({ contentId: magis.contentId, programType: magis.programType, episode: 0 })
+  };
+}
+function chapter(input) {
+  const magis = ownRef(input.ref);
+  if (!magis) return null;
+  const number = whole(magis.episode, MAX_NUMBER) ?? whole(input.episode, MAX_NUMBER);
+  if (number === null) return null;
+  const out = { kind: "episode", ref: encodeChapter(number, magis.contentId), number };
+  const season = whole(input.season, MAX_SEASON);
+  if (season !== null) out.season = season;
+  return out;
+}
+function live(input) {
+  if (input.provider !== LIVE_PROVIDER) return null;
+  return typeof input.code === "string" && ITEM_ID3.test(input.code) ? { kind: "live", code: input.code } : null;
+}
+function makeMigrate() {
+  async function migrate2(input) {
+    await null;
+    try {
+      if (!isObject9(input)) return null;
+      if (input.kind === "title") return title(input);
+      if (input.kind === "chapter") return chapter(input);
+      if (input.kind === "live") return live(input);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+  return { migrate: migrate2 };
+}
+
 // src/plugin.js
+var isKinoError6 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function search(query) {
   await null;
   return guarded(({ catalog }) => catalog.search(query));
@@ -2588,11 +2639,11 @@ async function sign(request) {
 }
 async function liveCategories() {
   await null;
-  return guarded(({ live }) => live.liveCategories());
+  return guarded(({ live: live2 }) => live2.liveCategories());
 }
 async function liveChannels(args) {
   await null;
-  return guarded(({ live }) => live.liveChannels(args));
+  return guarded(({ live: live2 }) => live2.liveChannels(args));
 }
 async function settingsStatus() {
   await null;
@@ -2602,6 +2653,20 @@ async function action() {
   await null;
   throw kino.error("unavailable", "todav\xEDa no");
 }
+var migrator = makeMigrate();
+async function migrate(input) {
+  await null;
+  try {
+    return await migrator.migrate(input);
+  } catch (e) {
+    if (isKinoError6(e)) throw e;
+    try {
+      kino.log("xuper migrate: " + String(e && e.name || "error"));
+    } catch (_) {
+    }
+    throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
+  }
+}
 export {
   action,
   browse,
@@ -2609,6 +2674,7 @@ export {
   home,
   liveCategories,
   liveChannels,
+  migrate,
   resolve,
   search,
   settingsStatus,
