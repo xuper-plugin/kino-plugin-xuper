@@ -42,14 +42,21 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
     return [preferredHost, ...hosts.filter((h) => h !== preferredHost)];
   };
 
-  async function waitTurn() {
-    const now = clock.now();
-    if (lastCallMs !== null) {
-      const wait = Math.min(MAX_SLEEP_MS, Math.ceil(RATE_LIMIT_MS - (now - lastCallMs)));
-      if (wait > 0) await kino.sleep(wait);
-    }
-    // Slot taken at the moment the request actually starts (after any wait).
-    lastCallMs = clock.now();
+  // Slots are taken one caller at a time (promise chain): parallel calls queue up, each measures
+  // from the previous one's slot and reserves its own before the next caller looks.
+  let slotTail = Promise.resolve();
+  function waitTurn() {
+    const run = slotTail.then(async () => {
+      const now = clock.now();
+      if (lastCallMs !== null) {
+        const wait = Math.min(MAX_SLEEP_MS, Math.ceil(RATE_LIMIT_MS - (now - lastCallMs)));
+        if (wait > 0) await kino.sleep(wait);
+      }
+      // Slot taken at the moment the request actually starts (after any wait).
+      lastCallMs = clock.now();
+    });
+    slotTail = run.then(() => {}, () => {});
+    return run;
   }
 
   function deviceDict(sn) {

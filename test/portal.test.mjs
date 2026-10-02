@@ -200,3 +200,14 @@ test("mapPortalError follows section 10", () => {
   assert.equal(mapPortalError("other", "x", kino).code, "unavailable");
   assert.equal(mapPortalError("other", undefined, kino).code, "unavailable");
 });
+
+test("pacing: four parallel calls start >= 400 ms apart (the slot is taken under a lock)", async () => {
+  let clk = null;
+  const starts = [];
+  const { portal, clock, sleeps } = setup({ script: () => { starts.push(clk.now()); return reply({ ok: 1 }); } });
+  clk = clock;
+  await Promise.all([1, 2, 3, 4].map((n) => portal.call("p/" + n, {})));
+  assert.equal(starts.length, 4);
+  for (let i = 1; i < 4; i++) assert.ok(starts[i] - starts[i - 1] >= 400, `gap ${i}: ${starts[i] - starts[i - 1]}`);
+  assert.deepEqual(sleeps, [400, 400, 400]); // first call never waits; one wait per later call
+});
