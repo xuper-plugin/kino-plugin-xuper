@@ -179,7 +179,7 @@ async function main() {
     saveTape();
     if (SETTINGS_FUNCTIONS.includes(fn) && !opts.raw) {
       // What the app keeps of the answer (status lines, the action's line, the save's verdict).
-      process.stdout.write(JSON.stringify(checkSettingsOutput(fn, out, manifest), null, 2) + "\n");
+      process.stdout.write(JSON.stringify(checkSettingsOutput(fn, out, manifest, undefined, (d) => stderr(`[dropped by Kino] ${d}`)), null, 2) + "\n");
       return 0;
     }
     if (opts.raw) {

@@ -331,8 +331,8 @@ interface KinoPlugin {
   guide?(arg: { channelIds: string[]; from: number; to: number }): Promise<KinoGuideEntry[]>;
   /** apiVersion 6: required when a setting has `type: "status"`. One text per status setting key, shown as-is (at most 200 characters; a missing key or a non-text reads "Sin información"). 10 s. */
   settingsStatus?(): Promise<Record<string, string>>;
-  /** apiVersion 6: required when a setting has `type: "action"`. Runs when the person presses that button (30 s); the `message` (at most 300 characters, default "Listo") is shown; `refresh: true` asks settingsStatus() again. */
-  action?(key: string): Promise<{ message?: string; refresh?: boolean } | null | void>;
+  /** apiVersion 6: required when a setting has `type: "action"`. Runs when the person presses that button (30 s); the `message` (at most 300 characters, default "Listo") is shown; `refresh: true` asks settingsStatus() again. `clearSettings` (up to 12 keys of your own optional, valued settings: not a `required` one, not a section/status/action) is emptied by Kino right after a successful action, as if the person had emptied the field and saved (a password leaves the Keystore; your sandbox closes as for any saved change; `kino.storage` survives); anything else in it is dropped. A throwing action clears nothing. */
+  action?(key: string): Promise<{ message?: string; refresh?: boolean; clearSettings?: string[] } | null | void>;
   /**
    * apiVersion 6, optional: checks the values BEFORE Kino saves them (20 s). `null` accepts; `{ key: "mensaje" }`
    * refuses with the message under that field (a key that is not one of your valued settings refuses too, as a

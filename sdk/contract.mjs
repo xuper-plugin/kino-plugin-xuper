@@ -911,13 +911,31 @@ export function migrateAnswer(value, input) {
 }
 
 /**
+ * An action's `clearSettings`, as PluginSettingsUi.parseActionResult: only the plugin's own valued, non-required settings,
+ * once each, read up to `max` entries. Anything else is dropped with one line, never an error (the action succeeded).
+ */
+function clearSettingsOf(raw, settings, max, drop) {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) { drop("action answered clearSettings that is not an array"); return []; }
+  const clearable = new Set(settings.filter((s) => contract.settings.types[s.type]?.hasValue !== false && s.required !== true).map((s) => s.key));
+  const out = [];
+  let dropped = raw.length > max;
+  for (const k of raw.slice(0, max)) {
+    if (typeof k === "string" && clearable.has(k) && !out.includes(k)) out.push(k);
+    else dropped = true;
+  }
+  if (dropped) drop("action answered clearSettings entries that cannot be cleared; they were ignored");
+  return out;
+}
+
+/**
  * What the app keeps of a settings-form export's answer (apiVersion 6), as PluginSettingsUi reads it:
- * `settingsStatus` -> { [statusKey]: text }, `action` -> { message, refresh }, `validateSettings` ->
+ * `settingsStatus` -> { [statusKey]: text }, `action` -> { message, refresh, clearSettings }, `validateSettings` ->
  * { accepted: true } or { accepted: false, fieldErrors, general }. Garbage is dropped, never thrown,
  * except where the app refuses to save (validateSettings answering something that is not null, a text
  * or an object). `scrub` (the app's secret scrubbing) runs on each kept text before it is clipped.
  */
-export function checkSettingsOutput(fn, value, manifest, scrub = (t) => t) {
+export function checkSettingsOutput(fn, value, manifest, scrub = (t) => t, drop = () => {}) {
   const ui = contract.settings.ui;
   const clip = (t, max) => (t.length <= max ? t : t.slice(0, max - 1) + "…");
   const text = (v, max) => {
@@ -935,7 +953,13 @@ export function checkSettingsOutput(fn, value, manifest, scrub = (t) => t) {
     }
     return out;
   }
-  if (fn === "action") return { message: isObj(value) ? text(value.message, ui.messageMaxChars) : null, refresh: isObj(value) && value.refresh === true };
+  if (fn === "action") {
+    return {
+      message: isObj(value) ? text(value.message, ui.messageMaxChars) : null,
+      refresh: isObj(value) && value.refresh === true,
+      clearSettings: isObj(value) ? clearSettingsOf(value.clearSettings, settings, ui.clearSettings.maxEntries, drop) : [],
+    };
+  }
   if (value === null || value === undefined) return { accepted: true };
   if (typeof value === "string") {
     const t = text(value, ui.fieldErrorMaxChars);

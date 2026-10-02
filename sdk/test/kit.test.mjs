@@ -2616,6 +2616,51 @@ test("section, status and action settings (apiVersion 6)", () => {
   assert.deepEqual(requiredExports(["search", "resolve"], [section, status, action]).sort(), ["action", "resolve", "search", "settingsStatus"]);
 });
 
+// --- clearSettings (apiVersion 6, an action's answer), as PluginSettingsUi.parseActionResult ---
+
+test("an action's clearSettings keeps the plugin's own optional valued settings, once each, and says what it dropped", () => {
+  const m = JSON.parse(manifest({ apiVersion: 6, settings: [
+    { key: "email", label: "Correo", type: "text", required: true },
+    { key: "password", label: "Contraseña", type: "password" },
+    { key: "nickname", label: "Apodo", type: "text" },
+    { key: "linked", label: "Estado", type: "status" },
+    { key: "logout", label: "Salir", type: "action" },
+  ] }));
+  const drops = [];
+  const out = checkSettingsOutput("action", { message: "Sesión cerrada", clearSettings: ["password", "email", "linked", "logout", "ghost", 7, null, "nickname", "password"] }, m, (t) => t, (d) => drops.push(d));
+  assert.deepEqual(out, { message: "Sesión cerrada", refresh: false, clearSettings: ["password", "nickname"] });
+  assert.equal(drops.length, 1);
+  assert.match(drops[0], /clearSettings entries that cannot be cleared/);
+  assert.equal(contract.settings.ui.clearSettings.maxEntries, 12);
+  // Not an array: ignored and said, the action still succeeded.
+  const bad = [];
+  assert.deepEqual(checkSettingsOutput("action", { clearSettings: "password" }, m, (t) => t, (d) => bad.push(d)).clearSettings, []);
+  assert.match(bad[0], /clearSettings that is not an array/);
+  // Read up to the cap only.
+  const many = JSON.parse(manifest({ apiVersion: 6, settings: Array.from({ length: 12 }, (_, i) => ({ key: `k${i}`, label: `K${i}`, type: "text" })) }));
+  const keys = Array.from({ length: 40 }, (_, i) => `k${i}`);
+  assert.deepEqual(checkSettingsOutput("action", { clearSettings: keys }, many).clearSettings, keys.slice(0, 12));
+});
+
+test("run.mjs prints an action's kept clearSettings and which entries Kino dropped", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kino-clear-"));
+  try {
+    writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6, settings: [
+      { key: "email", label: "Correo", type: "text", required: true },
+      { key: "password", label: "Contraseña", type: "password" },
+      { key: "logout", label: "Salir", type: "action" },
+    ] }));
+    writeFileSync(join(dir, "plugin.js"), "export async function search(){ return { items: [] } }\n" +
+      "export async function action(k){ return { message: 'Adiós', clearSettings: ['password', 'email'] } }");
+    const cli = spawnSync(process.execPath, [join(here, "..", "run.mjs"), dir, "action", "logout"], { encoding: "utf8" });
+    assert.equal(cli.status, 0, cli.stdout + cli.stderr);
+    assert.deepEqual(JSON.parse(cli.stdout), { message: "Adiós", refresh: false, clearSettings: ["password"] });
+    assert.match(cli.stderr, /\[dropped by Kino\] .*clearSettings entries that cannot be cleared/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("settingsStatus, action and validateSettings answers are read like the app reads them", () => {
   const m = JSON.parse(manifest({ apiVersion: 6, settings: [
     { key: "email", label: "Correo", type: "text" },
@@ -2623,8 +2668,8 @@ test("settingsStatus, action and validateSettings answers are read like the app 
   ] }));
   assert.deepEqual(checkSettingsOutput("settingsStatus", { linked: " Vinculada ", other: "x", email: "y" }, m), { linked: "Vinculada" });
   assert.deepEqual(checkSettingsOutput("settingsStatus", "Vinculada", m), {});
-  assert.deepEqual(checkSettingsOutput("action", { message: " Listo ", refresh: true }, m), { message: "Listo", refresh: true });
-  assert.deepEqual(checkSettingsOutput("action", undefined, m), { message: null, refresh: false });
+  assert.deepEqual(checkSettingsOutput("action", { message: " Listo ", refresh: true }, m), { message: "Listo", refresh: true, clearSettings: [] });
+  assert.deepEqual(checkSettingsOutput("action", undefined, m), { message: null, refresh: false, clearSettings: [] });
   assert.deepEqual(checkSettingsOutput("validateSettings", null, m), { accepted: true });
   assert.deepEqual(checkSettingsOutput("validateSettings", { email: "Correo inválido", account: "Bloqueada" }, m), { accepted: false, fieldErrors: { email: "Correo inválido" }, general: "Bloqueada" });
   assert.deepEqual(checkSettingsOutput("validateSettings", "No se pudo entrar", m), { accepted: false, fieldErrors: {}, general: "No se pudo entrar" });
@@ -2639,7 +2684,7 @@ test("settings answers: garbage is dropped like the app drops it, never thrown",
     { key: "linked", label: "Estado", type: "status" },
   ] }));
   for (const v of [null, undefined, [], 42, true, { linked: 3 }, { linked: { a: 1 } }, { linked: ["x"] }, { linked: "   " }]) assert.deepEqual(checkSettingsOutput("settingsStatus", v, m), {});
-  for (const v of [[], "x", 5, { message: { a: 1 }, refresh: 1 }, { message: "   ", refresh: "yes" }]) assert.deepEqual(checkSettingsOutput("action", v, m), { message: null, refresh: false });
+  for (const v of [[], "x", 5, { message: { a: 1 }, refresh: 1 }, { message: "   ", refresh: "yes" }]) assert.deepEqual(checkSettingsOutput("action", v, m), { message: null, refresh: false, clearSettings: [] });
   assert.deepEqual(checkSettingsOutput("validateSettings", { email: 5, password: { a: 1 }, x: [1], y: true }, m), { accepted: true });
   assert.deepEqual(checkSettingsOutput("validateSettings", { email: "no", password: 7 }, m), { accepted: false, fieldErrors: { email: "no" }, general: null });
   assert.deepEqual(checkSettingsOutput("validateSettings", "   ", m), { accepted: true });
@@ -2659,7 +2704,7 @@ test("settings answers: a deeply nested answer is read like the app reads it (no
   for (let i = 0; i < 100000; i++) deepObj = { a: deepObj };
   for (const v of [deep, deepObj]) {
     assert.deepEqual(checkSettingsOutput("settingsStatus", v, m), {});
-    assert.deepEqual(checkSettingsOutput("action", v, m), { message: null, refresh: false });
+    assert.deepEqual(checkSettingsOutput("action", v, m), { message: null, refresh: false, clearSettings: [] });
   }
   assert.throws(() => checkSettingsOutput("validateSettings", deep, m), /Kino no puede leer esta respuesta/);
   assert.deepEqual(checkSettingsOutput("validateSettings", deepObj, m), { accepted: true });
@@ -2704,7 +2749,7 @@ test("run.mjs runs the settings exports and prints what the app keeps", () => {
   assert.deepEqual(JSON.parse(status.stdout), { linked: "Sin cuenta: sesión anónima" });
   const act = run("action", "test");
   assert.equal(act.status, 0, act.stderr);
-  assert.deepEqual(JSON.parse(act.stdout), { message: "Conexión correcta", refresh: false });
+  assert.deepEqual(JSON.parse(act.stdout), { message: "Conexión correcta", refresh: false, clearSettings: [] });
   const rejected = run("validateSettings", '{"password":"mala"}');
   assert.deepEqual(JSON.parse(rejected.stdout), { accepted: false, fieldErrors: { password: "La contraseña no es correcta" }, general: null });
   const garbage = run("validateSettings", '{"password":"rara"}');

@@ -85,6 +85,7 @@
       "statusMaxChars": 200,
       "messageMaxChars": 300,
       "fieldErrorMaxChars": 200,
+      "clearSettings": { "maxEntries": 12 },
       "exports": { "status": "settingsStatus", "action": "action", "validate": "validateSettings" }
     }
   },

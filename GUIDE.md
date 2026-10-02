@@ -265,6 +265,29 @@ form can also show and do things, with three types that hold no value (never in 
   throws or times out, the person sees the error text instead. `refresh: true` asks `settingsStatus()`
   again. `confirm` (1 to 120 characters) asks first, with Cancelar focused. **Required export** when
   an `action` setting exists.
+
+  An action may also **forget settings of your own** with `clearSettings`: up to 12 keys of your
+  declared valued settings (`text`, `url`, `password`, `toggle`, `select`, `list`). After the action
+  returns, Kino empties them exactly as if the person had emptied the fields and pressed Guardar (a
+  `password` also leaves the Keystore), closes your sandbox and forgets cookies and cached Home rows
+  as for any saved change (`kino.storage` survives), reloads the form and asks `settingsStatus()`
+  again; your `message` is still shown. It is how a "Cerrar sesión" button stops the next expired
+  token from signing the person in again with the saved account. Only the action's own plugin is
+  ever touched. An entry that is not a string, is unknown, names a `section`/`status`/`action`,
+  names a `required` setting (clearing it would make every later call fail), repeats, or comes
+  after the twelfth is dropped with a log line (`run.mjs` shows `[dropped by Kino]`); a value that
+  is not an array is ignored. An action that throws or times out clears nothing.
+
+  ```js
+  export async function action(key) {
+    if (key === "logout") {
+      await api.logout();                       // tell the server first: a throw here keeps the saved account
+      return { message: "Sesión cerrada", clearSettings: ["email", "password"] };
+    }
+  }
+  ```
+  (`email` and `password` must be optional settings here; mark the account `required` only if the
+  plugin cannot work signed out.)
 - `validateSettings(values)` (optional, 20 s) runs **before** Kino saves. `values` holds only the
   valued settings: strings trimmed, toggles as booleans, lists as arrays of objects. Return `null` to
   accept; `{ password: "La contraseña no es correcta" }` to refuse with that text under the field
