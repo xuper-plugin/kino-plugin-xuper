@@ -4,7 +4,7 @@
 // filter, season order, item output and the compact result cache live here.
 import { PortalError, mapPortalError } from "./portal.js";
 import { encode, isSeries } from "./refs.js";
-import { utf8Length } from "./homeTree.js";
+import { makeByteCache } from "./byteCache.js";
 
 const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const MAX_OUTPUT_ITEMS = 100; // SDK cap
@@ -111,15 +111,9 @@ function flatten(response) {
 }
 
 // ---- the stored cache ------------------------------------------------------------------------
-// { v:1, e:[{ k: lowercased portal query, s: fetched-at ms, i: [compact items] }, ...] }, oldest first.
-function decodeCache(raw) {
-  try {
-    const o = JSON.parse(raw);
-    if (!isObject(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
-    return o.e.filter((x) => isObject(x) && typeof x.k === "string" && Number.isFinite(x.s) && Array.isArray(x.i)
-      && x.i.every((it) => isObject(it) && typeof it.c === "string" && typeof it.t === "string"));
-  } catch (_) { return []; }
-}
+// One entry per lowercased portal query: { k, s: fetched-at ms, i: [compact items] } (byteCache.js).
+const validEntryItems = (items) => Array.isArray(items)
+  && items.every((it) => isObject(it) && typeof it.c === "string" && typeof it.t === "string");
 
 const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 const intOr0 = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0);
@@ -137,37 +131,7 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
   };
   const log = (msg) => { try { kino.log(msg); } catch (_) {} };
 
-  function readEntries() {
-    try {
-      const raw = kino.storage.get(CACHE_KEY);
-      return raw === null || raw === undefined ? [] : decodeCache(raw);
-    } catch (_) { return []; }
-  }
-
-  // Merge `added` ({k, i}) into what is stored now (another search may have written since this one
-  // read), move the keys this search `touched` to the newest end, drop stale entries and evict the
-  // oldest until the key fits its budget. A storage failure never fails the search.
-  function writeEntries(added, touched) {
-    try {
-      const now = clock.now();
-      let entries = readEntries().filter((e) => now - e.s < CACHE_FRESH_MS);
-      for (const k of touched) {
-        const at = entries.findIndex((e) => e.k === k);
-        if (at >= 0) entries.push(...entries.splice(at, 1));
-      }
-      for (const a of added) {
-        entries = entries.filter((e) => e.k !== a.k);
-        entries.push({ k: a.k, s: now, i: a.i });
-      }
-      let text = JSON.stringify({ v: 1, e: entries });
-      while (utf8Length(text) > CACHE_BUDGET_BYTES && entries.length > 0) {
-        entries.shift();
-        text = JSON.stringify({ v: 1, e: entries });
-      }
-      if (entries.length === 0) return;
-      kino.storage.set(CACHE_KEY, text);
-    } catch (_) { /* storage full or unavailable: serve uncached */ }
-  }
+  const cache = makeByteCache({ kino, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, valid: validEntryItems });
 
   /** The SDK query as the native input: type series->tv, blank->movie, anything else as is. */
   function contextOf(query) {
@@ -206,7 +170,7 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
     const forms = await titleForms(ctx);
     const queries = distinctBy(forms.map((f) => kino.rank.shortQuery(f)), (f) => f.toLowerCase());
 
-    const entries = readEntries();
+    const entries = cache.read();
     const nowMs = clock.now();
     const touched = [];
     const added = [];
@@ -230,9 +194,9 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
       for (const q of qs) {
         const key = q.toLowerCase();
         let part = null;
-        const hit = entries.find((e) => e.k === key && nowMs - e.s < CACHE_FRESH_MS);
-        if (hit) {
-          part = hit.i;
+        const hit = cache.get(key, entries, nowMs);
+        if (hit !== undefined) {
+          part = hit;
           touched.push(key);
         } else {
           try {
@@ -270,7 +234,7 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
         }
       }
     } finally {
-      if (added.length > 0 || touched.length > 0) writeEntries(added, touched);
+      if (added.length > 0 || touched.length > 0) cache.write(added, touched);
     }
 
     if ((ctx.type === "tv" || ctx.type === "anime") && ctx.season > 0) {
