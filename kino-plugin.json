@@ -52,9 +52,16 @@
       "confirm": "¿Cerrar sesión de tu cuenta Xuper?"
     },
     {
-      "key": "portalUrl",
-      "label": "URL del portal",
-      "type": "url"
+      "key": "switchSeed",
+      "label": "Cambiar semilla",
+      "type": "action",
+      "hint": "Prueba otra sesión de respaldo si esta va mal"
+    },
+    {
+      "key": "refreshSeeds",
+      "label": "Actualizar semillas",
+      "type": "action",
+      "hint": "Vuelve a descargar las sesiones de respaldo"
     }
   ],
   "streamHosts": "any",

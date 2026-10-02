@@ -1331,7 +1331,7 @@ var unpack = (p) => ({
 });
 function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
   const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock: clock2, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
-  const isKinoError7 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+  const isKinoError8 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
   async function fetchDetail(seriesId) {
     let response;
     try {
@@ -1343,7 +1343,7 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
       ));
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
-      if (isKinoError7(e)) throw e;
+      if (isKinoError8(e)) throw e;
       throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
     }
     const data = isObject4(response) ? response.assetData : void 0;
@@ -2602,8 +2602,109 @@ function makeMigrate() {
   return { migrate: migrate2 };
 }
 
-// src/plugin.js
+// src/settings.js
+var STATUS_MAX = 200;
+var MESSAGE_MAX = 300;
+var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
+var LOGOUT_MESSAGE = "Sesi\xF3n cerrada. Borra tu correo y contrase\xF1a de estos ajustes para que no se vuelva a iniciar sesi\xF3n sola.";
+var str3 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
+var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
+var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
 var isKinoError6 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
+function makeSettings({ kino: kino2, session }) {
+  const surface = (e) => {
+    if (isKinoError6(e)) return e;
+    try {
+      kino2.log("xuper settings: " + String(e && e.name || "error"));
+    } catch (_) {
+    }
+    return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
+  };
+  const savedAccount = () => ({ email: str3(kino2.config.get("email")).trim(), password: str3(kino2.config.get("password")).trim() });
+  async function settingsStatus2() {
+    await null;
+    try {
+      const account = session.kind() === "account";
+      const parts = [account ? `Conectado como ${savedAccount().email}` : "Sin cuenta: sesi\xF3n an\xF3nima"];
+      if (!account && session.regionBlocked()) {
+        const n = session.seedPool().length;
+        parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
+        if (session.seedsExhausted()) parts.push(SEEDS_BANNER);
+      }
+      const text2 = parts.length === 1 ? parts[0] : parts.join(". ") + ".";
+      return { status: clip(text2, STATUS_MAX) };
+    } catch (_) {
+      return { status: "No se pudo consultar el estado" };
+    }
+  }
+  async function login() {
+    const { email, password } = savedAccount();
+    if (email === "" || password === "") throw kino2.error("auth_required", "Escribe tu correo y contrase\xF1a en Ajustes");
+    try {
+      await session.login(email, password);
+    } catch (e) {
+      throw refusedCredentials(e) ? kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas") : surface(e);
+    }
+    return { message: "Sesi\xF3n iniciada", refresh: true };
+  }
+  async function logout() {
+    try {
+      await session.logout();
+    } catch (e) {
+      throw surface(e);
+    }
+    return { message: LOGOUT_MESSAGE, refresh: true };
+  }
+  async function switchSeed() {
+    let r;
+    try {
+      r = await session.switchSeed();
+    } catch (e) {
+      throw surface(e);
+    }
+    const message = r.result === "ok" ? `Semilla cambiada (intento ${r.tries})` : r.result === "account_linked" ? "Tu cuenta no usa semillas" : r.result === "no_other_seed" ? "No hay otra semilla para probar" : `Prob\xE9 ${r.tries} semillas y ninguna funcion\xF3`;
+    return { message, refresh: true };
+  }
+  async function refreshSeeds() {
+    let ok;
+    try {
+      ok = await session.refreshSeeds();
+    } catch (e) {
+      throw surface(e);
+    }
+    return { message: ok ? `${session.seedPool().length} semillas cargadas` : "Sin conexi\xF3n, reintenta", refresh: true };
+  }
+  const ACTIONS = { login, logout, switchSeed, refreshSeeds };
+  async function action2(key) {
+    await null;
+    const run = Object.prototype.hasOwnProperty.call(ACTIONS, key) ? ACTIONS[key] : null;
+    if (!run) return null;
+    const out = await run();
+    return { ...out, message: clip(out.message, MESSAGE_MAX) };
+  }
+  async function validateSettings2(values) {
+    await null;
+    const v = values && typeof values === "object" ? values : {};
+    const email = str3(v.email).trim(), password = str3(v.password).trim();
+    if (email === "" && password === "") return null;
+    const errors = {};
+    if (email === "") errors.email = "Escribe tu correo";
+    else if (!email.includes("@")) errors.email = "Escribe un correo v\xE1lido";
+    if (password === "") errors.password = "Escribe tu contrase\xF1a";
+    if (Object.keys(errors).length > 0) return errors;
+    try {
+      await session.login(email, password);
+      return null;
+    } catch (e) {
+      if (refusedCredentials(e)) return { password: "Credenciales de Xuper inv\xE1lidas" };
+      throw surface(e);
+    }
+  }
+  return { settingsStatus: settingsStatus2, action: action2, validateSettings: validateSettings2 };
+}
+
+// src/plugin.js
+var isKinoError7 = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 async function search(query) {
   await null;
   return guarded(({ catalog }) => catalog.search(query));
@@ -2645,25 +2746,45 @@ async function liveChannels(args) {
   await null;
   return guarded(({ live: live2 }) => live2.liveChannels(args));
 }
-async function settingsStatus() {
-  await null;
-  return { text: "todav\xEDa no" };
-}
-async function action() {
-  await null;
-  throw kino.error("unavailable", "todav\xEDa no");
-}
 var migrator = makeMigrate();
 async function migrate(input) {
   await null;
   try {
     return await migrator.migrate(input);
   } catch (e) {
-    if (isKinoError6(e)) throw e;
+    if (isKinoError7(e)) throw e;
     try {
       kino.log("xuper migrate: " + String(e && e.name || "error"));
     } catch (_) {
     }
+    throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
+  }
+}
+var settingsInstance = null;
+var settings = () => settingsInstance ?? (settingsInstance = makeSettings({ kino, session: getDeps().session, clock }));
+async function settingsStatus() {
+  await null;
+  try {
+    return await settings().settingsStatus();
+  } catch (_) {
+    return { status: "No se pudo consultar el estado" };
+  }
+}
+async function action(key) {
+  await null;
+  try {
+    return await settings().action(key);
+  } catch (e) {
+    if (isKinoError7(e)) throw e;
+    throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
+  }
+}
+async function validateSettings(values) {
+  await null;
+  try {
+    return await settings().validateSettings(values);
+  } catch (e) {
+    if (isKinoError7(e)) throw e;
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }
@@ -2678,5 +2799,6 @@ export {
   resolve,
   search,
   settingsStatus,
-  sign
+  sign,
+  validateSettings
 };

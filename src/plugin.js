@@ -1,6 +1,7 @@
-import { guarded, clock } from "./wiring.js";
+import { guarded, clock, getDeps } from "./wiring.js";
 import { signRequest } from "./liveSign.js";
 import { makeMigrate } from "./migrate.js";
+import { makeSettings } from "./settings.js";
 
 const isKinoError = (e) => e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_");
 
@@ -22,8 +23,6 @@ export async function sign(request) {
 }
 export async function liveCategories() { await null; return guarded(({ live }) => live.liveCategories()); }
 export async function liveChannels(args) { await null; return guarded(({ live }) => live.liveChannels(args)); }
-export async function settingsStatus() { await null; return { text: "todavía no" }; }
-export async function action() { await null; throw kino.error("unavailable", "todavía no"); }
 // Pure like sign: it never builds the other deps. An unreadable value is `null`; only a bug becomes `unavailable`.
 const migrator = makeMigrate();
 export async function migrate(input) {
@@ -32,6 +31,30 @@ export async function migrate(input) {
   catch (e) {
     if (isKinoError(e)) throw e;
     try { kino.log("xuper migrate: " + String((e && e.name) || "error")); } catch (_) {}
+    throw kino.error("unavailable", "Xuper no está disponible ahora");
+  }
+}
+
+// The settings form runs even with no account saved: it needs the session, never the catalog.
+let settingsInstance = null;
+const settings = () => (settingsInstance ??= makeSettings({ kino, session: getDeps().session, clock }));
+export async function settingsStatus() {
+  await null;
+  try { return await settings().settingsStatus(); } catch (_) { return { status: "No se pudo consultar el estado" }; }
+}
+export async function action(key) {
+  await null;
+  try { return await settings().action(key); }
+  catch (e) {
+    if (isKinoError(e)) throw e;
+    throw kino.error("unavailable", "Xuper no está disponible ahora");
+  }
+}
+export async function validateSettings(values) {
+  await null;
+  try { return await settings().validateSettings(values); }
+  catch (e) {
+    if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no está disponible ahora");
   }
 }
