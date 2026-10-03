@@ -3077,7 +3077,7 @@ var COUNTRY_OPTIONS = Object.freeze([
   { value: "SV", label: "El Salvador" },
   { value: "ES", label: "Espa\xF1a" },
   { value: "US", label: "Estados Unidos" },
-  { value: "GT", label: "Guatemala, Nicaragua o Belice" },
+  { value: "GT-NI-BZ", label: "Guatemala, Nicaragua o Belice" },
   { value: "HN", label: "Honduras" },
   { value: "MX", label: "M\xE9xico" },
   { value: "PA", label: "Panam\xE1" },
@@ -3088,6 +3088,12 @@ var COUNTRY_OPTIONS = Object.freeze([
   { value: "UY", label: "Uruguay" },
   { value: "VE", label: "Venezuela" }
 ]);
+var OPTION_GROUPS = Object.freeze({ "GT-NI-BZ": Object.freeze(["GT", "NI", "BZ"]) });
+function countriesOf(value) {
+  if (typeof value !== "string") return [];
+  if (Object.hasOwn(OPTION_GROUPS, value)) return [...OPTION_GROUPS[value]];
+  return Object.hasOwn(CATEGORIES_BY_COUNTRY, value) ? [value] : [];
+}
 var HOME_COUNTRY_SETTING = "homeCountry";
 var COUNTRY_ROW_ID = "live-country";
 var COUNTRY_ROW_TITLE = "Canales en vivo";
@@ -3095,12 +3101,16 @@ var COUNTRY_ROW_LIMIT = 20;
 function makeCountryRow({ kino: kino2, live: live2 }) {
   return async function countryRow(deadline) {
     try {
-      const iso = kino2.config.get(HOME_COUNTRY_SETTING);
-      if (typeof iso !== "string" || !Object.hasOwn(CATEGORIES_BY_COUNTRY, iso)) return null;
-      const name = CATEGORIES_BY_COUNTRY[iso];
-      const category = (await live2.categoriesWithin(deadline)).find((c) => c.name === name);
-      if (!category) return null;
-      const channels = await live2.channelsWithin(category.id, deadline);
+      const names = [...new Set(countriesOf(kino2.config.get(HOME_COUNTRY_SETTING)).map((cc) => CATEGORIES_BY_COUNTRY[cc]))];
+      if (names.length === 0) return null;
+      const all = await live2.categoriesWithin(deadline);
+      const categories2 = names.map((n) => all.find((c) => c.name === n)).filter(Boolean);
+      const channels = [];
+      const seen = /* @__PURE__ */ new Set();
+      for (const category of categories2) {
+        if (channels.length >= COUNTRY_ROW_LIMIT) break;
+        for (const c of await live2.channelsWithin(category.id, deadline)) if (!seen.has(c.id) && seen.add(c.id)) channels.push(c);
+      }
       const items = channels.slice(0, COUNTRY_ROW_LIMIT).map((c) => {
         const item = { kind: "live", id: c.id, title: c.title, ref: c.ref };
         if (c.logo) item.poster = c.logo;

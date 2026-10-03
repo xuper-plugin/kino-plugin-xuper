@@ -128,7 +128,7 @@
         { "value": "SV", "label": "El Salvador" },
         { "value": "ES", "label": "España" },
         { "value": "US", "label": "Estados Unidos" },
-        { "value": "GT", "label": "Guatemala, Nicaragua o Belice" },
+        { "value": "GT-NI-BZ", "label": "Guatemala, Nicaragua o Belice" },
         { "value": "HN", "label": "Honduras" },
         { "value": "MX", "label": "México" },
         { "value": "PA", "label": "Panamá" },

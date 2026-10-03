@@ -130,6 +130,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
 
   // A root being fetched right now: concurrent cold callers (home, section, categories, browse) share
   // that fetch instead of asking the portal again. Dropped once it settles, so nothing is pinned.
+  // A joiner inherits the first caller's deadline, which can only be earlier than its own.
   const inflight = new Map();
   function sharedFetchRoot(root, deadline) {
     let pending = inflight.get(root);

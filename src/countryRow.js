@@ -36,7 +36,8 @@ export const CATEGORIES_BY_COUNTRY = Object.freeze({
 
 /**
  * The `homeCountry` select's options, exactly as kino-plugin.json declares them. A select takes at
- * most 20 options, so the three countries that share "Centroamérica" are one option (value GT).
+ * most 20 options, so Guatemala, Nicaragua and Belize are ONE option that stands for all three
+ * ([OPTION_GROUPS]): the row reads each of their categories (today all "Centroamérica").
  */
 export const COUNTRY_OPTIONS = Object.freeze([
   { value: "none", label: "Ninguno" },
@@ -48,7 +49,7 @@ export const COUNTRY_OPTIONS = Object.freeze([
   { value: "SV", label: "El Salvador" },
   { value: "ES", label: "España" },
   { value: "US", label: "Estados Unidos" },
-  { value: "GT", label: "Guatemala, Nicaragua o Belice" },
+  { value: "GT-NI-BZ", label: "Guatemala, Nicaragua o Belice" },
   { value: "HN", label: "Honduras" },
   { value: "MX", label: "México" },
   { value: "PA", label: "Panamá" },
@@ -59,6 +60,16 @@ export const COUNTRY_OPTIONS = Object.freeze([
   { value: "UY", label: "Uruguay" },
   { value: "VE", label: "Venezuela" },
 ]);
+
+/** Options that stand for several countries. */
+const OPTION_GROUPS = Object.freeze({ "GT-NI-BZ": Object.freeze(["GT", "NI", "BZ"]) });
+
+/** The countries a `homeCountry` value stands for: a group, one country of the map, or none. */
+export function countriesOf(value) {
+  if (typeof value !== "string") return [];
+  if (Object.hasOwn(OPTION_GROUPS, value)) return [...OPTION_GROUPS[value]];
+  return Object.hasOwn(CATEGORIES_BY_COUNTRY, value) ? [value] : [];
+}
 
 export const HOME_COUNTRY_SETTING = "homeCountry";
 export const COUNTRY_ROW_ID = "live-country";
@@ -73,12 +84,17 @@ export const COUNTRY_ROW_LIMIT = 20;
 export function makeCountryRow({ kino, live }) {
   return async function countryRow(deadline) {
     try {
-      const iso = kino.config.get(HOME_COUNTRY_SETTING);
-      if (typeof iso !== "string" || !Object.hasOwn(CATEGORIES_BY_COUNTRY, iso)) return null;
-      const name = CATEGORIES_BY_COUNTRY[iso];
-      const category = (await live.categoriesWithin(deadline)).find((c) => c.name === name);
-      if (!category) return null;
-      const channels = await live.channelsWithin(category.id, deadline);
+      // Each distinct category of the chosen countries, in order (a group may share one).
+      const names = [...new Set(countriesOf(kino.config.get(HOME_COUNTRY_SETTING)).map((cc) => CATEGORIES_BY_COUNTRY[cc]))];
+      if (names.length === 0) return null;
+      const all = await live.categoriesWithin(deadline);
+      const categories = names.map((n) => all.find((c) => c.name === n)).filter(Boolean);
+      const channels = [];
+      const seen = new Set();
+      for (const category of categories) {
+        if (channels.length >= COUNTRY_ROW_LIMIT) break;
+        for (const c of await live.channelsWithin(category.id, deadline)) if (!seen.has(c.id) && seen.add(c.id)) channels.push(c);
+      }
       const items = channels.slice(0, COUNTRY_ROW_LIMIT).map((c) => {
         const item = { kind: "live", id: c.id, title: c.title, ref: c.ref };
         if (c.logo) item.poster = c.logo;

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { checkOutput } from "../sdk/contract.mjs";
 import {
-  makeCountryRow, CATEGORIES_BY_COUNTRY, COUNTRY_OPTIONS, COUNTRY_ROW_ID, COUNTRY_ROW_TITLE, COUNTRY_ROW_LIMIT,
+  makeCountryRow, CATEGORIES_BY_COUNTRY, COUNTRY_OPTIONS, COUNTRY_ROW_ID, COUNTRY_ROW_TITLE, COUNTRY_ROW_LIMIT, countriesOf,
 } from "../src/countryRow.js";
 import { catalogSetup, manifest } from "./helpers/fakeCatalog.mjs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
@@ -157,9 +157,9 @@ test("the manifest declares homeCountry: a select, default none, its options the
   assert.deepEqual(s.options, COUNTRY_OPTIONS);
   assert.ok(s.options.length <= 20);
   assert.ok(s.options.every((o) => o.label.length >= 1 && o.label.length <= 40));
-  for (const o of s.options) assert.ok(o.value === "none" || Object.hasOwn(CATEGORIES_BY_COUNTRY, o.value), o.value);
+  for (const o of s.options) assert.ok(o.value === "none" || countriesOf(o.value).length > 0, o.value);
   // Every portal category of the map is reachable from the setting.
-  const reachable = new Set(s.options.filter((o) => o.value !== "none").map((o) => CATEGORIES_BY_COUNTRY[o.value]));
+  const reachable = new Set(s.options.flatMap((o) => countriesOf(o.value)).map((cc) => CATEGORIES_BY_COUNTRY[cc]));
   assert.deepEqual([...reachable].sort(), [...new Set(Object.values(CATEGORIES_BY_COUNTRY))].sort());
   assert.equal(m.apiVersion, 6);
 });
@@ -192,4 +192,24 @@ test("the row never touches kino.storage (R19: live lists are not cached plugin-
   const kino = { ...base, storage: new Proxy({}, { get() { throw new Error("storage touched"); } }) };
   const row = await makeCountryRow({ kino, live: fakeLive() })(1);
   assert.equal(row.items.length, 20);
+});
+
+// ---- review minor 3: the merged option reaches all three countries ------------------------------
+
+test("every country of the map is reached by exactly one option; the merged one stands for GT, NI and BZ", () => {
+  const merged = COUNTRY_OPTIONS.find((o) => o.label === "Guatemala, Nicaragua o Belice");
+  assert.deepEqual(countriesOf(merged.value), ["GT", "NI", "BZ"]);
+  const covered = COUNTRY_OPTIONS.flatMap((o) => countriesOf(o.value));
+  assert.deepEqual([...covered].sort(), Object.keys(CATEGORIES_BY_COUNTRY).sort());
+  assert.equal(new Set(covered).size, covered.length);
+  assert.deepEqual(countriesOf("none"), []);
+  assert.deepEqual(countriesOf("__proto__"), []);
+});
+
+test("the merged option lists the categories of GT, NI and BZ (one call per distinct category)", async () => {
+  const merged = COUNTRY_OPTIONS.find((o) => o.label === "Guatemala, Nicaragua o Belice").value;
+  const live = fakeLive();
+  const row = await makeCountryRow({ kino: kinoWith(merged), live })(7);
+  assert.deepEqual(row.items.map((i) => i.id), ["CA1"]);
+  assert.deepEqual(live.calls, [["categories", 7], ["channels", "42", 7]]);
 });
