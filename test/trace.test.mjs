@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { trace, errCode, seedTag, MAX_LINE_CHARS } from "../src/trace.js";
 import { PortalError } from "../src/portal.js";
 import { fakeKino } from "./helpers/fakeKino.mjs";
+import { appScrub } from "./helpers/appScrubber.mjs";
 
 const capture = () => {
   const lines = [];
@@ -68,4 +69,20 @@ test("seedTag: 8 hex of a hash, stable, never the sn itself; ? when there is non
   assert.notEqual(seedTag(kino, "seed-sn-2"), a);
   assert.equal(seedTag(kino, ""), "?");
   assert.equal(seedTag({ crypto: { hash: () => { throw new Error("x"); } } }, "s"), "?");
+});
+
+test("values: at most 20 characters; a hex run of 12+ or a digit run of 10+ is never written", () => {
+  const { kino, lines } = capture();
+  trace(kino, "x", "e", {
+    a: "abcdefghijklmnopqrst", b: "abcdefghijklmnopqrstu", c: "0123456789abcdef0123",
+    d: "x-deadbeef0123", e: "n1234567890", f: 12345678901, g: "portal100024", h: "deadbeef012", i: 123456789,
+  });
+  assert.equal(lines[0], "xuper:x e a=abcdefghijklmnopqrst b=? c=? d=? e=? f=? g=portal100024 h=deadbeef012 i=123456789");
+});
+
+test("a field the app's scrubber would blank is written ?: no k=v of 24+ characters, no 16+ id with a digit", () => {
+  const { kino, lines } = capture();
+  trace(kino, "x", "e", { outcomeLong: "abcdefghijkl", path: "v2/sendEmailVerifyC", ok: "v1_a2_b3_c4_d5_e6" });
+  assert.equal(lines[0], "xuper:x e outcomeLong=? path=? ok=?");
+  assert.equal(appScrub(lines[0]), lines[0]);
 });

@@ -5,17 +5,32 @@
 // an email, a host or a url. Never throws.
 
 export const MAX_LINE_CHARS = 160;
-const NAME = /^[a-z][a-z0-9_-]{0,23}$/; // area and event: `decrypt-fail` too
+const NAME = /^[a-z][a-z0-9_-]{0,19}$/; // area and event: `decrypt-fail` too
 const KEY = /^[a-z][a-zA-Z0-9]{0,11}$/;
 // What a key may never be about (the app's scrubber also blanks `session=`, `token=`, `auth=`...).
 const SENSITIVE_KEY = /pass|token|secret|cred|auth|bearer|cookie|session|key|mail|host|url|^sn$|user|license|sign/i;
-const VALUE = /^[A-Za-z0-9_\/-]{1,32}$/;
+// A value is a short plain word: at most 20 characters, and never something shaped like an id even
+// when a caller passes one by mistake (a 32-hex token, an sn, a userId): no run of 12+ hex
+// characters or 10+ digits.
+const VALUE = /^[A-Za-z0-9_\/-]{1,20}$/;
+const ID_SHAPED = /[0-9a-fA-F]{12}|[0-9]{10}/;
+// The app's scrubber turns any 24+ run of [A-Za-z0-9+/_=-] (the `k=` included) and any 16+ word
+// with a digit into `[id]`: such a field would reach the board blanked, so it is written `?`.
+const APP_BLOB_CHARS = 24;
+const APP_LONG_TOKEN = /(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}/;
 
 function word(v) {
-  if (typeof v === "number") return Number.isFinite(v) ? String(Math.round(v)) : "?";
-  if (typeof v === "boolean") return v ? "1" : "0";
-  const s = typeof v === "string" ? v : "";
-  return VALUE.test(s) ? s : "?";
+  let s;
+  if (typeof v === "number") s = Number.isFinite(v) ? String(Math.round(v)) : "?";
+  else if (typeof v === "boolean") return v ? "1" : "0";
+  else s = typeof v === "string" ? v : "";
+  return VALUE.test(s) && !ID_SHAPED.test(s) ? s : "?";
+}
+
+/** `k=v`, or `k=?` when the app's scrubber would blank it. */
+function field(k, v) {
+  const w = word(v);
+  return (k.length + 1 + w.length >= APP_BLOB_CHARS || APP_LONG_TOKEN.test(w)) ? `${k}=?` : `${k}=${w}`;
 }
 
 /** Writes one breadcrumb. `fields`: { key: string | number | boolean }; null/undefined are left out. */
@@ -25,7 +40,7 @@ export function trace(kino, area, event, fields = {}) {
     if (fields !== null && typeof fields === "object") {
       for (const [k, v] of Object.entries(fields)) {
         if (v === undefined || v === null || !KEY.test(k) || SENSITIVE_KEY.test(k)) continue;
-        parts.push(`${k}=${word(v)}`);
+        parts.push(field(k, v));
       }
     }
     kino.log(parts.join(" ").slice(0, MAX_LINE_CHARS));

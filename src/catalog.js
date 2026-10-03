@@ -154,6 +154,20 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   // What to tell the person: a root's specific error (geo, account...) before a plain unavailable.
   const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
 
+  // A Home where every root failed writes many lines (geo, seeds, failover per root and pass); the app
+  // sends only the newest 30 / 2 KB. One compact line last, so the causes survive the cut: how many
+  // roots, how many passes, and up to three distinct error codes, most specific first.
+  function summarizeFailure(fetched, passes) {
+    const codes = [];
+    for (const f of [...fetched].sort((a, b) => (a.error.name === "KinoError_unavailable") - (b.error.name === "KinoError_unavailable"))) {
+      const c = errCode(f.error);
+      if (!codes.includes(c)) codes.push(c);
+    }
+    const fields = { roots: fetched.length, rounds: passes };
+    codes.slice(0, 3).forEach((c, i) => { fields["c" + (i + 1)] = c; });
+    trace(kino, "home", "all_fail", fields);
+  }
+
   // The classified rows over the four roots: stored trees first, the rest from the portal in parallel.
   // `budgetMs`: the calling export's cap (home, browse, section and categories all have 20 s).
   async function buildRows(budgetMs = CALL_BUDGET_MS.home) {
@@ -169,14 +183,19 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       await session.ensure({ deadline });
       const pass = () => Promise.all(missing.map((root) => sharedFetchRoot(root, deadline)));
       let fetched = await pass();
+      let passes = 1;
       if (allFailed(fetched)) {
         // Every root failed: one more pass after a short pause (native), if the call's time allows;
         // still all failed, the error is thrown so Home says Xuper failed and offers "Reintentar".
         if (deadline - clock.now() >= HOME_RETRY_PAUSE_MS + HOME_RETRY_MIN_MS) {
           try { await kino.sleep(HOME_RETRY_PAUSE_MS); } catch (_) { /* no pause: retry at once */ }
           fetched = await pass();
+          passes = 2;
         }
-        if (allFailed(fetched)) throw worstOf(fetched);
+        if (allFailed(fetched)) {
+          summarizeFailure(fetched, passes);
+          throw worstOf(fetched);
+        }
       }
       missing.forEach((root, i) => { roots[root] = fetched[i].sections; });
     }

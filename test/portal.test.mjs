@@ -307,7 +307,7 @@ test("decrypt-fail: undecryptable data names its shape, host index, status and m
   assert.deepEqual(await portal.call("v6/getLiveData", {}), { channelList: [] });
   const f = fails(lines);
   assert.equal(f.length, 1);
-  assert.match(f[0], /^xuper:portal decrypt-fail path=v6\/getLiveData i=0 at=data status=200 ctype=json len=\d+ shape=hex dlen=32 gzip=0 mode=seed attempt=1 why=unavailable$/);
+  assert.match(f[0], /^xuper:portal decrypt-fail path=v6\/getLiveData i=0 at=data status=200 ctype=json len=\d+ shape=hex dlen=32 gzip=0 sess=seed attempt=1 why=unavailable$/);
   for (const l of lines) {
     assert.ok(!l.includes("h1.test") && !l.includes("h2.test") && !l.includes("deadbeef") && !l.includes("SN-SECRET"), l);
     assert.ok(!l.includes("000102030405060708090a0b0c0d0e0f1011121314151617"), "never the key");
@@ -327,10 +327,10 @@ test("decrypt-fail: an HTML page, an empty 200 and a gzip body each say what the
   await assert.rejects(portal.call("v6/getLiveData", {}), (e) => e.code === "unavailable");
   const f = fails(lines);
   assert.equal(f.length, 4);
-  assert.match(f[0], / i=0 at=body status=403 ctype=html len=\d+ shape=html dlen=-1 gzip=0 mode=anon attempt=1 /);
-  assert.match(f[1], / i=1 at=body status=200 ctype=none len=0 shape=empty dlen=-1 gzip=0 mode=anon attempt=2 /);
-  assert.match(f[2], / at=body status=200 ctype=none len=\d+ shape=gzip dlen=-1 gzip=1 mode=anon attempt=3 /);
-  assert.match(f[3], / at=body status=502 ctype=text len=15 shape=text dlen=-1 gzip=0 mode=anon attempt=4 /);
+  assert.match(f[0], / i=0 at=body status=403 ctype=html len=\d+ shape=html dlen=-1 gzip=0 sess=anon attempt=1 /);
+  assert.match(f[1], / i=1 at=body status=200 ctype=none len=0 shape=empty dlen=-1 gzip=0 sess=anon attempt=2 /);
+  assert.match(f[2], / at=body status=200 ctype=none len=\d+ shape=gzip dlen=-1 gzip=1 sess=anon attempt=3 /);
+  assert.match(f[3], / at=body status=502 ctype=text len=15 shape=text dlen=-1 gzip=0 sess=anon attempt=4 /);
   for (const l of lines) assert.ok(!/blocked|country|h[12]\.test|not json/.test(l), l);
 });
 

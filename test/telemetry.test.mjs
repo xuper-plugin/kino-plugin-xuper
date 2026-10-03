@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 import { portalWorld, SEEDS, STORED } from "./helpers/portalWorld.mjs";
 import { traced } from "../src/trace.js";
 import { signRequest } from "../src/liveSign.js";
+import { makeRegistration } from "../src/registration.js";
+import { appScrub } from "./helpers/appScrubber.mjs";
 
 const GEO = { returnCode: "portal100024", errorMessage: "版权限制 geo" };
 const DEAD = { returnCode: "aaa100027", errorMessage: "not logged in" };
@@ -66,8 +68,8 @@ test("reactivation of the stored sn refused with an invalid-sn code: logged, the
 test("geo-block on content, anonymous: geo detected, the pool downloaded and a seed switched to (hash, pool size)", async () => {
   const w = portalWorld({ hosts: ["a.test"], seedsText: JSON.stringify(SEEDS), routes: { "v3/searchByName": (b) => (isSeed(b) ? searchAnswer : GEO) } });
   await w.catalog.search(query);
-  has(w, /^xuper:session err code=portal100024 mode=anon$/);
-  has(w, /^xuper:session geo at=content mode=anon$/);
+  has(w, /^xuper:session err code=portal100024 sess=anon$/);
+  has(w, /^xuper:session geo at=content sess=anon$/);
   has(w, /^xuper:seeds refresh ok=1 n=2$/);
   has(w, /^xuper:session seed_switch pool=2 seed=[0-9a-f]{8}$/);
 });
@@ -82,8 +84,8 @@ test("a dead token: the error, then the reauthentication outcome", async () => {
   let n = 0;
   const w = portalWorld({ hosts: ["a.test"], routes: { "v3/searchByName": () => (n++ === 0 ? DEAD : searchAnswer) } });
   await w.catalog.search(query);
-  has(w, /^xuper:session err code=aaa100027 mode=anon$/);
-  has(w, /^xuper:session reauth ok=1 mode=anon$/);
+  has(w, /^xuper:session err code=aaa100027 sess=anon$/);
+  has(w, /^xuper:session reauth ok=1 sess=anon$/);
 });
 
 test("dead seeds all the way: the rescue rounds and the pool marked exhausted", async () => {
@@ -117,7 +119,7 @@ test("live: a conflict retry says what the rotation did; a seed that cannot open
   const w = portalWorld({ hosts: ["a.test"], seeds: SEEDS, session: { ...SEEDS[0], jwtToken: "", acct: "" } });
   await w.resolve.resolve("cyx-RCNHD", { retry: { reason: "conflict", attempt: 1 } });
   has(w, /^xuper:live retry reason=conflict attempt=1$/);
-  has(w, /^xuper:live conflict mode=seed outcome=rotated tried=\d+ of=4$/);
+  has(w, /^xuper:live conflict sess=seed outcome=rotated tried=\d+ of=4$/);
 });
 
 test("live: an open that fails says at which step and the code", async () => {
@@ -156,7 +158,8 @@ test("sign: a broken context or a CDN entry without a token throws with a short 
   assert.throws(() => signRequest({ url: "http://x.test/a", context: JSON.stringify({ l: "L", c: [{ h: "x.test", a: "no" }] }) }, 1), (e) => e.why === "no_token");
 });
 
-test("NO secret ever reaches a log line: tokens, sns, seeds, emails, passwords, hosts, licenses over many flows", async () => {
+// The representative flows every line-level guarantee below is checked over.
+async function collectFlows() {
   const email = "persona@correo.test", password = "clave-secreta-9";
   const shared = { email: "compartida@correo.test", password: "compartida-pw-7" };
   const all = [];
@@ -177,6 +180,11 @@ test("NO secret ever reaches a log line: tokens, sns, seeds, emails, passwords, 
   await run({ dead: ["a.test", "b.test"] }, (w) => w.catalog.episodes("magis1:teleplay:2:SERIE"));
   await run({ seeds: SEEDS }, (w) => w.session.switchSeed());
   await run({ seedsDead: true, routes: { "v3/searchByName": GEO } }, (w) => w.catalog.search(query));
+  return { all, email, password, shared };
+}
+
+test("NO secret ever reaches a log line: tokens, sns, seeds, emails, passwords, hosts, licenses over many flows", async () => {
+  const { all, email, password, shared } = await collectFlows();
   assert.ok(all.length >= 20, `representative flows logged (${all.length} lines)`);
   const text = all.join("\n");
   const secrets = [
@@ -192,4 +200,50 @@ test("NO secret ever reaches a log line: tokens, sns, seeds, emails, passwords, 
   }
   // Every line the plugin writes is a breadcrumb in the format (no free text left).
   assert.deepEqual(all.filter((l) => !l.startsWith("xuper:")), []);
+});
+
+test("the app's log scrubber leaves every breadcrumb whole: no [id], [host] or [REDACTED] on the board", async () => {
+  const { all } = await collectFlows();
+  const more = [];
+  const run = async (opts, body) => {
+    const w = portalWorld({ hosts: ["a.test", "b.test"], ...opts });
+    try { await body(w); } catch (_) { /* failures are part of the flows */ }
+    more.push(...w.logs);
+  };
+  const refused = { returnCode: "aaa100099", errorMessage: "no" };
+  // Registration: the two long endpoint names, refused (rc) and on dead hosts (host_fail, all_fail).
+  const reg = (w) => makeRegistration({ kino: w.kino, portal: w.portal, session: w.session, clock: w.clock });
+  await run({ routes: { "v2/sendEmailVerifyCode": refused } }, (w) => reg(w).sendRegistrationCode("ana@x.test"));
+  await run({ routes: { "v2/validateVerifyCode": refused } }, (w) => reg(w).confirmRegistration(
+    { email: "ana@x.test", userId: "u-p", userToken: "tok-p", sn: "SN-P" }, "123456", "pw-1"));
+  await run({ dead: ["a.test", "b.test"] }, (w) => reg(w).confirmRegistration(
+    { email: "ana@x.test", userId: "u-p", userToken: "tok-p", sn: "SN-P" }, "123456", "pw-1"));
+  // Live rotation spent, then asked again (already_exhausted); an undecryptable live page.
+  await run({ seeds: SEEDS, session: { ...SEEDS[0], jwtToken: "", acct: "" } }, async (w) => {
+    for (let a = 1; a <= 6; a++) await w.resolve.resolve("cyx-RCNHD", { retry: { reason: "conflict", attempt: a } }).catch(() => {});
+  });
+  await run({ routes: { "v6/getLiveData": { returnCode: "0", data: "deadbeef".repeat(4) } } }, (w) => w.portal.call("v6/getLiveData", {}));
+  const lines = [...all, ...more].filter((l) => l.startsWith("xuper:"));
+  assert.ok(lines.some((l) => l.includes("path=v2/sendCode")), lines.join("\n"));
+  assert.ok(lines.some((l) => l.includes("path=v2/checkCode")), lines.join("\n"));
+  assert.ok(lines.some((l) => l.includes("outcome=spent")), lines.join("\n"));
+  assert.ok(lines.some((l) => l.startsWith("xuper:portal decrypt-fail ")), lines.join("\n"));
+  for (const line of lines) assert.equal(appScrub(line), line);
+});
+
+test("a Home where every root fails ends with one compact summary line, inside the app's 30-line / 2 KB cut", async () => {
+  const GEO_ALL = { "getNextColumns": GEO };
+  const w = portalWorld({ hosts: ["a.test", "b.test"], seedsDead: true, routes: GEO_ALL });
+  await assert.rejects(w.catalog.home());
+  const lines = w.logs.filter((l) => l.startsWith("xuper:"));
+  // The app keeps a ring of 30 lines and sends the NEWEST that fit in 2048 characters.
+  const ring = lines.slice(-30);
+  const sent = [];
+  let total = 0;
+  for (const l of [...ring].reverse()) { if (total + l.length + 1 > 2048) break; sent.unshift(l); total += l.length + 1; }
+  const summary = sent.filter((l) => l.startsWith("xuper:home all_fail "));
+  assert.equal(summary.length, 1, lines.join("\n"));
+  assert.match(summary[0], /^xuper:home all_fail roots=4 rounds=\d c1=geo_blocked( c2=[a-z0-9_]+)?( c3=[a-z0-9_]+)?$/);
+  assert.equal(appScrub(summary[0]), summary[0]);
+  assert.equal(lines[lines.length - 1], summary[0], "the newest line, so it is the last one cut");
 });

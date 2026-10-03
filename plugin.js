@@ -129,15 +129,23 @@ function intOrNull(v) {
 
 // src/trace.js
 var MAX_LINE_CHARS = 160;
-var NAME = /^[a-z][a-z0-9_-]{0,23}$/;
+var NAME = /^[a-z][a-z0-9_-]{0,19}$/;
 var KEY = /^[a-z][a-zA-Z0-9]{0,11}$/;
 var SENSITIVE_KEY = /pass|token|secret|cred|auth|bearer|cookie|session|key|mail|host|url|^sn$|user|license|sign/i;
-var VALUE = /^[A-Za-z0-9_\/-]{1,32}$/;
+var VALUE = /^[A-Za-z0-9_\/-]{1,20}$/;
+var ID_SHAPED = /[0-9a-fA-F]{12}|[0-9]{10}/;
+var APP_BLOB_CHARS = 24;
+var APP_LONG_TOKEN = /(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}/;
 function word(v) {
-  if (typeof v === "number") return Number.isFinite(v) ? String(Math.round(v)) : "?";
-  if (typeof v === "boolean") return v ? "1" : "0";
-  const s = typeof v === "string" ? v : "";
-  return VALUE.test(s) ? s : "?";
+  let s;
+  if (typeof v === "number") s = Number.isFinite(v) ? String(Math.round(v)) : "?";
+  else if (typeof v === "boolean") return v ? "1" : "0";
+  else s = typeof v === "string" ? v : "";
+  return VALUE.test(s) && !ID_SHAPED.test(s) ? s : "?";
+}
+function field(k, v) {
+  const w = word(v);
+  return k.length + 1 + w.length >= APP_BLOB_CHARS || APP_LONG_TOKEN.test(w) ? `${k}=?` : `${k}=${w}`;
 }
 function trace(kino2, area, event, fields = {}) {
   try {
@@ -145,7 +153,7 @@ function trace(kino2, area, event, fields = {}) {
     if (fields !== null && typeof fields === "object") {
       for (const [k, v] of Object.entries(fields)) {
         if (v === void 0 || v === null || !KEY.test(k) || SENSITIVE_KEY.test(k)) continue;
-        parts.push(`${k}=${word(v)}`);
+        parts.push(field(k, v));
       }
     }
     kino2.log(parts.join(" ").slice(0, MAX_LINE_CHARS));
@@ -283,6 +291,8 @@ function gzipped(res, text2) {
   const enc = h && typeof h["content-encoding"] === "string" ? h["content-encoding"].toLowerCase() : "";
   return enc.includes("gzip") || typeof text2 === "string" && text2.charCodeAt(0) === 31;
 }
+var PATH_ALIASES = { "v2/sendEmailVerifyCode": "v2/sendCode", "v2/validateVerifyCode": "v2/checkCode" };
+var tracePath = (path) => Object.hasOwn(PATH_ALIASES, path) ? PATH_ALIASES[path] : path;
 function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, modeOf = () => "?" }) {
   let preferredHost = null;
   let lastCallMs = null;
@@ -320,6 +330,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
     const { baseFields = true, userId = "", userToken = "", sn = null, timeoutMs, deadline } = opts;
     const requested = Math.trunc(Number(timeoutMs));
     const perRequest = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_REQUEST_MS) : REQUEST_TIMEOUT_MS;
+    const tp = tracePath(path);
     const body = {
       ...baseFields ? { portalCode: PORTAL_CODE, userId, userToken } : {},
       ...bean,
@@ -335,7 +346,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
     };
     const outOfTime = () => typeof deadline === "number" && Math.floor(deadline - clock2.now()) < 1;
     if (outOfTime()) {
-      trace(kino2, "portal", "deadline", { path });
+      trace(kino2, "portal", "deadline", { path: tp });
       throw kino2.error("unavailable", CONTACT_FAILED);
     }
     await waitTurn();
@@ -347,7 +358,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
       if (typeof deadline === "number") {
         const left = Math.floor(deadline - clock2.now());
         if (left < 1) {
-          trace(kino2, "portal", "deadline", { path, i });
+          trace(kino2, "portal", "deadline", { path: tp, i });
           break;
         }
         const remaining = order.length - i;
@@ -368,7 +379,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
         bodyText = res.text();
         answer = JSON.parse(bodyText);
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
-        if (i > 0) trace(kino2, "portal", "failover", { path, to: i });
+        if (i > 0) trace(kino2, "portal", "failover", { path: tp, to: i });
         preferredHost = host;
         const rc = answer.returnCode;
         const code = rc === void 0 || rc === null ? "" : String(rc);
@@ -392,18 +403,18 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
         }
       } catch (e) {
         lastError = e;
-        trace(kino2, "portal", "host_fail", { path, i, why: errCode(e) });
-        if (stage !== "fetch") decryptFail(path, i, stage, res, bodyText, answer, e);
+        if (stage === "fetch") trace(kino2, "portal", "host_fail", { path: tp, i, why: errCode(e) });
+        else decryptFail(path, i, stage, res, bodyText, answer, e);
         continue;
       }
       decryptFails.delete(path);
       if (answer.portalFailure) {
-        trace(kino2, "portal", "rc", { path, code: answer.portalFailure.code });
+        trace(kino2, "portal", "rc", { path: tp, code: answer.portalFailure.code });
         throw answer.portalFailure;
       }
       return answer.ok;
     }
-    if (order.length > 0) trace(kino2, "portal", "all_fail", { path, n: order.length });
+    if (order.length > 0) trace(kino2, "portal", "all_fail", { path: tp, n: order.length });
     throw kino2.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
   }
   function decryptFail(path, i, at, res, bodyText, answer, e) {
@@ -417,7 +428,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
       } catch (_) {
       }
       trace(kino2, "portal", "decrypt-fail", {
-        path,
+        path: tracePath(path),
         i,
         at,
         status: res !== null && typeof res === "object" && typeof res.status === "number" ? res.status : -1,
@@ -426,7 +437,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
         shape: shapeOf(at === "body" ? bodyText : data),
         dlen: typeof data === "string" ? data.length : -1,
         gzip: gzipped(res, bodyText),
-        mode,
+        sess: mode,
         attempt,
         why: errCode(e)
       });
@@ -769,10 +780,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
           await ensureAnonymousUnlocked(bounds);
         }
       } else await ensureAnonymousUnlocked(bounds);
-      trace(kino2, "session", "reauth", { ok: true, mode: mode() });
+      trace(kino2, "session", "reauth", { ok: true, sess: mode() });
       return { ok: true, loginError: null };
     } catch (e) {
-      trace(kino2, "session", "reauth", { ok: false, code: errCode(loginError || e), mode: mode() });
+      trace(kino2, "session", "reauth", { ok: false, code: errCode(loginError || e), sess: mode() });
       return { ok: false, loginError };
     }
   });
@@ -993,9 +1004,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const tokenUsed = view().userToken;
     let result = await attempt();
     if (!result.err) return settle(result);
-    trace(kino2, "session", "err", { code: result.err.code, mode: mode() });
+    trace(kino2, "session", "err", { code: result.err.code, sess: mode() });
     if (result.err.code === GEO_BLOCKED) {
-      trace(kino2, "session", "geo", { at: "content", mode: mode() });
+      trace(kino2, "session", "geo", { at: "content", sess: mode() });
       setRegion(true);
       if (!account()) {
         if (seedPool().length === 0) {
@@ -2141,6 +2152,18 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
   const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
+  function summarizeFailure(fetched, passes) {
+    const codes = [];
+    for (const f of [...fetched].sort((a, b) => (a.error.name === "KinoError_unavailable") - (b.error.name === "KinoError_unavailable"))) {
+      const c = errCode(f.error);
+      if (!codes.includes(c)) codes.push(c);
+    }
+    const fields = { roots: fetched.length, rounds: passes };
+    codes.slice(0, 3).forEach((c, i) => {
+      fields["c" + (i + 1)] = c;
+    });
+    trace(kino2, "home", "all_fail", fields);
+  }
   async function buildRows(budgetMs = CALL_BUDGET_MS.home) {
     const deadline = callDeadline(clock2, budgetMs);
     const roots = {};
@@ -2154,6 +2177,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
       await session.ensure({ deadline });
       const pass = () => Promise.all(missing.map((root) => sharedFetchRoot(root, deadline)));
       let fetched = await pass();
+      let passes = 1;
       if (allFailed(fetched)) {
         if (deadline - clock2.now() >= HOME_RETRY_PAUSE_MS + HOME_RETRY_MIN_MS) {
           try {
@@ -2161,8 +2185,12 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
           } catch (_) {
           }
           fetched = await pass();
+          passes = 2;
         }
-        if (allFailed(fetched)) throw worstOf(fetched);
+        if (allFailed(fetched)) {
+          summarizeFailure(fetched, passes);
+          throw worstOf(fetched);
+        }
       }
       missing.forEach((root, i) => {
         roots[root] = fetched[i].sections;
@@ -3074,6 +3102,7 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
 }
 
 // src/live.js
+var OUTCOME_WORDS = { already_exhausted: "spent" };
 var DEFAULT_TTL_S = 300;
 var MIN_EXPIRES_S = 30;
 var MAX_EXPIRES_S = 86400;
@@ -3219,17 +3248,24 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
       expiresInSeconds: expiresOf(slb)
     };
   }
+  const sessOf = () => {
+    try {
+      return typeof session.mode === "function" ? session.mode() : "?";
+    } catch (_) {
+      return "?";
+    }
+  };
   const seedBySn = (sn) => sn === null ? null : session.seedPool().find((e) => e.sn === sn) || null;
   function onConflict(code, attempt) {
     const kind = session.kind();
     if (kind !== "seed") {
-      trace(kino2, "live", "conflict", { mode: kind, outcome: "no_rotation" });
+      trace(kino2, "live", "conflict", { sess: sessOf(), outcome: "no_rotation" });
       return;
     }
     const current = rotation.activeSn(code) ?? session.current().sn;
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
     const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
-    trace(kino2, "live", "conflict", { mode: kind, outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
+    trace(kino2, "live", "conflict", { sess: sessOf(), outcome: OUTCOME_WORDS[outcome] ?? outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
   }
   async function openWithRotation(code, deadline) {
     let seed = session.kind() === "seed" ? seedBySn(rotation.activeSn(code)) : null;

@@ -604,7 +604,7 @@ for (const file of ["src-bundle.mjs", "built-bundle.mjs"]) {
     globalThis.kino = Object.freeze({ ...s.kino, log: (...a) => lines.push(a.map(String).join(" ")) });
     await assert.rejects(s.plugin.search({ q: "Dune", type: "any", season: 0, episode: 0, tmdbId: 0 }), kinoError("geo_blocked"));
     assert.ok(lines.some((l) => /^xuper:call fail fn=search code=geo_blocked ms=\d+$/.test(l)), lines.join("\n"));
-    assert.ok(lines.some((l) => /^xuper:session geo at=content mode=anon$/.test(l)), lines.join("\n"));
+    assert.ok(lines.some((l) => /^xuper:session geo at=content sess=anon$/.test(l)), lines.join("\n"));
     const text = lines.join("\n");
     for (const secret of [HOST, APP, TOKEN, SN, USER, SHARED_EMAIL_FAKE, SHARED_PASSWORD_FAKE, SHARED_EMAIL, SHARED_PASSWORD].filter(Boolean)) {
       assert.ok(!text.includes(secret), "logged " + secret);

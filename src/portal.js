@@ -145,9 +145,14 @@ function gzipped(res, text) {
 }
 
 /**
- * `modeOf`: the session mode for breadcrumbs only (anon / shared / own / seed / none), never which
- * account or device.
+ * `modeOf`: the session in use, for breadcrumbs only (`sess=`: anon / shared / own / seed / none, the
+ * same values everywhere; `own` is always the person's own account), never which account or device.
  */
+// Breadcrumb names for the endpoints whose own path would make a field the app's scrubber blanks
+// (24+ characters with the `path=`): the same endpoint, short. Every other path is written as is.
+const PATH_ALIASES = { "v2/sendEmailVerifyCode": "v2/sendCode", "v2/validateVerifyCode": "v2/checkCode" };
+export const tracePath = (path) => (Object.hasOwn(PATH_ALIASES, path) ? PATH_ALIASES[path] : path);
+
 export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = () => "?" }) {
   let preferredHost = null;
   let lastCallMs = null;
@@ -194,6 +199,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
     // clock that no request, failover included, may run past.
     const requested = Math.trunc(Number(timeoutMs));
     const perRequest = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_REQUEST_MS) : REQUEST_TIMEOUT_MS;
+    const tp = tracePath(path);
     const body = {
       ...(baseFields ? { portalCode: PORTAL_CODE, userId, userToken } : {}),
       ...bean,
@@ -211,7 +217,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
     const outOfTime = () => typeof deadline === "number" && Math.floor(deadline - clock.now()) < 1;
     // A deadline already gone: the plugin's own answer, no request at all.
     if (outOfTime()) {
-      trace(kino, "portal", "deadline", { path });
+      trace(kino, "portal", "deadline", { path: tp });
       throw kino.error("unavailable", CONTACT_FAILED);
     }
     await waitTurn();
@@ -223,7 +229,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
       let requestMs = perRequest;
       if (typeof deadline === "number") {
         const left = Math.floor(deadline - clock.now());
-        if (left < 1) { trace(kino, "portal", "deadline", { path, i }); break; }
+        if (left < 1) { trace(kino, "portal", "deadline", { path: tp, i }); break; }
         // The time left is shared with the hosts still to try, so a black-holed host cannot use it
         // all and the failover still reaches the next one; the last host gets whatever is left.
         const remaining = order.length - i;
@@ -241,7 +247,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
         bodyText = res.text();
         answer = JSON.parse(bodyText);
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
-        if (i > 0) trace(kino, "portal", "failover", { path, to: i });
+        if (i > 0) trace(kino, "portal", "failover", { path: tp, to: i });
         preferredHost = host;
         const rc = answer.returnCode;
         const code = rc === undefined || rc === null ? "" : String(rc);
@@ -267,19 +273,21 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
       } catch (e) {
         lastError = e;
         // The host's INDEX and the error's code, never its message: a fetch error names the host or the url.
-        trace(kino, "portal", "host_fail", { path, i, why: errCode(e) });
-        if (stage !== "fetch") decryptFail(path, i, stage, res, bodyText, answer, e);
+        // A host that never answered: its index and the error's code. One that answered something
+        // unreadable gets the decrypt-fail line instead, which carries the same and the answer's shape.
+        if (stage === "fetch") trace(kino, "portal", "host_fail", { path: tp, i, why: errCode(e) });
+        else decryptFail(path, i, stage, res, bodyText, answer, e);
         continue;
       }
       decryptFails.delete(path);
       if (answer.portalFailure) {
-        trace(kino, "portal", "rc", { path, code: answer.portalFailure.code });
+        trace(kino, "portal", "rc", { path: tp, code: answer.portalFailure.code });
         throw answer.portalFailure;
       }
       return answer.ok;
     }
     // Fixed text: the underlying error may echo the URL (host) and must not reach the caller.
-    if (order.length > 0) trace(kino, "portal", "all_fail", { path, n: order.length });
+    if (order.length > 0) trace(kino, "portal", "all_fail", { path: tp, n: order.length });
     throw kino.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
   }
 
@@ -297,14 +305,14 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
       let mode = "?";
       try { mode = String(modeOf()); } catch (_) { /* breadcrumb only */ }
       trace(kino, "portal", "decrypt-fail", {
-        path, i, at,
+        path: tracePath(path), i, at,
         status: res !== null && typeof res === "object" && typeof res.status === "number" ? res.status : -1,
         ctype: contentClass(res),
         len: typeof bodyText === "string" ? bodyText.length : -1,
         shape: shapeOf(at === "body" ? bodyText : data),
         dlen: typeof data === "string" ? data.length : -1,
         gzip: gzipped(res, bodyText),
-        mode, attempt, why: errCode(e),
+        sess: mode, attempt, why: errCode(e),
       });
     } catch (_) { /* a breadcrumb never fails a call */ }
   }

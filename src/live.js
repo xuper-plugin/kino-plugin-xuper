@@ -12,6 +12,10 @@ import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
 import { trace, errCode, seedTag } from "./trace.js";
 
+// A rotation outcome as a breadcrumb word short enough for the app's scrubber ("already_exhausted"
+// with its key is 25 characters, which it blanks): the budget was already spent in this window.
+const OUTCOME_WORDS = { already_exhausted: "spent" };
+
 const DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime (native CHANNEL_TTL_S)
 const MIN_EXPIRES_S = 30; // SDK range of expiresInSeconds
 const MAX_EXPIRES_S = 86400;
@@ -185,17 +189,19 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     };
   }
 
+  // The session in use as every breadcrumb names it (`sess=`, session.mode(): anon/shared/own/seed/none).
+  const sessOf = () => { try { return typeof session.mode === "function" ? session.mode() : "?"; } catch (_) { return "?"; } };
   const seedBySn = (sn) => (sn === null ? null : session.seedPool().find((e) => e.sn === sn) || null);
 
   // AppGraph.onLiveConflict: only a shared seed can be in use twice, so only a device on a seed
   // rotates; an account or a minted own session never does (whatever a rotation left behind).
   function onConflict(code, attempt) {
     const kind = session.kind();
-    if (kind !== "seed") { trace(kino, "live", "conflict", { mode: kind, outcome: "no_rotation" }); return; }
+    if (kind !== "seed") { trace(kino, "live", "conflict", { sess: sessOf(), outcome: "no_rotation" }); return; }
     const current = rotation.activeSn(code) ?? session.current().sn;
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
     const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
-    trace(kino, "live", "conflict", { mode: kind, outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
+    trace(kino, "live", "conflict", { sess: sessOf(), outcome: OUTCOME_WORDS[outcome] ?? outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
   }
 
   // AppGraph.resolveLive: the channel's rotated (or carried) seed first, only while the device is on

@@ -316,10 +316,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
           await ensureAnonymousUnlocked(bounds);
         }
       } else await ensureAnonymousUnlocked(bounds);
-      trace(kino, "session", "reauth", { ok: true, mode: mode() });
+      trace(kino, "session", "reauth", { ok: true, sess: mode() });
       return { ok: true, loginError: null };
     } catch (e) {
-      trace(kino, "session", "reauth", { ok: false, code: errCode(loginError || e), mode: mode() });
+      trace(kino, "session", "reauth", { ok: false, code: errCode(loginError || e), sess: mode() });
       return { ok: false, loginError };
     }
   });
@@ -534,10 +534,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const tokenUsed = view().userToken;
     let result = await attempt();
     if (!result.err) return settle(result);
-    trace(kino, "session", "err", { code: result.err.code, mode: mode() });
+    trace(kino, "session", "err", { code: result.err.code, sess: mode() });
 
     if (result.err.code === GEO_BLOCKED) {
-      trace(kino, "session", "geo", { at: "content", mode: mode() });
+      trace(kino, "session", "geo", { at: "content", sess: mode() });
       setRegion(true);
       if (!account()) {
         // A fresh install has no pool yet: it is the only way out of a blocked region.
