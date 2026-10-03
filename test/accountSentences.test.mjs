@@ -1,6 +1,6 @@
 // Task 16 (plugin 2.0): the sentences the person reads go through `kino.error(code, message,
 // { userMessage })` and pass the app's sentence filter (the kit's shownSentence mirrors it); the
-// account sentences send the person to the plugin's own settings tab ("Ajustes ▸ Plugins ▸ Xuper"),
+// account sentences send the person to the plugin's own settings tab ("Ajustes ▸ Xuper"),
 // never to the app's old "Ajustes, Cuenta"; and the SHARED account never gets a re-link sentence:
 // its refused or dead session falls to the anonymous session / seeds (Ruling R33), and what is left
 // is the generic `unavailable`. Real portal + session over a scripted fetch.
@@ -19,7 +19,7 @@ import { encode, encodeChapter } from "../src/refs.js";
 const ROOT = new URL("../", import.meta.url);
 const contract = JSON.parse(readFileSync(new URL("contract.json", ROOT), "utf8"));
 const MAX = contract.errors.maxUserMessageChars;
-const PLACE = "Ajustes ▸ Plugins ▸ Xuper";
+const PLACE = "Ajustes ▸ Xuper";
 
 const EMAIL = "ana@x.test";
 const PW = "stand-in-pw";
@@ -28,7 +28,7 @@ const ELSEWHERE = { returnCode: "aaa100083", errorMessage: "您的账号已经�
 const GONE = { returnCode: "portal100006", errorMessage: "剧集不存在" };
 const query = { q: "Dune", type: "any", season: 0, episode: 0, tmdbId: 0 };
 const found = { searchItemList: [{ itemList: [{ contentId: "D1", name: "Dune Test", programType: "movie" }] }] };
-const NO_ACCOUNT_TEXT = "Este canal necesita una cuenta de Xuper (para películas y series no hace falta). Vincúlala en Ajustes ▸ Plugins ▸ Xuper.";
+const NO_ACCOUNT_TEXT = "Este canal necesita una cuenta de Xuper (para películas y series no hace falta). Vincúlala en Ajustes ▸ Xuper.";
 
 function linked(routes) {
   const w = portalWorld({ hosts: ["a.test"], config: { email: EMAIL, password: PW }, routes });
@@ -63,7 +63,10 @@ test("no sentence anywhere in the bundle or the sources sends the person to Ajus
   assert.ok(!readFileSync(new URL("plugin.js", ROOT), "utf8").includes("Ajustes, Cuenta"), "plugin.js");
   for (const f of readdirSync(new URL("src/", ROOT))) {
     assert.ok(!readFileSync(new URL("src/" + f, ROOT), "utf8").includes("Ajustes, Cuenta"), f);
+    // The plugin's tab sits directly in Ajustes on phone and TV: never "Ajustes ▸ Plugins ▸ Xuper".
+    assert.ok(!readFileSync(new URL("src/" + f, ROOT), "utf8").includes("Plugins ▸ Xuper"), f);
   }
+  assert.ok(!readFileSync(new URL("plugin.js", ROOT), "utf8").includes("Plugins \\u25B8 Xuper"), "plugin.js");
 });
 
 test("every person-facing sentence fits the contract and passes the app's filter", () => {

@@ -311,7 +311,7 @@ test("a failing ensure() surfaces as the mapped error and nothing is asked", asy
   await rejectsWith(t3.live.resolveLive("c"), "unavailable", "Xuper no está disponible ahora");
 });
 
-const NO_ACCOUNT_TEXT = "Este canal necesita una cuenta de Xuper (para películas y series no hace falta). Vincúlala en Ajustes ▸ Plugins ▸ Xuper.";
+const NO_ACCOUNT_TEXT = "Este canal necesita una cuenta de Xuper (para películas y series no hace falta). Vincúlala en Ajustes ▸ Xuper.";
 
 test("aaa100028 on startPlayLive is auth_required with the live text, and no CDN is asked", async () => {
   const t = setup({ queues: { "v4/startPlayLive": [new PortalError("aaa100028", "未登录！")] } });

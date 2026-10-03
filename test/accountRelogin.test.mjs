@@ -39,9 +39,9 @@ const authWith = (text) => (e) => {
 
 test("the native account sentences, pointing to the plugin's own settings tab", () => {
   assert.equal(ACCOUNT_SESSION_LOST,
-    "Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes ▸ Plugins ▸ Xuper.");
+    "Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes ▸ Xuper.");
   assert.equal(ACCOUNT_IN_USE_ELSEWHERE_TEXT,
-    "Tu cuenta de Xuper se abrió en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vincúlala de nuevo en Ajustes ▸ Plugins ▸ Xuper.");
+    "Tu cuenta de Xuper se abrió en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vincúlala de nuevo en Ajustes ▸ Xuper.");
 });
 
 test("mapPortalError: with a linked account the session codes and aaa100083 ask to re-link; without one they keep the old mapping", () => {

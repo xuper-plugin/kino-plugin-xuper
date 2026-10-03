@@ -24,7 +24,7 @@ const SLB_RESERVE_MS = 3_000; // startPlayLive stops early enough to leave getSl
 
 // The person-facing texts of the native live failures (code in English, texts in Spanish).
 const TEXT = {
-  noAccount: "Este canal necesita una cuenta de Xuper (para películas y series no hace falta). Vincúlala en Ajustes ▸ Plugins ▸ Xuper.",
+  noAccount: "Este canal necesita una cuenta de Xuper (para películas y series no hace falta). Vincúlala en Ajustes ▸ Xuper.",
   noAddresses: "No se pudo abrir el canal: Xuper no dio la dirección de la señal", // live_no_addresses
   noCdn: "No se pudo abrir el canal: Xuper no dio un servidor de vivo", // live_no_cfl_cdn
   noLicense: "No se pudo abrir el canal: Xuper no dio la licencia de la señal", // live_no_license

@@ -25,7 +25,7 @@ export class PortalError extends Error {
 // Xuper or the title, is what needs them. The native MagisSession.accountProblemMessage sentences,
 // pointing to the plugin's own settings tab instead of the app's old account screen. The SHARED
 // account never gets them: nobody can re-link it (Ruling R33: it falls to anonymous / seeds).
-export const SETTINGS_PLACE = "Ajustes ▸ Plugins ▸ Xuper";
+export const SETTINGS_PLACE = "Ajustes ▸ Xuper";
 export const ACCOUNT_SESSION_LOST =
   `Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en ${SETTINGS_PLACE}.`;
 export const ACCOUNT_IN_USE_ELSEWHERE_TEXT =

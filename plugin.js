@@ -119,7 +119,7 @@ var PortalError = class extends Error {
     this.message = message || code;
   }
 };
-var SETTINGS_PLACE = "Ajustes \u25B8 Plugins \u25B8 Xuper";
+var SETTINGS_PLACE = "Ajustes \u25B8 Xuper";
 var ACCOUNT_SESSION_LOST = `Tu sesi\xF3n de Xuper se cerr\xF3 y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en ${SETTINGS_PLACE}.`;
 var ACCOUNT_IN_USE_ELSEWHERE_TEXT = `Tu cuenta de Xuper se abri\xF3 en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vinc\xFAlala de nuevo en ${SETTINGS_PLACE}.`;
 var ACCOUNT_IN_USE_ELSEWHERE = "aaa100083";
@@ -2830,7 +2830,7 @@ var ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/;
 var SERVED_MEMORY = 64;
 var SLB_RESERVE_MS = 3e3;
 var TEXT = {
-  noAccount: "Este canal necesita una cuenta de Xuper (para pel\xEDculas y series no hace falta). Vinc\xFAlala en Ajustes \u25B8 Plugins \u25B8 Xuper.",
+  noAccount: "Este canal necesita una cuenta de Xuper (para pel\xEDculas y series no hace falta). Vinc\xFAlala en Ajustes \u25B8 Xuper.",
   noAddresses: "No se pudo abrir el canal: Xuper no dio la direcci\xF3n de la se\xF1al",
   // live_no_addresses
   noCdn: "No se pudo abrir el canal: Xuper no dio un servidor de vivo",
