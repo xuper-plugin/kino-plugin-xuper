@@ -126,3 +126,26 @@ test("a token of ANOTHER account is still dropped before the login (it must neve
   await w.catalog.search(query);
   assert.deepEqual(w.paths(), ["v8/login", "v8/active", "v3/searchByName"]);
 });
+
+test("inside the per-call seed loop a programming error propagates; only portal/kino failures move to the next seed", async () => {
+  const SH = { email: "compartida@stand-in.test", password: "shared-stand-in-pw" };
+  const w = portalWorld({ hosts: ["a.test"], seeds: SEEDS, config: { useSharedAccount: true }, shared: SH,
+    session: { userId: "u-sh", userToken: "tok-sh", jwtToken: "", sn: "sn-dev", acct: "shared" },
+    routes: { "v8/login": { userId: "u-sh", userToken: "tok-sh" } } });
+  const { PortalError } = await import("../src/portal.js");
+  let seedTries = 0;
+  const block = (v) => {
+    if (v.sn) { seedTries++; throw new TypeError("a bug in the block"); }
+    throw new PortalError("portal100024", "geo");
+  };
+  await assert.rejects(w.session.withValidSession(block, { seedFallback: true, deadline: w.clock.now() + 18_000 }), TypeError);
+  assert.equal(seedTries, 1, "not hidden behind 'no seed answered'");
+  // A kino error (network, deadline) on a seed is just the next seed.
+  let kinoTries = 0;
+  const flaky = (v) => {
+    if (v.sn) { kinoTries++; throw w.kino.error("unavailable", "x"); }
+    throw new PortalError("portal100024", "geo");
+  };
+  await assert.rejects(w.session.withValidSession(flaky, { seedFallback: true, deadline: w.clock.now() + 18_000 }), kinoErr("geo_blocked"));
+  assert.equal(kinoTries, 2, "both seeds of the pool were tried");
+});
