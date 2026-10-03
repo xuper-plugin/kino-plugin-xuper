@@ -8,9 +8,9 @@
 // src/plugin.js with esbuild (the same call `npm run build` makes; the only difference is that the
 // three config values that are empty until the owner supplies them are filled in) and imports the
 // bundle with a unique `?t=` query: a brand new copy of every module, per test.
-import test from "node:test";
+import test, { after, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -62,6 +62,12 @@ const patchConfig = { name: "fill-config", setup(b) {
 } };
 
 const dir = mkdtempSync(join(tmpdir(), "e2e-"));
+// The bundles read `kino` as a global, as the app provides it: whatever was there comes back after
+// each test, and the temp dir with the bundles goes away with the file.
+const priorKino = Object.getOwnPropertyDescriptor(globalThis, "kino");
+const restoreKino = () => { if (priorKino) Object.defineProperty(globalThis, "kino", priorKino); else delete globalThis.kino; };
+afterEach(restoreKino);
+after(() => { restoreKino(); rmSync(dir, { recursive: true, force: true }); });
 const srcBundle = (await build({ ...BUILD, entryPoints: [new URL("src/plugin.js", ROOT).pathname], plugins: [patchConfig] })).outputFiles[0].text;
 writeFileSync(join(dir, "src-bundle.mjs"), srcBundle);
 writeFileSync(join(dir, "built-bundle.mjs"), fill(readFileSync(new URL("plugin.js", ROOT), "utf8"), "built"));
@@ -464,10 +470,12 @@ test("a non-kino error thrown inside an export becomes the Spanish unavailable",
       return true;
     });
   }
-  // home with the portal answering garbage (not an encrypted JSON): still a kino error, never a raw one.
+  // home with the portal answering garbage (not an encrypted JSON): every root is asked, each
+  // garbage answer is a failed root, and home is the empty list (native: a failing root is empty).
   const t = await start({ routes: { getNextColumns: { returnCode: "0", data: "zz" } } });
-  const rows = await t.plugin.home().catch((e) => e);
-  assert.ok(Array.isArray(rows) || (rows.name || "").startsWith("KinoError_"), String(rows && rows.name));
+  assert.deepEqual(await t.plugin.home(), []);
+  assert.deepEqual([...new Set(t.log.requests.filter((r) => r.path === "getNextColumns").map((r) => r.bean.columnCode))].sort(),
+    ["masnew_anime", "masnew_kids", "masnew_movies", "masnew_series"]);
 });
 
 // ---- (3) await null: a throw before the first await would abort the whole call ------------------------
@@ -482,7 +490,10 @@ test("every export returns a promise even when its argument blows up on first to
       let p;
       assert.doesNotThrow(() => { p = s.plugin[name](g, g); }, `${name}(${String(typeof g)}) threw synchronously`);
       assert.ok(p instanceof Promise, name);
-      await p.then(() => {}, () => {});
+      // Every outcome is checked: a kino error, or a defined answer (null is a valid "nothing").
+      const outcome = await p.then((value) => ({ value }), (error) => ({ error }));
+      if ("error" in outcome) assert.match(String(outcome.error && outcome.error.name), /^KinoError_/, `${name}(${String(typeof g)}) rejected with a non-kino error`);
+      else assert.notEqual(outcome.value, undefined, `${name}(${String(typeof g)}) resolved to undefined`);
     }
   }
 });
@@ -536,12 +547,16 @@ test("sign never touches storage, fetch or sleep, and never builds the other dep
 
 test("the first portal request is not delayed, the next one waits out the 400 ms slot; headers are the exact set", async () => {
   const s = await start({ routes: homeRoutes() });
-  await s.plugin.home();
+  // The bundle's clock is Date.now: frozen for the run, so the measure does not depend on how fast
+  // this machine is (the scripted sleep is a no-op, so every later request sees the slot just taken).
+  const realNow = Date.now;
+  const frozen = realNow();
+  Date.now = () => frozen;
+  try { await s.plugin.home(); } finally { Date.now = realNow; }
   const [first, second] = s.log.requests;
-  // The scripted sleep is a no-op, so every later request still sees the slot taken a moment ago.
   assert.equal(first.path, "v3/snToken");
   assert.ok(s.log.sleeps.length >= 1, "later requests go through the pacing sleep");
-  for (const ms of s.log.sleeps) assert.ok(ms > RATE_LIMIT_MS - 100 && ms <= RATE_LIMIT_MS, "wait " + ms);
+  for (const ms of s.log.sleeps) assert.equal(ms, RATE_LIMIT_MS, "wait " + ms);
   assert.equal(s.log.requests.length, s.log.sleeps.length + 1, "exactly the first request skips the sleep");
   for (const r of s.log.requests) {
     assert.deepEqual(Object.keys(r.headers).sort(), ["Content-Type", "User-Agent", "apk", "apkVer", "spkgVer"]);
