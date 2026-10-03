@@ -113,6 +113,24 @@ test("shared account, still geo-blocked: the per-call seed fallback with counts"
     routes: { "v3/searchByName": (b) => (isSeed(b) ? searchAnswer : GEO) } });
   await w.catalog.search(query);
   has(w, /^xuper:session seed_fallback outcome=answered tries=1 pool=2 refreshed=0$/);
+  // A seed that answered for the shared account is a degraded success: reported to the error board.
+  assert.deepEqual(w.reports, ["xuper:session seed_fallback outcome=answered tries=1 pool=2 refreshed=0"]);
+});
+
+test("degraded results are reported, failures and successes are not", async () => {
+  // A refused own account: the call goes on anonymous, and that fallback is reported.
+  const refused = portalWorld({ hosts: ["a.test"], session: null, config: { email: "persona@correo.test", password: "clave-secreta-9" },
+    routes: { "v8/login": { returnCode: "aaa100002" } } });
+  await refused.catalog.search(query);
+  assert.deepEqual(refused.reports, ["xuper:session login acct=own ok=0 code=aaa100002 refused=1"]);
+  // A login that works reports nothing.
+  const ok = portalWorld({ hosts: ["a.test"], session: null, config: { email: "persona@correo.test", password: "clave-secreta-9" } });
+  await ok.catalog.search(query);
+  assert.deepEqual(ok.reports, []);
+  // Every seed dead: the call fails (its own failure event carries the lines), nothing is reported as degraded.
+  const dead = portalWorld({ hosts: ["a.test"], seeds: SEEDS, seedsText: JSON.stringify(SEEDS), routes: { "v3/searchByName": DEAD } });
+  await assert.rejects(dead.catalog.search(query));
+  assert.ok(dead.reports.every((l) => !/seed_fallback/.test(l)), dead.reports.join("\n"));
 });
 
 test("live: a conflict retry says what the rotation did; a seed that cannot open is logged by hash and code", async () => {

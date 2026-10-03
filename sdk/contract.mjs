@@ -170,6 +170,12 @@ export function validateManifest(text, { knownPermissions = contract.permissions
     if (typeof o.debug !== "boolean") return bad("debug", 'El campo "debug" debe ser true o false');
     debug = o.debug;
   }
+  // apiVersion 6: diagnostic lines to Kino's error tracker (opt-in). Below it, unknown and ignored.
+  let telemetry = false;
+  if (o.telemetry !== undefined && o.apiVersion >= m.telemetry.apiVersion) {
+    if (typeof o.telemetry !== "boolean") return bad("telemetry", m.telemetry.notBooleanMessage);
+    telemetry = o.telemetry;
+  }
   // apiVersion 6: the plugin's own section entry. Below it, unknown and ignored.
   let section = null;
   if (o.section !== undefined && o.apiVersion >= m.section.apiVersion) {
@@ -233,7 +239,7 @@ export function validateManifest(text, { knownPermissions = contract.permissions
   if (hosts.length === 0 && !(o.settings || []).some((x) => x.type === "url" || (x.type === "list" && Array.isArray(x.fields) && x.fields.some((f) => f.type === "url")))) {
     return bad("hosts", 'El campo "hosts" solo puede estar vacío si el plugin tiene un ajuste de tipo "url"');
   }
-  const out = { ...o, hosts: [...new Set(hosts)], capabilities: caps, permissions: o.permissions || [], settings: o.settings || [], insecureHosts, liveStreamHostsAny, streamHostsAny, fetchHostsAny, discoverable, debug, section, theme, secrets, secretKeyEncodings };
+  const out = { ...o, hosts: [...new Set(hosts)], capabilities: caps, permissions: o.permissions || [], settings: o.settings || [], insecureHosts, liveStreamHostsAny, streamHostsAny, fetchHostsAny, discoverable, debug, telemetry, section, theme, secrets, secretKeyEncodings };
   // `signature` only where the app reads it (apiVersion 5+): an ignored one is dropped, as the app drops it.
   if (!signed) delete out.signature;
   return { ok: true, manifest: out };

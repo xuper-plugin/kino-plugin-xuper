@@ -36,6 +36,7 @@
     "fetchHosts": { "value": "any", "apiVersion": 4 },
     "discoverable": { "default": true },
     "debug": { "apiVersion": 6 },
+    "telemetry": { "apiVersion": 6, "consentLine": "Comparte registros de errores con Kino para corregir fallas", "notBooleanMessage": "El campo \"telemetry\" debe ser true o false", "switchLabel": "Enviar registros de errores", "report": { "windowSeconds": 3600, "areaMaxChars": 40 } },
     "section": { "apiVersion": 6, "labelMaxChars": 20, "export": "section" },
     "theme": {
       "apiVersion": 6,
@@ -92,7 +93,7 @@
   "output": {
     "section": { "apiVersion": 6, "maxTabs": 8, "maxTabLabelChars": 24, "maxHeroTextChars": 300 },
     "categories": { "apiVersion": 6, "export": "categories", "maxCategories": 24, "maxTitleChars": 40 },
-    "retry": { "apiVersion": 6, "reasons": ["conflict", "expired"], "maxAttempts": 3 },
+    "retry": { "apiVersion": 6, "reasons": ["conflict", "expired"], "maxAttempts": 3, "statuses": [401, 403, 409] },
     "signing": {
       "value": "request",
       "apiVersion": 6,

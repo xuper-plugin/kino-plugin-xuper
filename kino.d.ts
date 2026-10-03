@@ -1,4 +1,4 @@
-// TypeScript declarations for Kino plugins (apiVersion 1 to 6; apiVersion 5 only adds the manifest's signature, 6 the plain-plugin SDK: typed and larger secrets, migrate, signed streams, the settings form, debug, section, categories and theme). Reference them from plugin.js
+// TypeScript declarations for Kino plugins (apiVersion 1 to 6; apiVersion 5 only adds the manifest's signature, 6 the plain-plugin SDK: typed and larger secrets, migrate, signed streams, the settings form, debug, telemetry, section, categories and theme). Reference them from plugin.js
 // with `/// <reference path="./kino.d.ts" />` for editor help; Kino itself runs plain JavaScript.
 // The numbers in the comments come from contract.json, which is authoritative. The app checks that
 // every `kino` member declared here exists in its runtime and nothing else does (KinoDtsTest).
@@ -326,8 +326,8 @@ interface KinoPlugin {
   home?(): Promise<KinoRow[]>;
   browse?(ref: string, cursor: string | null): Promise<KinoPage>;
   episodes?(ref: string): Promise<KinoEpisodes>;
-  /** `options.retry` (apiVersion 6) only when Kino resolves again after the origin refused your stream. `attempt` is 1 to 3. */
-  resolve(ref: string, options?: { retry?: { reason: "conflict" | "expired"; attempt: number } }): Promise<KinoStream>;
+  /** `options.retry` (apiVersion 6) only when Kino resolves again after the origin refused your stream. `attempt` is 1 to 3; `status` is the origin's HTTP status when Kino heard one. */
+  resolve(ref: string, options?: { retry?: { reason: "conflict" | "expired"; attempt: number; status?: 401 | 403 | 409 } }): Promise<KinoStream>;
   /**
    * apiVersion 6, needed when a stream says `signing: "request"`: headers for one request, computed with
    * kino.crypto / kino.secret only. kino.fetch answers host_not_allowed; kino.storage, kino.cookies and
@@ -463,8 +463,12 @@ declare namespace kino {
   /** apiVersion 4: a marker for a secret the manifest's `secrets` declares (throws for any other name). Kino swaps it for the value in `kino.fetch`, toward the manifest's own hosts only; your code never sees the value. apiVersion 6: a secret declared `{ seal, use: "cipher-key", encoding }` is accepted as the whole `key` of any `kino.crypto.encrypt`/`decrypt` (des-ede3 included), read with the manifest's encoding; it is refused everywhere else, including `kino.fetch`. */
   function secret(name: string): string;
 
-  /** Writes to Kino's log (and console.* does the same); lines are cut at 2000 characters. When a call of a recommended-catalog plugin fails, the last 30 lines it logged (cut at 300 characters, scrubbed of URLs, hosts, ids, secrets and the person's text, 2 KB in all) go with the failure report; never for a call that succeeds. Log what happened, never what the person typed. */
+  /** Writes to Kino's log (and console.* does the same); lines are cut at 2000 characters. When a call of a recommended-catalog plugin, or of one whose manifest says `"telemetry": true` (apiVersion 6) with the person's "Enviar registros de errores" on, fails (sign and the settings exports included), the last 30 lines it logged (cut at 300 characters, scrubbed of URLs, hosts, ids, secrets and the person's text, 2 KB in all) go with the failure report; never for a call that succeeds. Log what happened, never what the person typed. */
   function log(...args: unknown[]): void;
+  namespace log {
+    /** apiVersion 6, with `"telemetry": true`: a log line that also tells Kino's error tracker your plugin served a degraded result (a fallback account, a backup source). The line's first word is its area; at most one report per area an hour, scrubbed like any line. Without telemetry (or switched off) it is only a log line. */
+    function report(...args: unknown[]): void;
+  }
 
   namespace html {
     /** Jsoup CSS selectors; at most 500 matches. Only inside Kino. */

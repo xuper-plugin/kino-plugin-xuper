@@ -399,6 +399,12 @@ export function createKino(manifest, { appVersion = "sdk", lang = "es-CO", stora
   // rule (checkSealedHost below) and redaction, all simulated without opening the seal.
   const pluginSecrets = pluginSecretsFor(manifest, secretsFile);
   const redact = (text) => (pluginSecrets ? pluginSecrets.redact(text) : text);
+  // kino.log(...) and, apiVersion 6, kino.log.report(...): in the app a report also reaches the error tracker when the
+  // manifest says "telemetry": true and the person leaves it on (once an hour per area); here both go to stderr.
+  const logLine = (tag, args) => writeErr(tag, ...args.map((a) => (typeof a === "string" ? redact(a) : a)));
+  const kinoLog = Object.assign((...args) => logLine("[kino.log]", args), {
+    report: (...args) => logLine(manifest && manifest.telemetry ? "[kino.log.report]" : "[kino.log.report: sin \"telemetry\", solo registro]", args),
+  });
 
   const values = {};
   for (const s of manifest.settings || []) {
@@ -875,7 +881,7 @@ export function createKino(manifest, { appVersion = "sdk", lang = "es-CO", stora
       return m;
     },
     error: (code, message, options) => kinoError(code, message, options),
-    log: (...args) => writeErr("[kino.log]", ...args.map((a) => (typeof a === "string" ? redact(a) : a))),
+    log: kinoLog,
   });
 
   return {

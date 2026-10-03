@@ -33,17 +33,35 @@ function field(k, v) {
   return (k.length + 1 + w.length >= APP_BLOB_CHARS || APP_LONG_TOKEN.test(w)) ? `${k}=?` : `${k}=${w}`;
 }
 
+function lineOf(area, event, fields) {
+  const parts = [`xuper:${NAME.test(area) ? area : "?"}`, NAME.test(event) ? event : "?"];
+  if (fields !== null && typeof fields === "object") {
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === undefined || v === null || !KEY.test(k) || SENSITIVE_KEY.test(k)) continue;
+      parts.push(field(k, v));
+    }
+  }
+  return parts.join(" ").slice(0, MAX_LINE_CHARS);
+}
+
 /** Writes one breadcrumb. `fields`: { key: string | number | boolean }; null/undefined are left out. */
 export function trace(kino, area, event, fields = {}) {
   try {
-    const parts = [`xuper:${NAME.test(area) ? area : "?"}`, NAME.test(event) ? event : "?"];
-    if (fields !== null && typeof fields === "object") {
-      for (const [k, v] of Object.entries(fields)) {
-        if (v === undefined || v === null || !KEY.test(k) || SENSITIVE_KEY.test(k)) continue;
-        parts.push(field(k, v));
-      }
-    }
-    kino.log(parts.join(" ").slice(0, MAX_LINE_CHARS));
+    kino.log(lineOf(area, event, fields));
+  } catch (_) { /* a breadcrumb never fails a call */ }
+}
+
+/**
+ * The same breadcrumb, for a call that WORKED in a degraded way (a seed session, anonymous after a failed
+ * login): written with `kino.log.report` (apiVersion 6, manifest `"telemetry": true`), so the app also sends
+ * it to the error board as a warning, at most once an hour per area (the line's first word, `xuper:<area>`).
+ * An app without `kino.log.report` gets a plain log line. Never throws.
+ */
+export function report(kino, area, event, fields = {}) {
+  try {
+    const line = lineOf(area, event, fields);
+    if (kino.log && typeof kino.log.report === "function") kino.log.report(line);
+    else kino.log(line);
   } catch (_) { /* a breadcrumb never fails a call */ }
 }
 

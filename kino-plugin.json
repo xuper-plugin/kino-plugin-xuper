@@ -20,6 +20,7 @@
     "channels",
     "migrate"
   ],
+  "telemetry": true,
   "settings": [
     {
       "key": "account",

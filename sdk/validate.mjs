@@ -45,6 +45,7 @@ export function consentLines(m, { authorFingerprint = null } = {}) {
   if (m.capabilities.includes("channels")) line("Agrega canales en vivo a la pestaña En vivo");
   if (m.capabilities.includes("migrate")) line("Revisar lo que tienes guardado (biblioteca, historial, favoritos) para pasarlo a este plugin");
   if (m.secrets && Object.keys(m.secrets).length) line("Usa datos sellados por su autor");
+  if (m.telemetry) line(contract.manifest.telemetry.consentLine);
   if (authorFingerprint) line(contract.manifest.signature.consentLine);
   (m.insecureHosts || []).forEach((h) => line(`Conexión sin cifrar con ${h}`, true));
   if (m.liveStreamHostsAny) line("Puede reproducir canales desde cualquier servidor que indique su lista", true);

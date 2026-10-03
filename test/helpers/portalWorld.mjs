@@ -89,7 +89,12 @@ export function portalWorld({
   };
   const base = fakeKino({ config, fetch, secrets: { tmdbKey: "stand-in-tmdb" } });
   const logs = [];
-  const kino = Object.freeze({ ...base, log: (...a) => logs.push(a.map(String).join(" ")) });
+  // kino.log.report (apiVersion 6): the line is a log line like any other, and also a degraded-result report.
+  const reports = [];
+  const log = Object.assign((...a) => logs.push(a.map(String).join(" ")), {
+    report: (...a) => { const line = a.map(String).join(" "); logs.push(line); reports.push(line); },
+  });
+  const kino = Object.freeze({ ...base, log });
   crypto = makeCrypto(kino);
   if (session) kino.storage.set("session", JSON.stringify(session));
   if (seeds) kino.storage.set("seeds", JSON.stringify(seeds));
@@ -102,7 +107,7 @@ export function portalWorld({
   const liveStream = makeLive({ kino, portal, session: sess, clock, config: portalConfig, random: () => 0 });
   const resolve = makeResolve({ kino, portal, session: sess, clock, config: portalConfig, portalChapters: catalog.portalChapters, live: liveStream });
   return {
-    kino, clock, requests, seedDownloads, tmdbRequests, logs, portal, session: sess, catalog, resolve, live,
+    kino, clock, requests, seedDownloads, tmdbRequests, logs, reports, portal, session: sess, catalog, resolve, live,
     elapsed: () => clock.t - START,
     stored: () => JSON.parse(kino.storage.get("session")),
     paths: () => requests.map((r) => r.path),

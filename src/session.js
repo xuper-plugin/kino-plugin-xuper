@@ -4,7 +4,7 @@ import { PortalError, mapPortalError, ACCOUNT_IN_USE_ELSEWHERE } from "./portal.
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom } from "./device.js";
 import { isKinoError } from "./util.js";
-import { trace, errCode, seedTag } from "./trace.js";
+import { trace, report, errCode, seedTag } from "./trace.js";
 
 export const DEFAULT_SEEDS_URL =
   "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
@@ -241,7 +241,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (pool.length > 0) {
       const chosen = pick(pool);
       writeSession(seedSession(chosen));
-      trace(kino, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino, chosen.sn) });
+      // Degraded: no anonymous session of its own, a seed's instead.
+      report(kino, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino, chosen.sn) });
       return;
     }
     trace(kino, "session", "no_seed", { code: errCode(direct) });
@@ -281,7 +282,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
         clearRefused(key); endCooldown(); return;
       } catch (e) {
         const refused = refusal(e, key);
-        trace(kino, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
+        // Degraded: the account the person chose failed, the call goes on anonymous.
+        report(kino, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
         if (refused) setRefused(key); else startCooldown(key);
       }
     }
@@ -480,7 +482,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
     // Counts only: never a token or an sn.
-    const note = (tries, outcome) => trace(kino, "session", "seed_fallback", { outcome, tries, pool: candidates.length, refreshed });
+    // A seed that answered is a degraded success (reported); none answering ends in the call's own failure.
+    const note = (tries, outcome) => (outcome === "answered" ? report : trace)(kino, "session", "seed_fallback", { outcome, tries, pool: candidates.length, refreshed });
     let tries = 0;
     for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
       if (left() < SEED_FALLBACK_MIN_MS) break;

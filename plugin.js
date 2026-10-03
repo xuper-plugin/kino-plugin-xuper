@@ -147,16 +147,27 @@ function field(k, v) {
   const w = word(v);
   return k.length + 1 + w.length >= APP_BLOB_CHARS || APP_LONG_TOKEN.test(w) ? `${k}=?` : `${k}=${w}`;
 }
+function lineOf(area, event, fields) {
+  const parts = [`xuper:${NAME.test(area) ? area : "?"}`, NAME.test(event) ? event : "?"];
+  if (fields !== null && typeof fields === "object") {
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === void 0 || v === null || !KEY.test(k) || SENSITIVE_KEY.test(k)) continue;
+      parts.push(field(k, v));
+    }
+  }
+  return parts.join(" ").slice(0, MAX_LINE_CHARS);
+}
 function trace(kino2, area, event, fields = {}) {
   try {
-    const parts = [`xuper:${NAME.test(area) ? area : "?"}`, NAME.test(event) ? event : "?"];
-    if (fields !== null && typeof fields === "object") {
-      for (const [k, v] of Object.entries(fields)) {
-        if (v === void 0 || v === null || !KEY.test(k) || SENSITIVE_KEY.test(k)) continue;
-        parts.push(field(k, v));
-      }
-    }
-    kino2.log(parts.join(" ").slice(0, MAX_LINE_CHARS));
+    kino2.log(lineOf(area, event, fields));
+  } catch (_) {
+  }
+}
+function report(kino2, area, event, fields = {}) {
+  try {
+    const line = lineOf(area, event, fields);
+    if (kino2.log && typeof kino2.log.report === "function") kino2.log.report(line);
+    else kino2.log(line);
   } catch (_) {
   }
 }
@@ -703,7 +714,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (pool.length > 0) {
       const chosen = pick(pool);
       writeSession(seedSession(chosen));
-      trace(kino2, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino2, chosen.sn) });
+      report(kino2, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino2, chosen.sn) });
       return;
     }
     trace(kino2, "session", "no_seed", { code: errCode(direct) });
@@ -743,7 +754,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         return;
       } catch (e) {
         const refused = refusal(e, key);
-        trace(kino2, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
+        report(kino2, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
         if (refused) setRefused(key);
         else startCooldown(key);
       }
@@ -958,7 +969,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       const j = Math.min(i, Math.floor(rand() * (i + 1)));
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
-    const note = (tries2, outcome) => trace(kino2, "session", "seed_fallback", { outcome, tries: tries2, pool: candidates.length, refreshed });
+    const note = (tries2, outcome) => (outcome === "answered" ? report : trace)(kino2, "session", "seed_fallback", { outcome, tries: tries2, pool: candidates.length, refreshed });
     let tries = 0;
     for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
       if (left() < SEED_FALLBACK_MIN_MS) break;

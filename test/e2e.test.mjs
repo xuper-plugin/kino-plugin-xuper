@@ -612,3 +612,9 @@ for (const file of ["src-bundle.mjs", "built-bundle.mjs"]) {
     assert.deepEqual(lines.filter((l) => !l.startsWith("xuper:")), []);
   });
 }
+
+test("the manifest opts in to Kino's error board: telemetry true at apiVersion 6, said on the consent sheet", () => {
+  assert.equal(checked.ok, true);
+  assert.equal(checked.manifest.apiVersion, 6);
+  assert.equal(checked.manifest.telemetry, true);
+});

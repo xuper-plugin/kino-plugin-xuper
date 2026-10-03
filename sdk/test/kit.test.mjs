@@ -880,12 +880,41 @@ test("kino.d.ts declares exactly what the kit's kino has", () => {
   const out = new Set();
   const walk = (o, p) => Object.keys(o).forEach((k) => {
     const v = o[k];
-    if (typeof v === "function") out.add(`${p}.${k}=function`);
+    // A function's own members too (kino.log.report).
+    if (typeof v === "function") { out.add(`${p}.${k}=function`); walk(v, `${p}.${k}`); }
     else if (v !== null && typeof v === "object") walk(v, `${p}.${k}`);
     else out.add(`${p}.${k}=value`);
   });
   walk(kino, "kino");
   assert.deepEqual([...out].sort(), [...declaredKino()].sort());
+});
+
+test("telemetry: apiVersion 6 boolean, a consent line, and kino.log.report writes a line", () => {
+  assert.equal(validateManifest(manifest({ apiVersion: 6, telemetry: true })).manifest.telemetry, true);
+  assert.equal(validateManifest(manifest({ apiVersion: 6 })).manifest.telemetry, false);
+  assert.equal(validateManifest(manifest({ apiVersion: 5, telemetry: "yes" })).manifest.telemetry, false);
+  assert.deepEqual(validateManifest(manifest({ apiVersion: 6, telemetry: "yes" })), { ok: false, field: "telemetry", message: 'El campo "telemetry" debe ser true o false' });
+  assert.deepEqual(consentLines(validateManifest(manifest({ apiVersion: 6, telemetry: true })).manifest),
+    [{ text: "Comparte registros de errores con Kino para corregir fallas", danger: false }]);
+  const { kino } = createKino(validateManifest(manifest({ apiVersion: 6, telemetry: true })).manifest);
+  const seen = [];
+  const before = console.error;
+  // writeErr was bound at load; capture through process.stderr instead.
+  const write = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => { seen.push(String(chunk)); return true; };
+  try {
+    kino.log.report("session", "shared_fallback", "tries=2");
+  } finally {
+    process.stderr.write = write;
+    console.error = before;
+  }
+  assert.ok(seen.join("").includes("[kino.log.report] session shared_fallback tries=2"), seen.join(""));
+});
+
+test("--retry takes an optional HTTP status", () => {
+  assert.deepEqual(parseArgs(["--retry", "conflict:1:409", "p.js", "resolve", "r"]).opts.retry, { reason: "conflict", attempt: 1, status: 409 });
+  assert.deepEqual(parseArgs(["--retry", "expired:2", "p.js", "resolve", "r"]).opts.retry, { reason: "expired", attempt: 2 });
+  assert.throws(() => parseArgs(["--retry", "expired:2:500", "p.js", "resolve", "r"]));
 });
 
 test("apiVersion 3: channels validates only on v3, and needs liveCategories + liveChannels exported", async () => {

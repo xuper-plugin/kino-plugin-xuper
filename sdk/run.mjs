@@ -29,7 +29,8 @@
 //   --replay <file>        answer kino.fetch from <file> only: offline and repeatable
 //   --raw                  print the plugin's answer as it returned it, without the app's checks
 //   --epg <url|file>       live playlist only: the XMLTV guide to show what is on now
-//   --retry conflict:1     resolve only: call resolve(ref, { retry: { reason: "conflict", attempt: 1 } })  (apiVersion 6)
+//   --retry conflict:1     resolve only: call resolve(ref, { retry: { reason: "conflict", attempt: 1 } })  (apiVersion 6);
+//                          conflict:1:409 also passes the origin's HTTP status (401, 403 or 409)
 //   --live                 resolve only: the ref is a live channel's (liveStreamHosts "any" applies)
 // The first argument is the plugin's entry file or the folder that holds kino-plugin.json. The
 // result goes to stdout as JSON; everything else (kino.log, console.*, dropped entries, errors)
@@ -102,13 +103,14 @@ export function parseArgs(argv) {
     else if (a === "--epg") opts.epg = argv[++i];
     else if (a === "--live") opts.live = true;
     else if (a === "--retry") {
-      const [reason, attempt, extra] = (argv[++i] || "").split(":");
+      const [reason, attempt, status, extra] = (argv[++i] || "").split(":");
       const r = contract.output.retry;
       const n = Number(attempt);
-      if (extra !== undefined || !r.reasons.includes(reason) || !Number.isInteger(n) || n < 1 || n > r.maxAttempts) {
-        throw new Error(`--retry needs reason:attempt, reason ${r.reasons.join("|")} and attempt 1..${r.maxAttempts}`);
+      const s = status === undefined ? undefined : Number(status);
+      if (extra !== undefined || !r.reasons.includes(reason) || !Number.isInteger(n) || n < 1 || n > r.maxAttempts || (s !== undefined && !r.statuses.includes(s))) {
+        throw new Error(`--retry needs reason:attempt[:status], reason ${r.reasons.join("|")}, attempt 1..${r.maxAttempts}, status ${r.statuses.join("|")}`);
       }
-      opts.retry = { reason, attempt: n };
+      opts.retry = s === undefined ? { reason, attempt: n } : { reason, attempt: n, status: s };
     }
     else rest.push(a);
   }
