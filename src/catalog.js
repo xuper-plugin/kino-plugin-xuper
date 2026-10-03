@@ -129,7 +129,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
     }
     if (missing.length > 0) {
       // The session is not created by withValidSession: ensure it first; a failure here is the error.
-      await session.ensure();
+      await session.ensure({ deadline });
       const fetched = await Promise.all(missing.map((root) => fetchRoot(root, deadline)));
       missing.forEach((root, i) => { roots[root] = fetched[i]; });
     }
@@ -154,7 +154,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
 
   // The chapter list is shared with resolve, which looks a chapter up by its number.
   const portalChapters = makePortalChapters({ kino, portal, session, clock });
-  const episodes = makeEpisodes({ kino, tmdb, portalChapters });
+  const episodes = makeEpisodes({ kino, tmdb, portalChapters, clock });
 
   return { home, browse, search, episodes, portalChapters };
 }

@@ -24,7 +24,7 @@ export function getDeps() {
   let session = null; // the portal needs the session's sn and the session needs the portal: wired lazily
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
   session = makeSession({ kino, portal, clock, shared: { email: constants.SHARED_EMAIL, password: constants.SHARED_PASSWORD } });
-  const tmdb = makeTmdb({ kino });
+  const tmdb = makeTmdb({ kino, clock });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
   const live = makeLiveCatalog({ kino, portal, session, clock });
   // A bare channel code resolves through liveStream; the rest stays VOD.

@@ -450,7 +450,7 @@ test("slow portal: validateSettings throws unavailable inside 20 s, failover inc
     assert.ok(!e.message.includes(PW));
     return true;
   });
-  assert.deepEqual(w.fetches.map((f) => f.timeoutMs), [12_000, 5_000], "second host only gets what is left");
+  assert.deepEqual(w.fetches.map((f) => f.timeoutMs), [8_500, 8_500], "the 17 s are shared by the two hosts");
   assert.ok(w.elapsed() <= 17_000 && w.elapsed() < 20_000, `elapsed ${w.elapsed()}`);
   assert.equal(w.kino.storage.get("session"), before);
 });
@@ -466,8 +466,8 @@ test("slow portal: switchSeed probes with 5 s requests and stops after ~22 s; no
   const w = slowWorld({ seeds: seeds5, onFetch: hang(8_000) }); // two hosts: each probe spends 10 s
   const out = await w.settings.action("switchSeed");
   assert.equal(out.message, "Sin conexión, reintenta");
-  // probes at +0 and +10 get 5 s per host; the third (+20) only the 2 s left before ~22 s; no fourth
-  assert.deepEqual(w.fetches.map((f) => f.timeoutMs), [5_000, 5_000, 5_000, 5_000, 2_000]);
+  // probes at +0 and +10 get 5 s per host; the third (+20) splits the 2 s left before ~22 s; no fourth
+  assert.deepEqual(w.fetches.map((f) => f.timeoutMs), [5_000, 5_000, 5_000, 5_000, 1_000, 1_000]);
   assert.ok(w.elapsed() <= 22_000 && w.elapsed() < 30_000, `elapsed ${w.elapsed()}`);
   keptAction(out);
 });

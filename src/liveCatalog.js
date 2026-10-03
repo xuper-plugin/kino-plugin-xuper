@@ -1,7 +1,7 @@
 // Live categories and channels over the Magis portal (native-magis.md §6.1, §6.2; MagisLiveCatalog.kt).
 // No plugin-side cache (controller ruling R19): the app caches both lists for an hour. The one thing
 // kept in memory is the set of adult category ids, so an adult category's channels are never served.
-import { PortalError, mapPortalError } from "./portal.js";
+import { PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { logoOf } from "./homeTree.js";
 import { isObject, asText, isBlank, isKinoError, intOrNull } from "./util.js";
 
@@ -20,7 +20,7 @@ const ADULT_NAMES = new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
 
 
 
-export function makeLiveCatalog({ kino, portal, session }) {
+export function makeLiveCatalog({ kino, portal, session, clock }) {
   // Adult category ids seen in the last non-empty categories answer; null = not read yet.
   let adultIds = null;
 
@@ -32,15 +32,16 @@ export function makeLiveCatalog({ kino, portal, session }) {
   };
 
   /** Every category (adult ones flagged); a failure is the mapped error, never an empty list. */
-  async function readCategories() {
+  // `deadline`: the calling export's (injected clock); every portal exchange runs inside it.
+  async function readCategories(deadline) {
     let response;
     try {
-      await session.ensure();
+      await session.ensure({ deadline });
       response = await session.withValidSession(({ userId, userToken }) => portal.call(
         "getNextColumns",
         { columnCode: LIVE_ROOT, pageNum: 1, pageSize: CATEGORIES_PAGE_SIZE, version: "" },
-        { baseFields: true, userId, userToken },
-      ));
+        { baseFields: true, userId, userToken, deadline },
+      ), { deadline });
     } catch (e) { throw surface(e); }
     const columns = isObject(response) && Array.isArray(response.recommendList) ? response.recommendList : [];
     const out = [];
@@ -58,26 +59,26 @@ export function makeLiveCatalog({ kino, portal, session }) {
   }
 
   async function liveCategories() {
-    const all = await readCategories();
+    const all = await readCategories(callDeadline(clock, CALL_BUDGET_MS.liveCategories));
     return all.filter((c) => !c.adult && ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => ({ id: c.id, title: c.name }));
   }
 
-  async function isAdultCategory(id) {
+  async function isAdultCategory(id, deadline) {
     if (adultIds === null) {
-      await readCategories();
+      await readCategories(deadline);
       // No categories at all: it cannot be told apart from an adult one, so it is not served.
       if (adultIds === null) throw kino.error("unavailable", "Xuper no está disponible ahora");
     }
     return adultIds.has(id);
   }
 
-  async function fetchPage(columnId, page) {
-    await session.ensure();
+  async function fetchPage(columnId, page, deadline) {
+    await session.ensure({ deadline });
     const response = await session.withValidSession(({ userId, userToken }) => portal.call(
       "v6/getLiveData",
       { columnId: Number(columnId), pageNum: page, pageSize: CHANNELS_PAGE_SIZE, dataVersion: "", expireTimeStr: "" },
-      { baseFields: true, userId, userToken },
-    ));
+      { baseFields: true, userId, userToken, deadline },
+    ), { deadline });
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
   }
 
@@ -100,6 +101,7 @@ export function makeLiveCatalog({ kino, portal, session }) {
   }
 
   async function liveChannels({ categoryId, cursor } = {}) {
+    const deadline = callDeadline(clock, CALL_BUDGET_MS.liveChannels);
     if (typeof categoryId !== "string" || !POSITIVE.test(categoryId) || Number(categoryId) <= 0) {
       throw kino.error("not_found", "No se encontró esa categoría");
     }
@@ -108,8 +110,8 @@ export function makeLiveCatalog({ kino, portal, session }) {
     if (page > MAX_PAGES) return { items: [] };
     // Native "stops at the first failed page": page 1 fails loudly, a later one just ends the listing.
     try {
-      if (await isAdultCategory(id)) return { items: [] };
-      const list = await fetchPage(id, page);
+      if (await isAdultCategory(id, deadline)) return { items: [] };
+      const list = await fetchPage(id, page, deadline);
       const items = project(list, id);
       return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {

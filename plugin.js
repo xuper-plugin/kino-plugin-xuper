@@ -110,6 +110,7 @@ function intOrNull(v) {
 // src/portal.js
 var MAX_SLEEP_MS = 5e3;
 var MAX_REQUEST_MS = 3e4;
+var CONTACT_FAILED = "No se pudo contactar a Xuper; intenta de nuevo en un momento";
 var PortalError = class extends Error {
   constructor(code, message) {
     super(message || code);
@@ -131,7 +132,15 @@ function mapPortalError(code, message, kino2) {
   }
   return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
 }
-var CALL_BUDGET_MS = { home: 2e4, episodes: 2e4, resolve: 2e4, search: 15e3 };
+var CALL_BUDGET_MS = {
+  home: 2e4,
+  browse: 2e4,
+  episodes: 2e4,
+  resolve: 2e4,
+  search: 15e3,
+  liveCategories: 2e4,
+  liveChannels: 2e4
+};
 var BUDGET_MARGIN_MS = 2e3;
 var callDeadline = (clock2, budgetMs) => clock2.now() + budgetMs - BUDGET_MARGIN_MS;
 var viewOpts = ({ userId, userToken, sn, deadline }) => ({
@@ -190,14 +199,19 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
       "User-Agent": USER_AGENT,
       "Content-Type": CONTENT_TYPE
     };
+    const outOfTime = () => typeof deadline === "number" && Math.floor(deadline - clock2.now()) < 1;
+    if (outOfTime()) throw kino2.error("unavailable", CONTACT_FAILED);
     await waitTurn();
     let lastError = null;
-    for (const host of hostOrder()) {
+    const order = hostOrder();
+    for (let i = 0; i < order.length; i++) {
+      const host = order[i];
       let requestMs = perRequest;
       if (typeof deadline === "number") {
         const left = Math.floor(deadline - clock2.now());
         if (left < 1) break;
-        requestMs = Math.min(perRequest, left);
+        const remaining = order.length - i;
+        requestMs = Math.min(perRequest, remaining > 1 ? Math.ceil(left / remaining) : left);
       }
       let answer;
       try {
@@ -234,8 +248,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
       if (answer.portalFailure) throw answer.portalFailure;
       return answer.ok;
     }
-    const detail = lastError === null ? "sin hosts configurados" : "No se pudo contactar a Xuper; intenta de nuevo en un momento";
-    throw kino2.error("unavailable", detail);
+    throw kino2.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
   }
   return { call };
 }
@@ -278,6 +291,9 @@ var GEO_BLOCKED = "portal100024";
 var SEED_RESCUE_ROUNDS = 3;
 var SEED_SWITCH_TRIES = 5;
 var POOL_REFRESH_COOLDOWN_MS = 1e4;
+var FAILED_REFRESH_COOLDOWN_MS = 3e4;
+var BLOCKED_REFRESH_MS = 5e3;
+var MIN_REQUEST_MS = 1e3;
 var PERIODIC_REFRESH_MS = 3 * 36e5;
 var PERIODIC_TIMEOUT_MS = 5e3;
 var MAX_SEEDS = 200;
@@ -300,9 +316,11 @@ function makeLock() {
 function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SEEDS_URL, random, shared }) {
   const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
   const lock = makeLock();
-  const poolLock = makeLock();
   let lastPoolRefreshMs = null;
+  let lastFailedRefreshMs = null;
+  let inflight = null;
   let exhausted = false;
+  const timeLeft = (bounds) => bounds && typeof bounds.deadline === "number" ? bounds.deadline - clock2.now() : Infinity;
   const readJson = (key) => {
     try {
       const raw = kino2.storage.get(key);
@@ -403,7 +421,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     return !!(r && r.blocked === true);
   };
   const setRegion = (blocked) => {
-    if (regionBlocked() !== blocked) writeJson("region", { blocked });
+    try {
+      if (regionBlocked() !== blocked) writeJson("region", { blocked });
+    } catch (_) {
+    }
   };
   const seedPool = () => {
     const raw = readJson("seeds");
@@ -417,42 +438,49 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   function saveFromResponse(j, acct = "") {
     writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: readSession().sn, acct });
   }
-  async function activate(snToken, sn) {
-    const j = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn });
+  async function activate(snToken, sn, bounds = {}) {
+    const j = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn, ...bounds });
     if (blank2(j && j.userToken)) throw new PortalError("active_sin_token", "activaci\xF3n sin userToken");
     saveFromResponse(j);
   }
-  async function mintDevice() {
-    const j = await portal.call("v3/snToken", fingerprint(), { baseFields: false });
+  async function mintDevice(bounds = {}) {
+    const j = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
     if (blank2(j && j.snToken)) throw new PortalError("snToken_failed", "el portal no devolvi\xF3 snToken");
     const snToken = str2(j.snToken);
     const sn = snFrom(kino2, j, snToken);
     writeSession({ userId: "", userToken: "", jwtToken: "", sn, acct: "" });
-    await activate(snToken, sn);
+    await activate(snToken, sn, bounds);
   }
-  async function directAnonymous() {
+  async function directAnonymous(bounds = {}) {
     const storedSn = readSession().sn;
     if (!blank2(storedSn)) {
       try {
-        return await activate("", storedSn);
+        return await activate("", storedSn, bounds);
       } catch (e) {
         if (!(e instanceof PortalError && INVALID_SN.has(e.code))) throw e;
       }
     }
-    return mintDevice();
+    return mintDevice(bounds);
   }
-  async function ensureAnonymousUnlocked() {
+  async function ensureAnonymousUnlocked(bounds = {}) {
     if (hasToken() && readSession().acct === "") return;
     if (hasToken()) forgetToken();
     let direct;
     try {
-      await directAnonymous();
-      setRegion(false);
+      await directAnonymous(bounds);
       return;
     } catch (e) {
       direct = e;
     }
-    const pool = seedPool();
+    if (direct instanceof PortalError && direct.code === GEO_BLOCKED) setRegion(true);
+    let pool = seedPool();
+    if (pool.length === 0) {
+      try {
+        await refreshSeeds({ timeoutMs: BLOCKED_REFRESH_MS, deadline: bounds.deadline });
+      } catch (_) {
+      }
+      pool = seedPool();
+    }
     if (pool.length > 0) {
       writeSession(seedSession(pick(pool)));
       return;
@@ -477,7 +505,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (blank2(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
     saveFromResponse(j, keyOf({ email, password }));
   }
-  async function ensureUnlocked() {
+  async function ensureUnlocked(bounds = {}) {
     if (tokenHeld()) return;
     const acc = account();
     const key = acc ? keyOf(acc) : "";
@@ -486,7 +514,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (hasToken()) forgetToken();
     if (acc && !wait) {
       try {
-        await loginUnlocked(acc.email, acc.password);
+        await loginUnlocked(acc.email, acc.password, bounds);
         clearRefused(key);
         endCooldown();
         return;
@@ -495,30 +523,31 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         else startCooldown(key);
       }
     }
-    await ensureAnonymousUnlocked();
+    await ensureAnonymousUnlocked(bounds);
   }
   function forgetToken() {
     const prev = readSession();
     if (prev.sn === "" && prev.userToken === "") return;
     writeSession({ ...prev, userId: "", userToken: "", jwtToken: "", acct: "" });
   }
-  const reauthenticate = (stale) => lock(async () => {
+  const reauthenticate = (stale, bounds = {}) => lock(async () => {
     const current = readSession().userToken;
     if (!blank2(current) && current !== stale) return true;
+    if (timeLeft(bounds) < MIN_REQUEST_MS) return false;
     forgetToken();
     try {
       const acc = configuredAccount();
       if (acc) {
         try {
-          await loginUnlocked(acc.email, acc.password);
+          await loginUnlocked(acc.email, acc.password, bounds);
           clearRefused(keyOf(acc));
           endCooldown();
         } catch (e) {
           if (!refusal(e)) throw e;
           setRefused(keyOf(acc));
-          await ensureAnonymousUnlocked();
+          await ensureAnonymousUnlocked(bounds);
         }
-      } else await ensureAnonymousUnlocked();
+      } else await ensureAnonymousUnlocked(bounds);
       return true;
     } catch (_) {
       return false;
@@ -537,45 +566,62 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       const res = await kino2.fetch(seedsUrl, { timeoutMs });
       list = JSON.parse(res.text());
     } catch (_) {
-      return;
+      return false;
     }
-    if (!Array.isArray(list)) return;
+    if (!Array.isArray(list)) return false;
     const clean = list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).slice(0, MAX_SEEDS).map((e) => ({ sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) }));
-    if (clean.length === 0) return;
-    writeJson("seeds", clean);
-    writeJson("seedsAt", clock2.now());
+    if (clean.length === 0) return false;
+    try {
+      writeJson("seeds", clean);
+    } catch (_) {
+      return false;
+    }
+    try {
+      writeJson("seedsAt", clock2.now());
+    } catch (_) {
+    }
+    return true;
   }
-  function refreshSeeds({ periodic = false, timeoutMs = 15e3 } = {}) {
-    return poolLock(async () => {
-      if (periodic) {
-        if (!autoRefresh() || !regionBlocked() || account()) return seedPool().length > 0;
-        const at = readJson("seedsAt");
-        if (typeof at === "number" && clock2.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
-        try {
-          writeJson("seedsAt", clock2.now());
-        } catch (_) {
-        }
+  async function refreshSeeds({ periodic = false, timeoutMs = 15e3, deadline, manual = false } = {}) {
+    const has = () => seedPool().length > 0;
+    if (periodic) {
+      if (!autoRefresh() || !regionBlocked() || account()) return has();
+      const at = readJson("seedsAt");
+      if (typeof at === "number" && clock2.now() - at < PERIODIC_REFRESH_MS) return has();
+      try {
+        writeJson("seedsAt", clock2.now());
+      } catch (_) {
       }
-      const now = clock2.now();
-      if (lastPoolRefreshMs !== null && now - lastPoolRefreshMs < POOL_REFRESH_COOLDOWN_MS) {
-        return seedPool().length > 0;
-      }
-      await fetchSeeds(timeoutMs);
-      const ok = seedPool().length > 0;
-      if (ok) lastPoolRefreshMs = now;
-      return ok;
-    });
+    }
+    const now = clock2.now();
+    const recent = (at, ms) => at !== null && now - at >= 0 && now - at < ms;
+    if (inflight === null) {
+      if (recent(lastPoolRefreshMs, POOL_REFRESH_COOLDOWN_MS)) return has();
+      if (!manual && recent(lastFailedRefreshMs, FAILED_REFRESH_COOLDOWN_MS)) return has();
+      const ms = Math.min(timeoutMs, Math.floor(timeLeft({ deadline })));
+      if (ms < MIN_REQUEST_MS) return has();
+      const promise = fetchSeeds(ms).then((stored) => {
+        inflight = null;
+        if (stored) lastPoolRefreshMs = now;
+        else lastFailedRefreshMs = now;
+      });
+      inflight = { promise, endsBy: now + ms };
+    } else if (typeof deadline === "number" && inflight.endsBy > deadline) {
+      return has();
+    }
+    await inflight.promise;
+    return has();
   }
-  async function ensure() {
+  async function ensure(bounds = {}) {
     await null;
     if (!tokenHeld()) {
       try {
-        await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS });
+        await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS, deadline: bounds.deadline });
       } catch (_) {
       }
     }
     try {
-      await lock(ensureUnlocked);
+      await lock(() => ensureUnlocked(bounds));
     } catch (e) {
       throw surface(e);
     }
@@ -615,7 +661,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       throw e;
     }
   }
-  async function logout() {
+  async function logout(bounds = {}) {
     await null;
     try {
       await lock(async () => {
@@ -626,13 +672,13 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
             await portal.call(
               "v5/loginOut",
               { userId: prev.userId, userToken: prev.userToken },
-              { baseFields: false, sn: prev.sn || null }
+              { baseFields: false, sn: prev.sn || null, ...bounds }
             );
           } catch (_) {
           }
         }
         forgetToken();
-        await ensureAnonymousUnlocked();
+        await ensureAnonymousUnlocked(bounds);
       });
     } catch (e) {
       throw surface(e);
@@ -646,7 +692,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (pool.length === 0 && left() >= SEED_FALLBACK_MIN_MS) {
       refreshed = true;
       try {
-        await refreshSeeds({ timeoutMs: Math.min(SEED_FALLBACK_REFRESH_MS, Math.floor(left())) });
+        await refreshSeeds({ timeoutMs: SEED_FALLBACK_REFRESH_MS, deadline });
       } catch (_) {
       }
       pool = seedPool();
@@ -676,6 +722,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
           note(tries, "answered");
           return { err: e };
         }
+        if (!(e instanceof PortalError) && !isKinoError(e)) throw e;
       }
     }
     note(tries, left() < SEED_FALLBACK_MIN_MS ? "out of time" : "no seed answered");
@@ -684,14 +731,20 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   async function withValidSession(block, { seedFallback: allowSeeds = false, deadline } = {}) {
     await null;
     const startedAt = clock2.now();
+    const bounds = typeof deadline === "number" ? { deadline } : {};
+    const onSeed = () => {
+      const sn = readSession().sn;
+      return seedPool().some((e) => e.sn === sn);
+    };
     const settle = (r) => {
       if (r.err) throw mapPortalError(r.err.code, r.err.message, kino2);
       exhausted = false;
+      if (regionBlocked() && !onSeed()) setRegion(false);
       return r.value;
     };
     const attempt = async () => {
       try {
-        return { value: await block(view()) };
+        return { value: await block({ ...view(), ...bounds }) };
       } catch (e) {
         if (e instanceof PortalError) return { err: e };
         throw e;
@@ -703,18 +756,25 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (result.err.code === GEO_BLOCKED) {
       setRegion(true);
       if (!account()) {
+        if (seedPool().length === 0) {
+          try {
+            await refreshSeeds({ timeoutMs: BLOCKED_REFRESH_MS, deadline });
+          } catch (_) {
+          }
+        }
         if (await switchToBackup(tokenUsed)) result = await attempt();
         if (!result.err) return settle(result);
       }
     }
-    if (await reauthenticate(tokenUsed)) {
+    if (await reauthenticate(tokenUsed, bounds)) {
       result = await attempt();
       if (!result.err) return settle(result);
     }
     if (SESSION_DEAD.has(result.err.code) && !account()) {
       setRegion(true);
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
-        if (await refreshSeeds() && await switchToBackup(view().userToken)) {
+        if (timeLeft(bounds) < MIN_REQUEST_MS) break;
+        if (await refreshSeeds({ deadline }) && await switchToBackup(view().userToken)) {
           const retry = await attempt();
           if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
             exhausted = false;
@@ -1289,6 +1349,7 @@ var MAX_ALT_TITLES = 5;
 var MAX_SPANISH_FORMS = 3;
 var MAX_FULL_TITLE_RETRIES = 4;
 var PAGE_SIZE = 20;
+var PORTAL_SHARE_MS = 6e3;
 var CACHE_KEY = "search:v1";
 var CACHE_BUDGET_BYTES = 24e3;
 var CACHE_FRESH_MS = 6 * 36e5;
@@ -1404,12 +1465,12 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
       altTitles: Array.isArray(q.altTitles) ? q.altTitles.filter((s) => typeof s === "string").slice(0, MAX_ALT_TITLES) : []
     };
   }
-  async function titleForms(ctx) {
+  async function titleForms(ctx, deadline) {
     const forms = [ctx.q];
     if (ctx.tmdbId > 0 && tmdb) {
       let detail = null;
       try {
-        detail = await tmdb.titleForms(ctx.type === "movie" ? "movie" : "tv", ctx.tmdbId);
+        detail = await tmdb.titleForms(ctx.type === "movie" ? "movie" : "tv", ctx.tmdbId, { deadline: deadline - PORTAL_SHARE_MS });
       } catch (_) {
         detail = null;
       }
@@ -1425,7 +1486,7 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
     const deadline = callDeadline(clock2, CALL_BUDGET_MS.search);
     const ctx = contextOf(query);
     if (ctx.q === "") return [];
-    const forms = await titleForms(ctx);
+    const forms = await titleForms(ctx, deadline);
     const queries = distinctBy2(forms.map((f) => kino2.rank.shortQuery(f)), (f) => f.toLowerCase());
     const entries = cache.read();
     const nowMs = clock2.now();
@@ -1436,7 +1497,7 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
     let lastError = null;
     let ensuring = null;
     async function portalItems(q) {
-      ensuring ?? (ensuring = session.ensure());
+      ensuring ?? (ensuring = session.ensure({ deadline }));
       await ensuring;
       const response = await session.withValidSession((v) => portal.call(
         "v3/searchByName",
@@ -1575,7 +1636,7 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
   async function fetchDetail(seriesId, deadline) {
     let response;
     try {
-      await session.ensure();
+      await session.ensure({ deadline });
       response = await session.withValidSession((v) => portal.call(
         "v4/getItemData",
         { contentId: seriesId, type: "0", sortType: "0", language: "en", macAddr: FIXED_MAC },
@@ -1606,14 +1667,14 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
     return raw;
   };
 }
-function makeEpisodes({ kino: kino2, tmdb = null, portalChapters }) {
-  async function enrich(raw) {
+function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 = null }) {
+  async function enrich(raw, bounds) {
     const none = { extra: /* @__PURE__ */ new Map(), series: null };
     if (!tmdb || !IMDB.test(raw.imdb) || raw.season === null) return none;
     try {
-      const series = await tmdb.seriesByImdb(raw.imdb);
+      const series = await tmdb.seriesByImdb(raw.imdb, bounds);
       if (!series) return none;
-      const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season);
+      const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season, void 0, bounds);
       if (!fromTmdb) return { extra: /* @__PURE__ */ new Map(), series };
       const expected = raw.declared !== null && raw.declared > 0 ? raw.declared : raw.items.length;
       if (expected !== fromTmdb.length) return { extra: /* @__PURE__ */ new Map(), series };
@@ -1627,7 +1688,7 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters }) {
       if (missing.size === 0) return { extra: rows, series };
       let inEnglish = [];
       try {
-        inEnglish = await tmdb.seasonEpisodes(series.tmdbId, raw.season, "en-US") ?? [];
+        inEnglish = await tmdb.seasonEpisodes(series.tmdbId, raw.season, "en-US", bounds) ?? [];
       } catch (_) {
         inEnglish = [];
       }
@@ -1642,8 +1703,9 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters }) {
   return async function episodes2(ref) {
     const magis = decode(ref);
     if (!magis) throw kino2.error("unavailable", "ese ref no es de Xuper: no se pueden listar cap\xEDtulos");
-    const raw = await portalChapters(magis.contentId);
-    const { extra, series } = await enrich(raw);
+    const deadline = clock2 ? callDeadline(clock2, CALL_BUDGET_MS.episodes) : void 0;
+    const raw = await portalChapters(magis.contentId, deadline);
+    const { extra, series } = await enrich(raw, { deadline });
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull2(it.seriesNumber) ?? 0;
       const ep = {
@@ -1788,7 +1850,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
       else missing.push(root);
     }
     if (missing.length > 0) {
-      await session.ensure();
+      await session.ensure({ deadline });
       const fetched = await Promise.all(missing.map((root) => fetchRoot(root, deadline)));
       missing.forEach((root, i) => {
         roots[root] = fetched[i];
@@ -1810,7 +1872,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
   }
   const { search: search2 } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb });
   const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
-  const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters });
+  const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
   return { home: home2, browse: browse2, search: search2, episodes: episodes2, portalChapters };
 }
 
@@ -1818,6 +1880,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
 var TMDB_BASE = "https://api.themoviedb.org/3";
 var TMDB_LANGUAGE = "es-MX";
 var TIMEOUT_MS = 8e3;
+var MIN_TIMEOUT_MS = 500;
 var IMG = "https://image.tmdb.org/t/p";
 var IMDB_ID = /^tt\d{7,}$/;
 var text = (v) => typeof v === "string" ? v : "";
@@ -1889,7 +1952,13 @@ function parseSeasonEpisodes(body) {
     return { episode, name: blank3(name) ? `Episodio ${episode}` : name, overview: text(e.overview), still: imageUrl(e.still_path, "w300") };
   });
 }
-function makeTmdb({ kino: kino2 }) {
+function makeTmdb({ kino: kino2, clock: clock2 = null }) {
+  function timeoutFor(bounds) {
+    const deadline = bounds && typeof bounds.deadline === "number" && clock2 ? bounds.deadline : null;
+    if (deadline === null) return TIMEOUT_MS;
+    const ms = Math.min(TIMEOUT_MS, Math.floor(deadline - clock2.now()));
+    return ms >= MIN_TIMEOUT_MS ? ms : null;
+  }
   function keyMarker() {
     try {
       return kino2.secret("tmdbKey");
@@ -1897,40 +1966,44 @@ function makeTmdb({ kino: kino2 }) {
       return null;
     }
   }
-  async function titleForms(type, id) {
+  async function titleForms(type, id, bounds) {
     try {
       if (!Number.isInteger(id) || id <= 0) return null;
+      const timeoutMs = timeoutFor(bounds);
+      if (timeoutMs === null) return null;
       const key = keyMarker();
       if (!key) return null;
       const kind = type === "movie" ? "movie" : "tv";
       const url = `${TMDB_BASE}/${kind}/${id}?api_key=${key}&language=${TMDB_LANGUAGE}&append_to_response=translations`;
-      const res = await kino2.fetch(url, { cookies: false, timeoutMs: TIMEOUT_MS });
+      const res = await kino2.fetch(url, { cookies: false, timeoutMs });
       if (!res || !res.ok) return null;
       return parseTitleForms(kind, res.text());
     } catch (_) {
       return null;
     }
   }
-  async function read(path, language) {
+  async function read(path, language, bounds) {
     try {
+      const timeoutMs = timeoutFor(bounds);
+      if (timeoutMs === null) return null;
       const key = keyMarker();
       if (!key) return null;
       const sep = path.includes("?") ? "&" : "?";
-      const res = await kino2.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs: TIMEOUT_MS });
+      const res = await kino2.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs });
       if (!res || !res.ok) return null;
       return res.text();
     } catch (_) {
       return null;
     }
   }
-  async function seriesByImdb(imdbId) {
+  async function seriesByImdb(imdbId, bounds) {
     if (typeof imdbId !== "string" || !IMDB_ID.test(imdbId)) return null;
-    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE);
+    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE, bounds);
     return body === null ? null : parseSeriesByImdb(body);
   }
-  async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE) {
+  async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, bounds) {
     if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
-    const body = await read(`/tv/${tvId}/season/${season}`, language);
+    const body = await read(`/tv/${tvId}/season/${season}`, language, bounds);
     return body === null ? null : parseSeasonEpisodes(body);
   }
   return { titleForms, seriesByImdb, seasonEpisodes };
@@ -1938,6 +2011,7 @@ function makeTmdb({ kino: kino2 }) {
 
 // src/resolve.js
 var SLB_DEFAULT_TTL_S = 300;
+var FOLLOW_UP_RESERVE_MS = 3e3;
 var AUTH_MARGIN_S = 300;
 var EXPIRED = /expired=(\d+)/;
 var MAX_SUBTITLES = 30;
@@ -2031,7 +2105,7 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
     slbCache = ttl > 0 ? { slb: fresh, token: v.userToken, expiresMs: clock2.now() + ttl * 1e3 } : null;
     return fresh;
   };
-  const sessionSlb = (seed) => seed ? slbFor(seed) : session.withValidSession(slbFor);
+  const sessionSlb = (seed, deadline) => seed ? slbFor({ ...seed, deadline }) : session.withValidSession(slbFor, { deadline });
   async function chapterFrom(magis, deadline) {
     const { items } = await portalChapters(magis.contentId, deadline);
     if (items.length === 0) throw unavailable(`la serie ${magis.contentId} vino sin cap\xEDtulos`);
@@ -2040,7 +2114,7 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
     return chapter2;
   }
   async function resolveVod(magis, chapter2, deadline) {
-    await session.ensure();
+    await session.ensure({ deadline: deadline - FOLLOW_UP_RESERVE_MS });
     const contentId = chapter2 && notBlank(chapter2.contentId) ? chapter2.contentId : magis.contentId;
     let played = null;
     const play = await session.withValidSession((v) => {
@@ -2050,12 +2124,12 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
         { contentId, seriesContentId: chapter2 ? magis.contentId : "", startTime: 0, type: "1", columnId: 0, authType: "" },
         viewOpts(v)
       );
-    }, { seedFallback: true, deadline });
+    }, { seedFallback: true, deadline: deadline - FOLLOW_UP_RESERVE_MS });
     const best = bestMedia(play);
     if (!best) throw unavailable("Xuper devolvi\xF3 sin media reproducible");
     const license = optStringStrict(objects(best.licenseList)[0]?.license);
     if (!notBlank(license)) throw unavailable("Xuper devolvi\xF3 sin licenseList");
-    const cdn = vodCdn(await sessionSlb(played && played.sn ? played : null));
+    const cdn = vodCdn(await sessionSlb(played && played.sn ? played : null, deadline));
     if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
     const ext = optStringStrict(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
     return {
@@ -2080,7 +2154,7 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
     try {
       const magis = decode(ref);
       if (!magis) throw unavailable("ese ref no es de Xuper: no se puede reproducir");
-      const chapter2 = magis.isSeries ? await chapterFrom(magis, deadline) : null;
+      const chapter2 = magis.isSeries ? await chapterFrom(magis, deadline - 2 * FOLLOW_UP_RESERVE_MS) : null;
       return await resolveVod(magis, chapter2, deadline);
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino2);
@@ -2101,22 +2175,22 @@ var ID = /^[A-Za-z0-9._~-]{1,128}$/;
 var POSITIVE = /^\d{1,9}$/;
 var NAMES = { ChannelList: "Todos" };
 var ADULT_NAMES = /* @__PURE__ */ new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
-function makeLiveCatalog({ kino: kino2, portal, session }) {
+function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   let adultIds = null;
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
     if (isKinoError(e)) return e;
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
-  async function readCategories() {
+  async function readCategories(deadline) {
     let response;
     try {
-      await session.ensure();
+      await session.ensure({ deadline });
       response = await session.withValidSession(({ userId, userToken }) => portal.call(
         "getNextColumns",
         { columnCode: LIVE_ROOT, pageNum: 1, pageSize: CATEGORIES_PAGE_SIZE, version: "" },
-        { baseFields: true, userId, userToken }
-      ));
+        { baseFields: true, userId, userToken, deadline }
+      ), { deadline });
     } catch (e) {
       throw surface(e);
     }
@@ -2135,23 +2209,23 @@ function makeLiveCatalog({ kino: kino2, portal, session }) {
     return out;
   }
   async function liveCategories2() {
-    const all = await readCategories();
+    const all = await readCategories(callDeadline(clock2, CALL_BUDGET_MS.liveCategories));
     return all.filter((c) => !c.adult && ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => ({ id: c.id, title: c.name }));
   }
-  async function isAdultCategory(id) {
+  async function isAdultCategory(id, deadline) {
     if (adultIds === null) {
-      await readCategories();
+      await readCategories(deadline);
       if (adultIds === null) throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
     }
     return adultIds.has(id);
   }
-  async function fetchPage(columnId, page) {
-    await session.ensure();
+  async function fetchPage(columnId, page, deadline) {
+    await session.ensure({ deadline });
     const response = await session.withValidSession(({ userId, userToken }) => portal.call(
       "v6/getLiveData",
       { columnId: Number(columnId), pageNum: page, pageSize: CHANNELS_PAGE_SIZE, dataVersion: "", expireTimeStr: "" },
-      { baseFields: true, userId, userToken }
-    ));
+      { baseFields: true, userId, userToken, deadline }
+    ), { deadline });
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
   }
   function project(list, categoryId) {
@@ -2172,6 +2246,7 @@ function makeLiveCatalog({ kino: kino2, portal, session }) {
     return items;
   }
   async function liveChannels2({ categoryId, cursor } = {}) {
+    const deadline = callDeadline(clock2, CALL_BUDGET_MS.liveChannels);
     if (typeof categoryId !== "string" || !POSITIVE.test(categoryId) || Number(categoryId) <= 0) {
       throw kino2.error("not_found", "No se encontr\xF3 esa categor\xEDa");
     }
@@ -2179,8 +2254,8 @@ function makeLiveCatalog({ kino: kino2, portal, session }) {
     const page = typeof cursor === "string" && POSITIVE.test(cursor) && Number(cursor) >= 1 ? Number(cursor) : 1;
     if (page > MAX_PAGES) return { items: [] };
     try {
-      if (await isAdultCategory(id)) return { items: [] };
-      const list = await fetchPage(id, page);
+      if (await isAdultCategory(id, deadline)) return { items: [] };
+      const list = await fetchPage(id, page, deadline);
       const items = project(list, id);
       return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
@@ -2577,6 +2652,7 @@ var NOT_LOGGED_IN = "aaa100028";
 var INT8 = /^[+-]?\d+$/;
 var ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/;
 var SERVED_MEMORY = 64;
+var SLB_RESERVE_MS = 3e3;
 var TEXT = {
   noAccount: "Este canal necesita una cuenta de Xuper (para pel\xEDculas y series no hace falta). Vinc\xFAlala en Ajustes \u25B8 Plugins \u25B8 Xuper.",
   noAddresses: "No se pudo abrir el canal: Xuper no dio la direcci\xF3n de la se\xF1al",
@@ -2650,25 +2726,25 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     served.set(code, license);
     while (served.size > SERVED_MEMORY) served.delete(served.keys().next().value);
   }
-  async function open(code, seed) {
+  async function open(code, seed, deadline) {
     let lastCode = null;
     let call;
     if (seed) {
-      call = (path, bean) => portal.call(path, bean, { baseFields: true, userId: seed.userId, userToken: seed.userToken, sn: seed.sn });
+      call = (path, bean, by) => portal.call(path, bean, { baseFields: true, userId: seed.userId, userToken: seed.userToken, sn: seed.sn, deadline: by });
     } else {
-      await session.ensure();
-      call = (path, bean) => session.withValidSession(async ({ userId, userToken }) => {
+      await session.ensure({ deadline: deadline - SLB_RESERVE_MS });
+      call = (path, bean, by) => session.withValidSession(async ({ userId, userToken }) => {
         try {
-          return await portal.call(path, bean, { baseFields: true, userId, userToken });
+          return await portal.call(path, bean, { baseFields: true, userId, userToken, deadline: by });
         } catch (e) {
           lastCode = e instanceof PortalError ? e.code : null;
           throw e;
         }
-      });
+      }, { deadline: by });
     }
     let play;
     try {
-      play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" });
+      play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" }, deadline - SLB_RESERVE_MS);
     } catch (e) {
       const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
       if (notLoggedIn) throw kino2.error("auth_required", TEXT.noAccount);
@@ -2676,7 +2752,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     }
     const signal = signalFrom(play);
     if (!signal) throw unavailable(TEXT.noAddresses);
-    const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]));
+    const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]), deadline);
     const all = liveCdns(slb);
     if (all.length === 0) throw unavailable(TEXT.noCdn);
     if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
@@ -2712,28 +2788,29 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     const moved = rotation.onRefused(code, current, session.seedPool(), refusedKey);
     log(`409 on a channel: ${moved ? "next open uses another seed" : "no seed left, back to the own session"} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
   }
-  async function openWithRotation(code) {
+  async function openWithRotation(code, deadline) {
     let seed = seedBySn(rotation.activeSn(code));
-    if (!seed) return open(code, null);
+    if (!seed) return open(code, null, deadline);
     for (let i = 0; i < MAX_ROTATIONS + 1; i++) {
       try {
-        return await open(code, seed);
+        return await open(code, seed, deadline);
       } catch (_) {
         log("a rotated seed could not open the channel: next");
         const moved = rotation.onRefused(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`);
         const next = seedBySn(rotation.activeSn(code));
-        if (!next || !moved) return open(code, null);
+        if (!next || !moved) return open(code, null, deadline);
         seed = next;
       }
     }
-    return open(code, null);
+    return open(code, null, deadline);
   }
   async function resolveLive(code, options) {
     await null;
+    const deadline = callDeadline(clock2, CALL_BUDGET_MS.resolve);
     try {
       const retry = isObject(options) && isObject(options.retry) ? options.retry : null;
       if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
-      return await openWithRotation(code);
+      return await openWithRotation(code, deadline);
     } catch (e) {
       throw surface(e);
     }
@@ -2751,7 +2828,7 @@ function getDeps() {
   let session = null;
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
   session = makeSession({ kino, portal, clock, shared: { email: SHARED_EMAIL, password: SHARED_PASSWORD } });
-  const tmdb = makeTmdb({ kino });
+  const tmdb = makeTmdb({ kino, clock });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
   const live2 = makeLiveCatalog({ kino, portal, session, clock });
   const liveStream = makeLive({ kino, portal, session, clock, config });

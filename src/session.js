@@ -3,6 +3,7 @@
 import { PortalError, mapPortalError } from "./portal.js";
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom } from "./device.js";
+import { isKinoError } from "./util.js";
 
 export const DEFAULT_SEEDS_URL =
   "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
@@ -14,6 +15,13 @@ const GEO_BLOCKED = "portal100024";
 const SEED_RESCUE_ROUNDS = 3;
 const SEED_SWITCH_TRIES = 5;
 const POOL_REFRESH_COOLDOWN_MS = 10_000;
+// After a download that loaded nothing, the automatic paths wait this long before asking again, so
+// every blocked call does not re-download (the "Actualizar semillas" button is never held back).
+const FAILED_REFRESH_COOLDOWN_MS = 30_000;
+// What an automatic download inside a content call may cost: a geo-block or a failed activation
+// with an empty pool (the pool is the only way out in a blocked region).
+const BLOCKED_REFRESH_MS = 5_000;
+const MIN_REQUEST_MS = 1_000; // less time left than this before a call's deadline: nothing new starts
 const PERIODIC_REFRESH_MS = 3 * 3600_000;
 const PERIODIC_TIMEOUT_MS = 5_000;
 const MAX_SEEDS = 200; // keeps the stored pool far below the 256 KB storage limit
@@ -40,9 +48,15 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   // No Math.random: the injected source, else the host's CSPRNG.
   const rand = random || (() => parseInt(kino.crypto.randomBytes(4, "hex"), 16) / 0x100000000);
   const lock = makeLock(); // mint / login / switch: read-modify-write over the stored session
-  const poolLock = makeLock(); // pool re-download, never held while taking `lock`
   let lastPoolRefreshMs = null;
+  let lastFailedRefreshMs = null;
+  // The ONE pool download in flight ({ promise, endsBy } on the injected clock): parallel callers
+  // share it instead of queueing; one whose deadline comes before `endsBy` does not wait for it.
+  let inflight = null;
   let exhausted = false;
+  // `bounds` = { deadline?, timeoutMs? } of the calling export: every portal exchange it causes
+  // (activation, mint, login) runs inside it.
+  const timeLeft = (bounds) => (bounds && typeof bounds.deadline === "number" ? bounds.deadline - clock.now() : Infinity);
 
   // ---- storage (no ttl: the token is a cache the portal kills at will) ----
   const readJson = (key) => {
@@ -139,7 +153,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const autoRefresh = () => kino.config.get("autoRefreshSeeds") !== false;
 
   const regionBlocked = () => { const r = readJson("region"); return !!(r && r.blocked === true); };
-  const setRegion = (blocked) => { if (regionBlocked() !== blocked) writeJson("region", { blocked }); };
+  // A full store must not turn a portal answer into a raw throw: the flag is a hint, not a result.
+  const setRegion = (blocked) => { try { if (regionBlocked() !== blocked) writeJson("region", { blocked }); } catch (_) { /* ignored */ } };
 
   const seedPool = () => {
     const raw = readJson("seeds");
@@ -161,42 +176,50 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: readSession().sn, acct });
   }
 
-  async function activate(snToken, sn) {
-    const j = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn });
+  async function activate(snToken, sn, bounds = {}) {
+    const j = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn, ...bounds });
     if (blank(j && j.userToken)) throw new PortalError("active_sin_token", "activación sin userToken");
     saveFromResponse(j);
   }
 
-  async function mintDevice() {
-    const j = await portal.call("v3/snToken", fingerprint(), { baseFields: false });
+  async function mintDevice(bounds = {}) {
+    const j = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
     if (blank(j && j.snToken)) throw new PortalError("snToken_failed", "el portal no devolvió snToken");
     const snToken = str(j.snToken);
     const sn = snFrom(kino, j, snToken);
     // Saved BEFORE activating: that same call's device dict must carry it.
     writeSession({ userId: "", userToken: "", jwtToken: "", sn, acct: "" });
-    await activate(snToken, sn);
+    await activate(snToken, sn, bounds);
   }
 
-  async function directAnonymous() {
+  async function directAnonymous(bounds = {}) {
     const storedSn = readSession().sn;
     if (!blank(storedSn)) {
-      try { return await activate("", storedSn); }
+      try { return await activate("", storedSn, bounds); }
       catch (e) {
         // Anything but these two codes (network, portal down) does not justify another device.
         if (!(e instanceof PortalError && INVALID_SN.has(e.code))) throw e;
       }
     }
-    return mintDevice();
+    return mintDevice(bounds);
   }
 
   // An anonymous token on this device (`acct` ""); a token of another account is dropped first.
-  async function ensureAnonymousUnlocked() {
+  // An activation that works says nothing about the content (a blocked region activates fine), so
+  // it never clears the region flag: only a content call that answers does (withValidSession).
+  async function ensureAnonymousUnlocked(bounds = {}) {
     if (hasToken() && readSession().acct === "") return;
     if (hasToken()) forgetToken();
     let direct;
-    try { await directAnonymous(); setRegion(false); return; } catch (e) { direct = e; }
-    // Direct path failed: what an unflagged geo-block looks like. Any pool session beats none.
-    const pool = seedPool();
+    try { await directAnonymous(bounds); return; } catch (e) { direct = e; }
+    if (direct instanceof PortalError && direct.code === GEO_BLOCKED) setRegion(true);
+    // Direct path failed: what an unflagged geo-block looks like. Any pool session beats none, and a
+    // fresh install has no pool yet: it is downloaded once, bounded (native loaded it at activation).
+    let pool = seedPool();
+    if (pool.length === 0) {
+      try { await refreshSeeds({ timeoutMs: BLOCKED_REFRESH_MS, deadline: bounds.deadline }); } catch (_) { /* ignored */ }
+      pool = seedPool();
+    }
     if (pool.length > 0) { writeSession(seedSession(pick(pool))); return; }
     throw direct;
   }
@@ -214,7 +237,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     saveFromResponse(j, keyOf({ email, password }));
   }
 
-  async function ensureUnlocked() {
+  async function ensureUnlocked(bounds = {}) {
     if (tokenHeld()) return;
     // A token of another account (credentials arrived by sync, account changed or cleared) is no
     // token; the device (sn) stays, so nothing is minted.
@@ -226,10 +249,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (hasToken()) forgetToken();
     if (acc && !wait) {
       // A rejected credential or a portal down: anonymous is served before serving nothing.
-      try { await loginUnlocked(acc.email, acc.password); clearRefused(key); endCooldown(); return; }
+      try { await loginUnlocked(acc.email, acc.password, bounds); clearRefused(key); endCooldown(); return; }
       catch (e) { if (refusal(e)) setRefused(key); else startCooldown(key); }
     }
-    await ensureAnonymousUnlocked();
+    await ensureAnonymousUnlocked(bounds);
   }
 
   function forgetToken() {
@@ -241,21 +264,23 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   // ---- single-flight helpers ----
   // Each login kills the previous token: when a burst failed on the same stale token, the stored
   // token no longer being it means someone already renewed.
-  const reauthenticate = (stale) => lock(async () => {
+  const reauthenticate = (stale, bounds = {}) => lock(async () => {
     const current = readSession().userToken;
     if (!blank(current) && current !== stale) return true;
+    // No time left in the calling export: the stored token is left as it is for the next call.
+    if (timeLeft(bounds) < MIN_REQUEST_MS) return false;
     forgetToken();
     try {
       // Reauthentication retries even an account refused before (the retry is rare and bounded).
       const acc = configuredAccount();
       if (acc) {
-        try { await loginUnlocked(acc.email, acc.password); clearRefused(keyOf(acc)); endCooldown(); }
+        try { await loginUnlocked(acc.email, acc.password, bounds); clearRefused(keyOf(acc)); endCooldown(); }
         catch (e) {
           if (!refusal(e)) throw e;
           setRefused(keyOf(acc)); // refused: the session falls to the anonymous path, as `ensure` does
-          await ensureAnonymousUnlocked();
+          await ensureAnonymousUnlocked(bounds);
         }
-      } else await ensureAnonymousUnlocked();
+      } else await ensureAnonymousUnlocked(bounds);
       return true;
     } catch (_) { return false; }
   });
@@ -268,50 +293,68 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     return true;
   });
 
+  /** Downloads the pool; true when it stored a non-empty one. Never throws. */
   async function fetchSeeds(timeoutMs) {
     let list;
     try {
       const res = await kino.fetch(seedsUrl, { timeoutMs });
       list = JSON.parse(res.text());
-    } catch (_) { return; }
-    if (!Array.isArray(list)) return;
+    } catch (_) { return false; }
+    if (!Array.isArray(list)) return false;
     const clean = list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken))
       .slice(0, MAX_SEEDS)
       .map((e) => ({ sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) }));
     // Only a non-empty answer replaces the pool (native SeedRefresher.reseed()).
-    if (clean.length === 0) return;
-    writeJson("seeds", clean);
-    writeJson("seedsAt", clock.now());
+    if (clean.length === 0) return false;
+    // A full store keeps the old pool: a download that cannot be kept is a failed one.
+    try { writeJson("seeds", clean); } catch (_) { return false; }
+    try { writeJson("seedsAt", clock.now()); } catch (_) { /* ignored */ }
+    return true;
   }
 
-  /** Re-downloads the pool; true when a non-empty pool is available afterwards. */
-  function refreshSeeds({ periodic = false, timeoutMs = 15000 } = {}) {
-    return poolLock(async () => {
-      if (periodic) {
-        if (!autoRefresh() || !regionBlocked() || account()) return seedPool().length > 0;
-        const at = readJson("seedsAt");
-        if (typeof at === "number" && clock.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
-        // Stamped BEFORE the attempt: a dead network must not retry on every call.
-        try { writeJson("seedsAt", clock.now()); } catch (_) { /* ignored */ }
-      }
-      const now = clock.now();
-      if (lastPoolRefreshMs !== null && now - lastPoolRefreshMs < POOL_REFRESH_COOLDOWN_MS) {
-        return seedPool().length > 0;
-      }
-      await fetchSeeds(timeoutMs);
-      const ok = seedPool().length > 0;
-      if (ok) lastPoolRefreshMs = now;
-      return ok;
-    });
+  /**
+   * Re-downloads the pool; true when a non-empty pool is available afterwards. Parallel callers
+   * share the download in flight. `deadline` (injected clock) bounds the caller: the download gets
+   * at most the time left, and a caller never waits for one that would end after its deadline.
+   * `manual` (the settings button) skips the cooldown after a failed download.
+   */
+  async function refreshSeeds({ periodic = false, timeoutMs = 15000, deadline, manual = false } = {}) {
+    // Everything up to the first await is synchronous: two callers can never both start a download.
+    const has = () => seedPool().length > 0;
+    if (periodic) {
+      if (!autoRefresh() || !regionBlocked() || account()) return has();
+      const at = readJson("seedsAt");
+      if (typeof at === "number" && clock.now() - at < PERIODIC_REFRESH_MS) return has();
+      // Stamped BEFORE the attempt: a dead network must not retry on every call.
+      try { writeJson("seedsAt", clock.now()); } catch (_) { /* ignored */ }
+    }
+    const now = clock.now();
+    const recent = (at, ms) => at !== null && now - at >= 0 && now - at < ms;
+    if (inflight === null) {
+      if (recent(lastPoolRefreshMs, POOL_REFRESH_COOLDOWN_MS)) return has();
+      if (!manual && recent(lastFailedRefreshMs, FAILED_REFRESH_COOLDOWN_MS)) return has();
+      const ms = Math.min(timeoutMs, Math.floor(timeLeft({ deadline })));
+      if (ms < MIN_REQUEST_MS) return has();
+      const promise = fetchSeeds(ms).then((stored) => {
+        inflight = null;
+        if (stored) lastPoolRefreshMs = now; else lastFailedRefreshMs = now;
+      });
+      inflight = { promise, endsBy: now + ms };
+    } else if (typeof deadline === "number" && inflight.endsBy > deadline) {
+      return has(); // the download in flight would end after this caller has to answer
+    }
+    await inflight.promise;
+    return has();
   }
 
   // ---- the public surface ----
-  async function ensure() {
+  /** `bounds` ({ deadline }) of the calling export: the mint, activation or login run inside it. */
+  async function ensure(bounds = {}) {
     await null;
     // A call that already has a token never waits. Without one, the periodic pool refresh (blocked
     // region, no account, switch on, > 3 h old) runs first, bounded and failure-proof.
-    if (!tokenHeld()) { try { await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS }); } catch (_) { /* ignored */ } }
-    try { await lock(ensureUnlocked); } catch (e) { throw surface(e); }
+    if (!tokenHeld()) { try { await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS, deadline: bounds.deadline }); } catch (_) { /* ignored */ } }
+    try { await lock(() => ensureUnlocked(bounds)); } catch (e) { throw surface(e); }
   }
 
   async function login(email, password, bounds = {}) {
@@ -342,7 +385,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     }
   }
 
-  async function logout() {
+  async function logout(bounds = {}) {
     await null;
     try {
       await lock(async () => {
@@ -353,11 +396,11 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
           // the plugin settings, which the app clears after this action succeeds.
           try {
             await portal.call("v5/loginOut", { userId: prev.userId, userToken: prev.userToken },
-              { baseFields: false, sn: prev.sn || null });
+              { baseFields: false, sn: prev.sn || null, ...bounds });
           } catch (_) { /* ignored */ }
         }
         forgetToken();
-        await ensureAnonymousUnlocked();
+        await ensureAnonymousUnlocked(bounds);
       });
     } catch (e) { throw surface(e); }
   }
@@ -377,7 +420,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     let refreshed = false;
     if (pool.length === 0 && left() >= SEED_FALLBACK_MIN_MS) {
       refreshed = true;
-      try { await refreshSeeds({ timeoutMs: Math.min(SEED_FALLBACK_REFRESH_MS, Math.floor(left())) }); } catch (_) { /* ignored */ }
+      try { await refreshSeeds({ timeoutMs: SEED_FALLBACK_REFRESH_MS, deadline }); } catch (_) { /* ignored */ }
       pool = seedPool();
     }
     const seen = new Set();
@@ -401,7 +444,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
         return { value };
       } catch (e) {
         if (e instanceof PortalError && !blockedOrDead(e)) { note(tries, "answered"); return { err: e }; }
-        // Geo, dead, or no answer at all (network, deadline): the next seed.
+        // Geo, dead, or no answer at all (network, deadline: a kino error): the next seed. Anything
+        // else is a bug and must not be hidden behind "no seed answered".
+        if (!(e instanceof PortalError) && !isKinoError(e)) throw e;
       }
     }
     note(tries, left() < SEED_FALLBACK_MIN_MS ? "out of time" : "no seed answered");
@@ -419,13 +464,19 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   async function withValidSession(block, { seedFallback: allowSeeds = false, deadline } = {}) {
     await null;
     const startedAt = clock.now();
+    // The calling export's deadline rides on EVERY step: each attempt's view (portal.call reads it),
+    // the geo-block's pool download, the reauthentication and the rescue.
+    const bounds = typeof deadline === "number" ? { deadline } : {};
+    const onSeed = () => { const sn = readSession().sn; return seedPool().some((e) => e.sn === sn); };
     const settle = (r) => {
       if (r.err) throw mapPortalError(r.err.code, r.err.message, kino);
       exhausted = false;
+      // A content answer on the device's OWN session is the proof the region does not block it.
+      if (regionBlocked() && !onSeed()) setRegion(false);
       return r.value;
     };
     const attempt = async () => {
-      try { return { value: await block(view()) }; }
+      try { return { value: await block({ ...view(), ...bounds }) }; }
       catch (e) { if (e instanceof PortalError) return { err: e }; throw e; }
     };
     const tokenUsed = view().userToken;
@@ -435,13 +486,17 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (result.err.code === GEO_BLOCKED) {
       setRegion(true);
       if (!account()) {
+        // A fresh install has no pool yet: it is the only way out of a blocked region.
+        if (seedPool().length === 0) {
+          try { await refreshSeeds({ timeoutMs: BLOCKED_REFRESH_MS, deadline }); } catch (_) { /* ignored */ }
+        }
         if (await switchToBackup(tokenUsed)) result = await attempt();
         if (!result.err) return settle(result);
       }
     }
 
     // Tried BEFORE the pool re-download: a token that merely expired just re-mints.
-    if (await reauthenticate(tokenUsed)) {
+    if (await reauthenticate(tokenUsed, bounds)) {
       result = await attempt();
       if (!result.err) return settle(result);
     }
@@ -449,7 +504,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (SESSION_DEAD.has(result.err.code) && !account()) {
       setRegion(true);
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
-        if ((await refreshSeeds()) && (await switchToBackup(view().userToken))) {
+        if (timeLeft(bounds) < MIN_REQUEST_MS) break;
+        if ((await refreshSeeds({ deadline })) && (await switchToBackup(view().userToken))) {
           const retry = await attempt();
           if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
             // The rescue got a session that answers (even with an error that is not "dead"): the pool is not exhausted.

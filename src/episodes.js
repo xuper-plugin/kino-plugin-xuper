@@ -91,7 +91,7 @@ export function makePortalChapters({ kino, portal, session, clock }) {
   async function fetchDetail(seriesId, deadline) {
     let response;
     try {
-      await session.ensure();
+      await session.ensure({ deadline });
       response = await session.withValidSession((v) => portal.call(
         "v4/getItemData",
         { contentId: seriesId, type: "0", sortType: "0", language: "en", macAddr: FIXED_MAC },
@@ -127,16 +127,17 @@ export function makePortalChapters({ kino, portal, session, clock }) {
 }
 
 /** `episodes(ref)` over the chapter list, TMDB and the sibling seasons. */
-export function makeEpisodes({ kino, tmdb = null, portalChapters }) {
+export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }) {
   // MagisSource.enrich: each chapter's still, name and synopsis from TMDB, matched exactly through the
   // series' IMDb id. Best-effort: any failure returns "nothing" (and no series).
-  async function enrich(raw) {
+  // `bounds` ({ deadline }): the export's; TMDB requests never run past it.
+  async function enrich(raw, bounds) {
     const none = { extra: new Map(), series: null };
     if (!tmdb || !IMDB.test(raw.imdb) || raw.season === null) return none;
     try {
-      const series = await tmdb.seriesByImdb(raw.imdb);
+      const series = await tmdb.seriesByImdb(raw.imdb, bounds);
       if (!series) return none;
-      const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season);
+      const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season, undefined, bounds);
       if (!fromTmdb) return { extra: new Map(), series };
       // Numbering guard: the season's DECLARED total (not the published count) must equal TMDB's, or
       // the portal split the series differently and crossing by number would attach stills that don't belong.
@@ -152,7 +153,7 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters }) {
       const missing = new Set([...rows].filter(([, r]) => r.overview === null).map(([n]) => n));
       if (missing.size === 0) return { extra: rows, series };
       let inEnglish = [];
-      try { inEnglish = (await tmdb.seasonEpisodes(series.tmdbId, raw.season, "en-US")) ?? []; } catch (_) { inEnglish = []; }
+      try { inEnglish = (await tmdb.seasonEpisodes(series.tmdbId, raw.season, "en-US", bounds)) ?? []; } catch (_) { inEnglish = []; }
       for (const c of inEnglish) {
         if (missing.has(c.episode) && c.overview.trim() !== "") rows.set(c.episode, { ...rows.get(c.episode), overview: c.overview });
       }
@@ -165,8 +166,10 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters }) {
   return async function episodes(ref) {
     const magis = decode(ref);
     if (!magis) throw kino.error("unavailable", "ese ref no es de Xuper: no se pueden listar capítulos");
-    const raw = await portalChapters(magis.contentId);
-    const { extra, series } = await enrich(raw);
+    // One deadline for the whole export (the app's 20 s): the chapter list, then TMDB's enrichment.
+    const deadline = clock ? callDeadline(clock, CALL_BUDGET_MS.episodes) : undefined;
+    const raw = await portalChapters(magis.contentId, deadline);
+    const { extra, series } = await enrich(raw, { deadline });
 
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull(it.seriesNumber) ?? 0;

@@ -13,6 +13,7 @@ const MAX_ALT_TITLES = 5;
 const MAX_SPANISH_FORMS = 3;
 const MAX_FULL_TITLE_RETRIES = 4;
 const PAGE_SIZE = 20;
+const PORTAL_SHARE_MS = 6_000; // of the search budget, kept for the portal queries after TMDB
 
 // One kino.storage key for every cached query: the whole storage is 256 KB and shared with the home
 // trees (up to 80 KB), so this key never goes over 24,000 bytes (oldest entries are evicted).
@@ -149,11 +150,12 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
 
   // The native TMDB-derived forms (query, localized, original, English, up to 3 other Spanish)
   // plus what Kino itself knows (originalTitle, altTitles), deduped case-insensitively.
-  async function titleForms(ctx) {
+  async function titleForms(ctx, deadline) {
     const forms = [ctx.q];
     if (ctx.tmdbId > 0 && tmdb) {
       let detail = null;
-      try { detail = await tmdb.titleForms(ctx.type === "movie" ? "movie" : "tv", ctx.tmdbId); } catch (_) { detail = null; }
+      // TMDB leaves the portal queries part of the budget: it is an enrichment, they are the answer.
+      try { detail = await tmdb.titleForms(ctx.type === "movie" ? "movie" : "tv", ctx.tmdbId, { deadline: deadline - PORTAL_SHARE_MS }); } catch (_) { detail = null; }
       if (detail) {
         for (const t of [detail.title, detail.originalTitle, detail.englishTitle]) if (typeof t === "string" && t.trim() !== "") forms.push(t);
         for (const t of (Array.isArray(detail.spanishTitles) ? detail.spanishTitles : []).slice(0, MAX_SPANISH_FORMS)) forms.push(t);
@@ -168,7 +170,7 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
     const deadline = callDeadline(clock, CALL_BUDGET_MS.search);
     const ctx = contextOf(query);
     if (ctx.q === "") return [];
-    const forms = await titleForms(ctx);
+    const forms = await titleForms(ctx, deadline);
     const queries = distinctBy(forms.map((f) => kino.rank.shortQuery(f)), (f) => f.toLowerCase());
 
     const entries = cache.read();
@@ -181,7 +183,7 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
     let ensuring = null;
 
     async function portalItems(q) {
-      ensuring ??= session.ensure(); // once; a failure fails every portal query the same way
+      ensuring ??= session.ensure({ deadline }); // once; a failure fails every portal query the same way
       await ensuring;
       const response = await session.withValidSession((v) => portal.call(
         "v3/searchByName",

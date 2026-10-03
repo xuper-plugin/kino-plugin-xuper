@@ -230,7 +230,8 @@ test("opts.deadline shortens a request and stops failover once passed", async ()
   });
   const deadline = clock.now() + 17000;
   await assert.rejects(portal.call("x", {}, { timeoutMs: 12000, deadline }), (e) => e.name === "KinoError_unavailable");
-  assert.deepEqual(calls.map((c) => c.opts.timeoutMs), [12000, 5000]);
+  // The first of two hosts gets half the time left (so a black hole cannot use it all); the last, the rest.
+  assert.deepEqual(calls.map((c) => c.opts.timeoutMs), [8500, 5000]);
 
   const second = setup({ script: () => { throw new Error("slow"); } });
   second.clock.advance(100);

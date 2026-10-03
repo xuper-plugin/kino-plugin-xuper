@@ -3,7 +3,7 @@
 // an old host answers 403. The answer is a request-signed HLS stream: `sign()` (liveSign.js) builds
 // the CDN headers per request from the signContext; the other CDNs of the same answer go out as
 // `alternateHosts`, so the app's proxy fails over between them as the native proxy did.
-import { PortalError, mapPortalError } from "./portal.js";
+import { PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { isCfl, slbBean } from "./resolve.js";
 import { buildSignContext, tokenOf } from "./liveSign.js";
 import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
@@ -17,6 +17,7 @@ const NOT_LOGGED_IN = "aaa100028"; // a channel that genuinely needs a real acco
 const INT = /^[+-]?\d+$/;
 const ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/; // SDK alternateHosts pattern
 const SERVED_MEMORY = 64;
+const SLB_RESERVE_MS = 3_000; // startPlayLive stops early enough to leave getSlbInfo this much
 
 // The person-facing texts of the native live failures (code in English, texts in Spanish).
 const TEXT = {
@@ -104,24 +105,27 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     while (served.size > SERVED_MEMORY) served.delete(served.keys().next().value);
   }
 
-  /** One open: with no [seed] the device's own session (ensure + withValidSession); with one, only its credentials. */
-  async function open(code, seed) {
+  /**
+   * One open: with no [seed] the device's own session (ensure + withValidSession); with one, only its
+   * credentials. Every portal exchange runs inside the call's `deadline` (injected clock).
+   */
+  async function open(code, seed, deadline) {
     let lastCode = null;
     let call;
     if (seed) {
       // No re-login, no rescue, store untouched: a seed the portal refuses is just an error.
-      call = (path, bean) => portal.call(path, bean, { baseFields: true, userId: seed.userId, userToken: seed.userToken, sn: seed.sn });
+      call = (path, bean, by) => portal.call(path, bean, { baseFields: true, userId: seed.userId, userToken: seed.userToken, sn: seed.sn, deadline: by });
     } else {
-      await session.ensure();
-      call = (path, bean) => session.withValidSession(async ({ userId, userToken }) => {
-        try { return await portal.call(path, bean, { baseFields: true, userId, userToken }); }
+      await session.ensure({ deadline: deadline - SLB_RESERVE_MS });
+      call = (path, bean, by) => session.withValidSession(async ({ userId, userToken }) => {
+        try { return await portal.call(path, bean, { baseFields: true, userId, userToken, deadline: by }); }
         catch (e) { lastCode = e instanceof PortalError ? e.code : null; throw e; }
-      });
+      }, { deadline: by });
     }
 
     let play;
     try {
-      play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" });
+      play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" }, deadline - SLB_RESERVE_MS);
     } catch (e) {
       // aaa100028 after withValidSession's retries: THIS channel needs a (re)linked account.
       const notLoggedIn = (e instanceof PortalError && e.code === NOT_LOGGED_IN)
@@ -133,7 +137,7 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     if (!signal) throw unavailable(TEXT.noAddresses);
 
     // The CHANNEL's code, not the playCode: the portal returns that signal's hosts.
-    const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]));
+    const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]), deadline);
     const all = liveCdns(slb);
     if (all.length === 0) throw unavailable(TEXT.noCdn);
     if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
@@ -183,30 +187,31 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
 
   // AppGraph.resolveLive: the channel's rotated seed first; a seed that cannot even open is marked
   // refused and the next one is tried, up to MAX_ROTATIONS + 1; then the device's own session.
-  async function openWithRotation(code) {
+  async function openWithRotation(code, deadline) {
     let seed = seedBySn(rotation.activeSn(code));
-    if (!seed) return open(code, null);
+    if (!seed) return open(code, null, deadline);
     for (let i = 0; i < MAX_ROTATIONS + 1; i++) {
       try {
-        return await open(code, seed);
+        return await open(code, seed, deadline);
       } catch (_) {
         log("a rotated seed could not open the channel: next");
         const moved = rotation.onRefused(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`);
         const next = seedBySn(rotation.activeSn(code));
-        if (!next || !moved) return open(code, null);
+        if (!next || !moved) return open(code, null, deadline);
         seed = next;
       }
     }
-    return open(code, null);
+    return open(code, null, deadline);
   }
 
   /** `resolve(ref, options)` for a bare channel code. `expired` needs nothing: nothing is cached. */
   async function resolveLive(code, options) {
     await null;
+    const deadline = callDeadline(clock, CALL_BUDGET_MS.resolve); // a channel resolve has the app's 20 s
     try {
       const retry = isObject(options) && isObject(options.retry) ? options.retry : null;
       if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
-      return await openWithRotation(code);
+      return await openWithRotation(code, deadline);
     } catch (e) {
       throw surface(e);
     }

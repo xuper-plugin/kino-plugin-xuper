@@ -279,7 +279,7 @@ function slowWorld() {
 test("slow portal: the shared check throws unavailable inside 17 s (cap 20) and stores nothing", async () => {
   const w = slowWorld();
   await assert.rejects(w.settings.validateSettings({ useSharedAccount: true }), (e) => e.name === "KinoError_unavailable" && !e.message.includes(SH.password));
-  assert.deepEqual(w.fetches, [12_000, 5_000]);
+  assert.deepEqual(w.fetches, [8_500, 8_500], "the 17 s are shared by the two hosts");
   assert.ok(w.elapsed() <= 17_000);
   assert.equal(JSON.parse(w.kino.storage.get("session")).userToken, "T0");
 });

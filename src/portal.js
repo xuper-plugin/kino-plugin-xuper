@@ -7,6 +7,7 @@ import { isObject } from "./util.js";
 
 const MAX_SLEEP_MS = 5000; // kino.sleep ceiling
 const MAX_REQUEST_MS = 30000; // kino.fetch ceiling
+const CONTACT_FAILED = "No se pudo contactar a Xuper; intenta de nuevo en un momento";
 
 /** The portal answered with a non-zero returnCode: final, never retried on another host. */
 export class PortalError extends Error {
@@ -34,7 +35,9 @@ export function mapPortalError(code, message, kino) {
 
 // The app's time cap per call (guide: 20 s for resolve/home/browse/episodes, 15 s for search), minus
 // a margin for the rate-limit wait and the work after the last answer.
-export const CALL_BUDGET_MS = { home: 20_000, episodes: 20_000, resolve: 20_000, search: 15_000 };
+export const CALL_BUDGET_MS = {
+  home: 20_000, browse: 20_000, episodes: 20_000, resolve: 20_000, search: 15_000, liveCategories: 20_000, liveChannels: 20_000,
+};
 const BUDGET_MARGIN_MS = 2_000;
 /** The absolute instant (injected clock) by which a call that starts now must stop asking the portal. */
 export const callDeadline = (clock, budgetMs) => clock.now() + budgetMs - BUDGET_MARGIN_MS;
@@ -108,15 +111,23 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
       "Content-Type": CONTENT_TYPE,
     };
 
+    const outOfTime = () => typeof deadline === "number" && Math.floor(deadline - clock.now()) < 1;
+    // A deadline already gone: the plugin's own answer, no request at all.
+    if (outOfTime()) throw kino.error("unavailable", CONTACT_FAILED);
     await waitTurn();
 
     let lastError = null;
-    for (const host of hostOrder()) {
+    const order = hostOrder();
+    for (let i = 0; i < order.length; i++) {
+      const host = order[i];
       let requestMs = perRequest;
       if (typeof deadline === "number") {
         const left = Math.floor(deadline - clock.now());
         if (left < 1) break;
-        requestMs = Math.min(perRequest, left);
+        // The time left is shared with the hosts still to try, so a black-holed host cannot use it
+        // all and the failover still reaches the next one; the last host gets whatever is left.
+        const remaining = order.length - i;
+        requestMs = Math.min(perRequest, remaining > 1 ? Math.ceil(left / remaining) : left);
       }
       let answer;
       try {
@@ -149,9 +160,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
       return answer.ok;
     }
     // Fixed text: the underlying error may echo the URL (host) and must not reach the caller.
-    const detail = lastError === null
-      ? "sin hosts configurados" : "No se pudo contactar a Xuper; intenta de nuevo en un momento";
-    throw kino.error("unavailable", detail);
+    throw kino.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
   }
 
   return { call };

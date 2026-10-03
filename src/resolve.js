@@ -10,6 +10,8 @@ import { findChapter } from "./episodes.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
 
 const SLB_DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime
+// Time kept back for each portal call that still has to follow (play -> getSlbInfo; chapters -> play).
+const FOLLOW_UP_RESERVE_MS = 3_000;
 const AUTH_MARGIN_S = 300;
 const EXPIRED = /expired=(\d+)/;
 const MAX_SUBTITLES = 30; // SDK cap
@@ -114,6 +116,7 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
   // The cache is keyed by userToken: a seed's SLB never serves the account's calls, nor the reverse.
   const slbFor = async (v) => {
     if (slbCache && slbCache.token === v.userToken && clock.now() < slbCache.expiresMs) return slbCache.slb;
+    // `v` carries the call's deadline (a seed view, or withValidSession's own view).
     const answer = await portal.call("v14/getSlbInfo", slbBean(config.apkVersion), viewOpts(v));
     const fresh = isObject(answer) ? answer : {};
     const ttl = slbLifetime(fresh, clock.now());
@@ -125,7 +128,7 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
   // its credentials directly); null = the stored session, through withValidSession as before. The
   // stored session gets no seed fallback here: a license from one session with a CDN auth from another
   // would not play.
-  const sessionSlb = (seed) => (seed ? slbFor(seed) : session.withValidSession(slbFor));
+  const sessionSlb = (seed, deadline) => (seed ? slbFor({ ...seed, deadline }) : session.withValidSession(slbFor, { deadline }));
 
   // MagisPluginBridge.chapterFrom: the requested chapter, raw as the portal gives it.
   async function chapterFrom(magis, deadline) {
@@ -137,7 +140,7 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
   }
 
   async function resolveVod(magis, chapter, deadline) {
-    await session.ensure();
+    await session.ensure({ deadline: deadline - FOLLOW_UP_RESERVE_MS });
     const contentId = chapter && notBlank(chapter.contentId) ? chapter.contentId : magis.contentId;
     let played = null; // the view whose startPlayVOD answered: the SLB must be that same session's
     const play = await session.withValidSession((v) => {
@@ -147,13 +150,14 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
         { contentId, seriesContentId: chapter ? magis.contentId : "", startTime: 0, type: "1", columnId: 0, authType: "" },
         viewOpts(v),
       );
-    }, { seedFallback: true, deadline });
+      // getSlbInfo follows: the play (and its seed attempts) stop early enough to leave it time.
+    }, { seedFallback: true, deadline: deadline - FOLLOW_UP_RESERVE_MS });
     const best = bestMedia(play);
     if (!best) throw unavailable("Xuper devolvió sin media reproducible");
     const license = optStringStrict(objects(best.licenseList)[0]?.license);
     if (!notBlank(license)) throw unavailable("Xuper devolvió sin licenseList");
 
-    const cdn = vodCdn(await sessionSlb(played && played.sn ? played : null));
+    const cdn = vodCdn(await sessionSlb(played && played.sn ? played : null, deadline));
     if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
 
     // `ts` iff the portal says so; asking for `.mp4` otherwise is all that can be done.
@@ -182,7 +186,8 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
       const magis = decode(ref);
       if (!magis) throw unavailable("ese ref no es de Xuper: no se puede reproducir");
       // A series' contentId is not playable: its chapters are listed and one is played.
-      const chapter = magis.isSeries ? await chapterFrom(magis, deadline) : null;
+      // The chapter list leaves room for the play and the CDN calls that follow it.
+      const chapter = magis.isSeries ? await chapterFrom(magis, deadline - 2 * FOLLOW_UP_RESERVE_MS) : null;
       return await resolveVod(magis, chapter, deadline);
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino);

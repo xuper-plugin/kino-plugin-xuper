@@ -82,7 +82,8 @@ test("categories: asks masnew_live with pageSize 200, the session's credentials,
   const { path, bean, opts } = portal.calls[0];
   assert.equal(path, "getNextColumns");
   assert.deepEqual(bean, { columnCode: "masnew_live", pageNum: 1, pageSize: 200, version: "" });
-  assert.deepEqual(opts, { baseFields: true, userId: "u1", userToken: "tok1" });
+  // The app's 20 s cap minus the 2 s margin, on the injected clock (0 here).
+  assert.deepEqual(opts, { baseFields: true, userId: "u1", userToken: "tok1", deadline: 18_000 });
 });
 
 test("categories: every adult name is hidden, trimmed and case-insensitive", async () => {
@@ -144,7 +145,7 @@ test("channels: maps a portal entry (id, title, bare ref, category, icon logo, n
   }] });
   const call = portal.calls.find((c) => c.path === "v6/getLiveData");
   assert.deepEqual(call.bean, { columnId: 76183, pageNum: 1, pageSize: 500, dataVersion: "", expireTimeStr: "" });
-  assert.deepEqual(call.opts, { baseFields: true, userId: "u1", userToken: "tok1" });
+  assert.deepEqual(call.opts, { baseFields: true, userId: "u1", userToken: "tok1", deadline: 18_000 });
   assert.ok(session.ensures >= 1);
 });
 

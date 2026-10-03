@@ -80,6 +80,8 @@ const rejectsWith = (promise, code, message) => assert.rejects(promise, (e) => {
   return true;
 });
 
+// Every live portal call carries the resolve's deadline (checked on its own below).
+const noDeadline = ({ deadline, ...rest }) => rest;
 const okQueues = (play = OK_PLAY, slb = OK_SLB) => ({ "v4/startPlayLive": [play], "v14/getSlbInfo": [slb] });
 
 // ---- open: the two portal calls -------------------------------------------------------------
@@ -90,8 +92,11 @@ test("startPlayLive gets channelCode, columnId 0, type \"1\" and the session's c
   assert.deepEqual(t.events, ["ensure", "portal:v4/startPlayLive", "portal:v14/getSlbInfo"]);
   const [play, slb] = t.portal.calls;
   assert.deepEqual(play.bean, { channelCode: "cyx-RCNHD", columnId: 0, type: "1" });
-  assert.deepEqual(play.opts, { baseFields: true, userId: "u1", userToken: "tok1" });
-  assert.deepEqual(slb.opts, { baseFields: true, userId: "u1", userToken: "tok1" });
+  assert.deepEqual(noDeadline(play.opts), { baseFields: true, userId: "u1", userToken: "tok1" });
+  assert.deepEqual(noDeadline(slb.opts), { baseFields: true, userId: "u1", userToken: "tok1" });
+  // The resolve's 20 s cap minus the 2 s margin; startPlayLive leaves getSlbInfo 3 s of it.
+  assert.equal(slb.opts.deadline, NOW + 18_000);
+  assert.equal(play.opts.deadline, NOW + 15_000);
 });
 
 test("getSlbInfo asks for the CHANNEL's code (a real array), not the playCode, with the merge bean", async () => {
@@ -343,7 +348,7 @@ test("retry conflict on an own (minted) session does not rotate: the own session
   const t = setup({ kind: "own", pool: [seed("a"), seed("b")], queues: { "v4/startPlayLive": [OK_PLAY, OK_PLAY], "v14/getSlbInfo": [OK_SLB, OK_SLB] } });
   await t.live.resolveLive("c");
   await t.live.resolveLive("c", { retry: { reason: "conflict", attempt: 1 } });
-  for (const call of t.portal.calls) assert.deepEqual(call.opts, { baseFields: true, userId: "u1", userToken: "tok1" });
+  for (const call of t.portal.calls) assert.deepEqual(noDeadline(call.opts), { baseFields: true, userId: "u1", userToken: "tok1" });
 });
 
 test("retry conflict on an account does not rotate either", async () => {
@@ -363,7 +368,7 @@ test("retry conflict on a seed session: the next open uses an untried pool seed 
   const out = await t.live.resolveLive("c", { retry: { reason: "conflict", attempt: 1 } });
   assert.equal(t.session.ensures, before, "a seed open never ensures the stored session");
   const seedCalls = t.portal.calls.slice(2);
-  assert.deepEqual(seedCalls.map((c) => c.opts), [
+  assert.deepEqual(seedCalls.map((c) => noDeadline(c.opts)), [
     { baseFields: true, userId: "u-a", userToken: "t-a", sn: "a" },
     { baseFields: true, userId: "u-a", userToken: "t-a", sn: "a" },
   ]);

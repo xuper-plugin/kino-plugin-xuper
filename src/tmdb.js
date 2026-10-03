@@ -7,6 +7,7 @@ import { isObject } from "./util.js";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANGUAGE = "es-MX";
 const TIMEOUT_MS = 8000;
+const MIN_TIMEOUT_MS = 500; // less time left than this before the caller's deadline: TMDB is skipped
 const IMG = "https://image.tmdb.org/t/p";
 const IMDB_ID = /^tt\d{7,}$/;
 
@@ -89,7 +90,16 @@ export function parseSeasonEpisodes(body) {
   });
 }
 
-export function makeTmdb({ kino }) {
+// `clock` (injected) lets a caller pass `{ deadline }`: a request never runs past it.
+export function makeTmdb({ kino, clock = null }) {
+  // The request timeout under the caller's deadline, or null when there is no time for one.
+  function timeoutFor(bounds) {
+    const deadline = bounds && typeof bounds.deadline === "number" && clock ? bounds.deadline : null;
+    if (deadline === null) return TIMEOUT_MS;
+    const ms = Math.min(TIMEOUT_MS, Math.floor(deadline - clock.now()));
+    return ms >= MIN_TIMEOUT_MS ? ms : null;
+  }
+
   // The key is a sealed secret the host swaps into the URL; a plugin that does not declare it gets
   // a throw here, which just means "no TMDB".
   function keyMarker() {
@@ -97,14 +107,16 @@ export function makeTmdb({ kino }) {
   }
 
   /** Title forms of a TMDB work (`type` "movie" or "tv"), or null whenever they cannot be had. */
-  async function titleForms(type, id) {
+  async function titleForms(type, id, bounds) {
     try {
       if (!Number.isInteger(id) || id <= 0) return null;
+      const timeoutMs = timeoutFor(bounds);
+      if (timeoutMs === null) return null;
       const key = keyMarker();
       if (!key) return null;
       const kind = type === "movie" ? "movie" : "tv";
       const url = `${TMDB_BASE}/${kind}/${id}?api_key=${key}&language=${TMDB_LANGUAGE}&append_to_response=translations`;
-      const res = await kino.fetch(url, { cookies: false, timeoutMs: TIMEOUT_MS });
+      const res = await kino.fetch(url, { cookies: false, timeoutMs });
       if (!res || !res.ok) return null;
       return parseTitleForms(kind, res.text());
     } catch (_) {
@@ -112,12 +124,14 @@ export function makeTmdb({ kino }) {
     }
   }
 
-  async function read(path, language) {
+  async function read(path, language, bounds) {
     try {
+      const timeoutMs = timeoutFor(bounds);
+      if (timeoutMs === null) return null;
       const key = keyMarker();
       if (!key) return null;
       const sep = path.includes("?") ? "&" : "?";
-      const res = await kino.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs: TIMEOUT_MS });
+      const res = await kino.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs });
       if (!res || !res.ok) return null;
       return res.text();
     } catch (_) {
@@ -126,16 +140,16 @@ export function makeTmdb({ kino }) {
   }
 
   /** `{ tmdbId, title, poster, backdrop }` of the series with that IMDb id, or null. */
-  async function seriesByImdb(imdbId) {
+  async function seriesByImdb(imdbId, bounds) {
     if (typeof imdbId !== "string" || !IMDB_ID.test(imdbId)) return null;
-    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE);
+    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE, bounds);
     return body === null ? null : parseSeriesByImdb(body);
   }
 
   /** The season's `[{ episode, name, overview, still }]`, or null when it could not be had. `language` overrides es-MX. */
-  async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE) {
+  async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, bounds) {
     if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
-    const body = await read(`/tv/${tvId}/season/${season}`, language);
+    const body = await read(`/tv/${tvId}/season/${season}`, language, bounds);
     return body === null ? null : parseSeasonEpisodes(body);
   }
 

@@ -398,16 +398,18 @@ test("a rescue retry that ends in an error that is not 'dead' clears seedsExhaus
   assert.equal(session.seedsExhausted(), false, "the retry reached a live session");
 });
 
-test("geo-blocked anonymous with an EMPTY pool: no swap, no download, one reauth, then the mapped geo error", async () => {
+test("geo-blocked anonymous with an EMPTY pool: one bounded pool download, one reauth, then the mapped geo error", async () => {
   const { portal, session, fetches } = setup({ stored: sess("T1", "sn-own") });
   portal.queue("v8/active", act("T2"));
   let runs = 0;
   await assert.rejects(
     session.withValidSession(async () => { runs++; throw new PortalError("portal100024", "区域"); }),
     (e) => e.code === "geo_blocked" && e.message === "Este contenido no está disponible en tu región");
-  assert.equal(runs, 2, "first try + the one after the reauth");
+  assert.equal(runs, 2, "first try + the one after the reauth (the download brought no seed)");
   assert.deepEqual(portal.paths(), ["v8/active"]);
-  assert.equal(fetches.length, 0, "a geo block alone never downloads the pool");
+  // A fresh install in a blocked region has no other way out (final review I2): the pool is asked for once.
+  assert.equal(fetches.length, 1, "the empty pool is downloaded on the geo block");
+  assert.equal(session.regionBlocked(), true, "the reactivation did not clear the flag");
   assert.equal(session.seedsExhausted(), false);
 });
 
@@ -445,18 +447,23 @@ test("a surviving non-dead error is mapped to a Spanish kino error", async () =>
 
 // ---- region flag -----------------------------------------------------------------------------
 
-test("regionBlocked: cleared only by a successful DIRECT anonymous mint/reactivation", async () => {
+test("regionBlocked: cleared only by a content call that answered on the device's OWN session", async () => {
   const { session, portal, kino } = setup({ stored: sess("", "sn-r"), seeds: [seed(1)] });
   kino.storage.set("region", JSON.stringify({ blocked: true }));
   assert.equal(session.regionBlocked(), true);
-  // direct fails -> pool seed: still blocked
+  // direct fails -> pool seed: still blocked, and a content answer on the seed proves nothing
   portal.queue("v8/active", new PortalError("aaa100099", "x"));
   await session.ensure();
   assert.equal(session.regionBlocked(), true);
-  // direct reactivation succeeds -> cleared
+  await session.withValidSession(async () => "ok");
+  assert.equal(session.regionBlocked(), true);
+  // a direct reactivation alone proves nothing either (a blocked region activates fine)
   kino.storage.set("session", JSON.stringify(sess("", "sn-r")));
   portal.queue("v8/active", act("T"));
   await session.ensure();
+  assert.equal(session.regionBlocked(), true);
+  // content answered on the own session -> cleared
+  await session.withValidSession(async () => "ok");
   assert.equal(session.regionBlocked(), false);
 });
 
