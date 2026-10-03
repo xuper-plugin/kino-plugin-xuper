@@ -21,6 +21,15 @@ test("home and browse go through the catalog; with no configured host the failur
   await assert.rejects(() => plugin.browse("magis_top_peliculas", null), (e) => e.code === "unavailable");
 });
 
+test("section and categories go through the catalog; with no configured host the failure is a kino unavailable", async () => {
+  assert.equal(typeof getDeps().section.section, "function");
+  assert.equal(typeof getDeps().categories.categories, "function");
+  await assert.rejects(() => plugin.section({ tab: "series" }), (e) => e.code === "unavailable");
+  await assert.rejects(() => plugin.categories(null), (e) => e.code === "unavailable");
+  // An unknown tab is answered before any portal call.
+  await assert.rejects(() => plugin.section({ tab: "adultos" }), (e) => e.code === "not_found");
+});
+
 test("guarded passes kino errors through and maps anything else to a Spanish unavailable", async () => {
   const mine = kino.error("geo_blocked", "Este contenido no está disponible en tu región");
   await assert.rejects(() => guarded(() => { throw mine; }), (e) => e === mine);

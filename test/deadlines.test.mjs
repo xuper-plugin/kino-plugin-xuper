@@ -5,6 +5,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { portalWorld, SEEDS, ANSWERS, START } from "./helpers/portalWorld.mjs";
+import { makeSection } from "../src/section.js";
+import { makeCategories } from "../src/categories.js";
 
 const CAP = { search: 15_000, other: 20_000 };
 const MARGIN = 1_000; // the plugin must stop with at least this much of the cap left
@@ -24,6 +26,8 @@ const EXPORTS = {
   search: { cap: CAP.search, run: (w) => w.catalog.search(query), ok: (out) => assert.equal(out[0].id, "D1") },
   home: { cap: CAP.other, run: (w) => w.catalog.home(), ok: (out) => assert.ok(out.length > 0) },
   browse: { cap: CAP.other, run: async (w) => w.catalog.browse(await firstRowId(), null), ok: (out) => assert.ok(out.items.length > 0) },
+  section: { cap: CAP.other, run: (w) => makeSection({ kino: w.kino, catalog: w.catalog, clock: w.clock }).section({ tab: "anime" }), ok: (out) => assert.ok(out.rows.length > 0) },
+  categories: { cap: CAP.other, run: (w) => makeCategories({ catalog: w.catalog }).categories(null), ok: (out) => assert.ok(out.length > 0) },
   episodes: { cap: CAP.other, run: (w) => w.catalog.episodes("magis1:tv:0:SERIE"), ok: (out) => assert.equal(out.episodes.length, 1) },
   resolveVod: { cap: CAP.other, run: (w) => w.resolve.resolve("magis1:movie:0:M1"), ok: (out) => assert.match(out.url, /vod\.cdn\.test/) },
   resolveChapter: { cap: CAP.other, run: (w) => w.resolve.resolve("magis1:teleplay:1:SERIE"), ok: (out) => assert.match(out.url, /vod\.cdn\.test/) },

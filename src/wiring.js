@@ -8,6 +8,8 @@ import { makeTmdb } from "./tmdb.js";
 import { makeResolve } from "./resolve.js";
 import { makeLiveCatalog } from "./liveCatalog.js";
 import { makeLive } from "./live.js";
+import { makeSection } from "./section.js";
+import { makeCategories } from "./categories.js";
 import * as constants from "./config.js";
 import { isKinoError } from "./util.js";
 
@@ -31,7 +33,9 @@ export function getDeps() {
   const liveStream = makeLive({ kino, portal, session, clock, config });
   // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).
   const resolve = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream };
+  const section = makeSection({ kino, catalog, clock });
+  const categories = makeCategories({ catalog });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories };
   return deps;
 }
 

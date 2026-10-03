@@ -130,8 +130,9 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
   const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
 
   // The classified rows over the four roots: stored trees first, the rest from the portal in parallel.
-  async function buildRows() {
-    const deadline = callDeadline(clock, CALL_BUDGET_MS.home); // home and browse share the 20 s cap
+  // `budgetMs`: the calling export's cap (home, browse, section and categories all have 20 s).
+  async function buildRows(budgetMs = CALL_BUDGET_MS.home) {
+    const deadline = callDeadline(clock, budgetMs);
     const roots = {};
     const missing = [];
     for (const { root } of KINDS) {
@@ -177,5 +178,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
   const portalChapters = makePortalChapters({ kino, portal, session, clock });
   const episodes = makeEpisodes({ kino, tmdb, portalChapters, clock });
 
-  return { home, browse, search, episodes, portalChapters };
+  // The classified rows of the four roots (the same cached trees Home reads), for section and categories.
+  const rows = (budgetMs) => buildRows(budgetMs);
+
+  return { home, browse, rows, search, episodes, portalChapters };
 }

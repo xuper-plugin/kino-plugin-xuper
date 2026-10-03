@@ -9,6 +9,9 @@ import { isKinoError } from "./util.js";
 export async function search(query) { await null; return guarded(({ catalog }) => catalog.search(query)); }
 export async function home() { await null; return guarded(({ catalog }) => catalog.home()); }
 export async function browse(ref, cursor) { await null; return guarded(({ catalog }) => catalog.browse(ref, cursor)); }
+// apiVersion 6: Xuper's own section (one tab per root) and its Categorías tiles, over Home's trees.
+export async function section(arg) { await null; return guarded(({ section: s }) => s.section(arg)); }
+export async function categories() { await null; return guarded(({ categories: c }) => c.categories()); }
 export async function episodes(ref) { await null; return guarded(({ catalog }) => catalog.episodes(ref)); }
 // `options` (the retry reason) drives a live channel's reopen; VOD ignores it.
 export async function resolve(ref, options) { await null; return guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)); }

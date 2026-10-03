@@ -70,6 +70,7 @@ export function mapPortalError(code, message, kino, { accountLinked = false, gon
 // a margin for the rate-limit wait and the work after the last answer.
 export const CALL_BUDGET_MS = {
   home: 20_000, browse: 20_000, episodes: 20_000, resolve: 20_000, search: 15_000, liveCategories: 20_000, liveChannels: 20_000,
+  section: 20_000, categories: 20_000,
 };
 const BUDGET_MARGIN_MS = 2_000;
 /** The absolute instant (injected clock) by which a call that starts now must stop asking the portal. */

@@ -40,6 +40,16 @@ const FEATURED_PREFIXES = ["magis_recent_", "magis_new_", "magis_top_"];
 
 export const isFeatured = (rowId) => FEATURED_PREFIXES.some((p) => rowId.startsWith(p));
 
+/** The root a classified row belongs to, read from its id (`magis_top_series`, `magis_g_anime_drama`); null for any other id. */
+export function rootOfRow(rowId) {
+  if (typeof rowId !== "string") return null;
+  const prefix = [...FEATURED_PREFIXES, "magis_g_"].find((p) => rowId.startsWith(p));
+  if (prefix === undefined) return null;
+  const rest = rowId.slice(prefix.length);
+  const root = prefix === "magis_g_" ? rest.slice(0, Math.max(0, rest.indexOf("_"))) : rest;
+  return Object.hasOwn(byRoot, root) ? root : null;
+}
+
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0); // UTF-16 order, as Kotlin's String.compareTo
 // Best score first; ties by title, then id, so the order never depends on the portal's.
 const byScore = (a, b) => cmp(b.score ?? -1, a.score ?? -1) || cmp(a.title, b.title) || cmp(a.id, b.id);

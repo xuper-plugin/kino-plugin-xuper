@@ -153,7 +153,9 @@ var CALL_BUDGET_MS = {
   resolve: 2e4,
   search: 15e3,
   liveCategories: 2e4,
-  liveChannels: 2e4
+  liveChannels: 2e4,
+  section: 2e4,
+  categories: 2e4
 };
 var BUDGET_MARGIN_MS = 2e3;
 var callDeadline = (clock2, budgetMs) => clock2.now() + budgetMs - BUDGET_MARGIN_MS;
@@ -944,6 +946,15 @@ var GENRES = new Map(Object.entries({
   "Musical": ["music", "M\xFAsica"]
 }));
 var YEAR_SECTION = /^(\d{4})(.*)$/;
+var FEATURED_PREFIXES = ["magis_recent_", "magis_new_", "magis_top_"];
+function rootOfRow(rowId) {
+  if (typeof rowId !== "string") return null;
+  const prefix = [...FEATURED_PREFIXES, "magis_g_"].find((p) => rowId.startsWith(p));
+  if (prefix === void 0) return null;
+  const rest = rowId.slice(prefix.length);
+  const root = prefix === "magis_g_" ? rest.slice(0, Math.max(0, rest.indexOf("_"))) : rest;
+  return Object.hasOwn(byRoot, root) ? root : null;
+}
 var cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 var byScore = (a, b) => cmp(b.score ?? -1, a.score ?? -1) || cmp(a.title, b.title) || cmp(a.id, b.id);
 var plain = (text2) => text2.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").trim();
@@ -959,7 +970,7 @@ function distinctBy(list, key) {
 var row = (id, title2, items) => ({ id, title: title2, shown: items.slice(0, MAX_ROW_SIZE), all: items });
 var genresOf = (item) => distinctBy(item.genres.map((g) => GENRES.get(g.trim())).filter((g) => g !== void 0), (g) => g[0]);
 var newestFirst = (items) => items.some((i) => i.shelvedAtMs > 0) ? [...items].sort((a, b) => b.shelvedAtMs - a.shelvedAtMs) : items;
-var playable = (section) => distinctBy(section.items.filter((i) => i.type !== TRAILER), (i) => i.id);
+var playable = (section2) => distinctBy(section2.items.filter((i) => i.type !== TRAILER), (i) => i.id);
 function yearSections(sections) {
   const out = [];
   for (const s of sections) {
@@ -1042,8 +1053,8 @@ function classify(roots) {
   const sectionsOf = Object.fromEntries(KINDS.map((k) => [k.root, roots[k.root] || []]));
   const kindOf = /* @__PURE__ */ new Map();
   for (const root of PRECEDENCE) {
-    for (const section of sectionsOf[root]) {
-      for (const item of section.items) {
+    for (const section2 of sectionsOf[root]) {
+      for (const item of section2.items) {
         if (item.type !== TRAILER && !kindOf.has(item.id)) kindOf.set(item.id, [root, item]);
       }
     }
@@ -1895,8 +1906,8 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
   }
   const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
   const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
-  async function buildRows() {
-    const deadline = callDeadline(clock2, CALL_BUDGET_MS.home);
+  async function buildRows(budgetMs = CALL_BUDGET_MS.home) {
+    const deadline = callDeadline(clock2, budgetMs);
     const roots = {};
     const missing = [];
     for (const { root } of KINDS) {
@@ -1939,7 +1950,8 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
   const { search: search2 } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb });
   const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
   const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
-  return { home: home2, browse: browse2, search: search2, episodes: episodes2, portalChapters };
+  const rows = (budgetMs) => buildRows(budgetMs);
+  return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters };
 }
 
 // src/tmdb.js
@@ -2967,6 +2979,45 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
   return { resolveLive };
 }
 
+// src/section.js
+var TABS = [
+  { id: "peliculas", label: "Pel\xEDculas" },
+  { id: "series", label: "Series" },
+  { id: "infantil", label: "Infantil" },
+  { id: "anime", label: "Anime" }
+];
+var rowsOfTab = (rows, tab, nowMs) => projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs);
+function makeSection({ kino: kino2, catalog, clock: clock2 }) {
+  async function section2(arg) {
+    const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
+    const tab = asked === null || asked === void 0 || asked === "" ? TABS[0].id : asked;
+    if (!TABS.some((t) => t.id === tab)) throw kino2.error("not_found", "No se encontr\xF3 esa pesta\xF1a");
+    const rows = await catalog.rows(CALL_BUDGET_MS.section);
+    return { tabs: TABS.map((t) => ({ ...t })), tab, rows: rowsOfTab(rows, tab, clock2.now()) };
+  }
+  return { section: section2 };
+}
+
+// src/categories.js
+var MAX_CATEGORIES2 = 24;
+var MAX_TITLE = 40;
+function tilesOf(rows) {
+  const out = [];
+  for (const r of rows) {
+    if (out.length >= MAX_CATEGORIES2) break;
+    if (r.shown.length === 0) continue;
+    const first = r.shown[0];
+    const art = first.backdrop && first.backdrop.trim() || first.poster && first.poster.trim() || null;
+    const tile = { id: r.id, title: r.title.slice(0, MAX_TITLE), ref: r.id };
+    if (art) tile.art = art;
+    out.push(tile);
+  }
+  return out;
+}
+function makeCategories({ catalog }) {
+  return { categories: async () => tilesOf(await catalog.rows(CALL_BUDGET_MS.categories)) };
+}
+
 // src/wiring.js
 var deps = null;
 var clock = { now: () => Date.now() };
@@ -2982,7 +3033,9 @@ function getDeps() {
   const live2 = makeLiveCatalog({ kino, portal, session, clock });
   const liveStream = makeLive({ kino, portal, session, clock, config });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream };
+  const section2 = makeSection({ kino, catalog, clock });
+  const categories2 = makeCategories({ catalog });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section2, categories: categories2 };
   return deps;
 }
 async function guarded(body) {
@@ -3331,6 +3384,14 @@ async function browse(ref, cursor) {
   await null;
   return guarded(({ catalog }) => catalog.browse(ref, cursor));
 }
+async function section(arg) {
+  await null;
+  return guarded(({ section: s }) => s.section(arg));
+}
+async function categories() {
+  await null;
+  return guarded(({ categories: c }) => c.categories());
+}
 async function episodes(ref) {
   await null;
   return guarded(({ catalog }) => catalog.episodes(ref));
@@ -3408,6 +3469,7 @@ async function validateSettings(values) {
 export {
   action,
   browse,
+  categories,
   episodes,
   home,
   liveCategories,
@@ -3415,6 +3477,7 @@ export {
   migrate,
   resolve,
   search,
+  section,
   settingsStatus,
   sign,
   validateSettings

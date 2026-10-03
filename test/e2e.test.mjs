@@ -522,7 +522,7 @@ test("garbage arguments that cannot work reject (with a kino error), they never 
 test("each export's body starts with `await null` (checked in the source text)", () => {
   const text = readFileSync(new URL("src/plugin.js", ROOT), "utf8");
   const exportsList = [...text.matchAll(/export async function (\w+)\(([^)]*)\)\s*\{\s*(await null;)?/g)];
-  assert.equal(exportsList.length, 12);
+  assert.equal(exportsList.length, 14); // + section, categories (apiVersion 6)
   for (const m of exportsList) assert.ok(m[3], m[1] + " must start with await null");
 });
 

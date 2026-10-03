@@ -107,6 +107,7 @@
       "hint": "Vuelve a descargar las sesiones de respaldo"
     }
   ],
+  "section": { "label": "Xuper" },
   "streamHosts": "any",
   "liveStreamHosts": "any",
   "secrets": {
