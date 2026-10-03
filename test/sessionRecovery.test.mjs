@@ -109,3 +109,20 @@ test("shared account, empty pool, dead pool URL: home's four parallel roots shar
   assert.ok(w.elapsed() <= 19_000, `home ran ${w.elapsed()} ms`);
   assert.equal(w.seedDownloads.length, 1, "one shared download");
 });
+
+test("an account whose login fails keeps the working anonymous token: no reactivation of the device", async () => {
+  for (const login of [new Error("offline"), { returnCode: "aaa100099", errorMessage: "refused" }]) {
+    const w = portalWorld({ hosts: ["a.test"], config: { email: "ana@x.test", password: "stand-in-pw" }, routes: { "v8/login": login } });
+    const out = await w.catalog.search(query);
+    assert.equal(out[0].id, "D1");
+    assert.deepEqual(w.paths(), ["v8/login", "v3/searchByName"], "the anonymous token served the call as it was");
+    assert.equal(w.stored().userToken, STORED.userToken);
+  }
+});
+
+test("a token of ANOTHER account is still dropped before the login (it must never serve this one)", async () => {
+  const w = portalWorld({ hosts: ["a.test"], config: { email: "ana@x.test", password: "stand-in-pw" },
+    session: { ...STORED, acct: "someone-else" }, routes: { "v8/login": new Error("offline") } });
+  await w.catalog.search(query);
+  assert.deepEqual(w.paths(), ["v8/login", "v8/active", "v3/searchByName"]);
+});

@@ -515,7 +515,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const key = acc ? keyOf(acc) : "";
     const wait = acc !== null && cooling(key);
     if (wait && hasToken() && readSession().acct === "") return;
-    if (hasToken()) forgetToken();
+    if (hasToken() && readSession().acct !== "") forgetToken();
     if (acc && !wait) {
       try {
         await loginUnlocked(acc.email, acc.password, bounds);

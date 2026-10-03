@@ -144,16 +144,17 @@ test("only the email, or only the password, is NO own account: no login, no port
 test("a refused pair falls to anonymous, is remembered, and is retried only when the key changes or on explicit login/reauth", async () => {
   const w = world({ config: A, login: (bean) => (bean.userName === B.email ? { returnCode: "0", userId: "ub", userToken: "TB", jwtToken: "j" } : refuse(bean)) });
   await w.session.ensure();
-  assert.deepEqual(w.paths(), ["v8/login", "v8/active"]);
+  // The anonymous token the device already had stays: a refused login costs no reactivation.
+  assert.deepEqual(w.paths(), ["v8/login"]);
   assert.equal(w.stored().acct, "");
   assert.equal(await w.status(), "No se pudo iniciar sesión con tu cuenta: sesión anónima. Revisa tu correo y contraseña");
   assert.equal(w.session.kind(), "own");
   for (let i = 0; i < 3; i++) await w.session.ensure();
-  assert.equal(w.requests.length, 2, "not retried on every call");
+  assert.equal(w.requests.length, 1, "not retried on every call");
 
   // explicit login retries (and a refusal keeps it remembered)
   await assert.rejects(w.session.login(A.email, A.password), (e) => e.name === "KinoError_auth_required");
-  assert.equal(w.requests.length, 3);
+  assert.equal(w.requests.length, 2);
 
   // reauth after a dead token retries the refused account once, then falls back
   let first = true;
@@ -161,7 +162,7 @@ test("a refused pair falls to anonymous, is remembered, and is retried only when
     if (first) { first = false; throw new PortalError("aaa100028", "dead"); }
     return userToken;
   });
-  assert.deepEqual(w.paths().slice(3), ["v8/login", "v8/active"]);
+  assert.deepEqual(w.paths().slice(2), ["v8/login", "v8/active"]);
 
   // a different key is tried at once
   w.cfg.email = B.email; w.cfg.password = B.password;
@@ -174,11 +175,12 @@ test("a refused pair falls to anonymous, is remembered, and is retried only when
 test("a login that fails on the network is never remembered as refused; the anonymous token is used for 60 s without any portal call, then one retry", async () => {
   const w = world({ config: A });
   w.failNext.network = true;
-  await assert.rejects(w.session.ensure()); // login and anonymous both fail offline
+  await w.session.ensure(); // the login fails offline: the anonymous token the device had serves
   assert.equal(w.base.storage.get("refusedAcct"), null);
+  assert.deepEqual(w.paths(), ["v8/login"], "no reactivation: the anonymous token was kept");
   w.failNext.network = false;
-  await w.session.ensure(); // cooling: no login, only the anonymous reactivation
-  assert.ok(!w.paths().slice(2).includes("v8/login"));
+  await w.session.ensure(); // cooling: no login
+  assert.ok(!w.paths().slice(1).includes("v8/login"));
   const calls = w.requests.length;
   for (let i = 0; i < 3; i++) await w.session.ensure();
   assert.equal(w.requests.length, calls, "token held (anonymous) and cooling: zero portal calls");
@@ -193,7 +195,7 @@ test("a login that fails on the network is never remembered as refused; the anon
 test("explicit login and reauthentication ignore the cooldown", async () => {
   const w = world({ config: A });
   w.failNext.network = true;
-  await assert.rejects(w.session.ensure());
+  await w.session.ensure(); // login fails offline: cooling, on the kept anonymous token
   w.failNext.network = false;
   await w.session.ensure();
   const before = w.requests.length;
@@ -218,7 +220,7 @@ test("geo-block and 'no session' answers on login are not remembered as a refusa
   w.clock.t += 2 * 60_000; // 11 min
   assert.equal(w.session.accountState(), "pending", "expired: not remembered any more");
   await w.session.ensure();
-  assert.deepEqual(w.paths().slice(calls), ["v8/login", "v8/active"], "retried after 10 minutes");
+  assert.deepEqual(w.paths().slice(calls), ["v8/login"], "retried after 10 minutes (the anonymous token stays meanwhile)");
 });
 
 test("a password fix (key change) retries at once, even inside the 10 minutes", async () => {
@@ -249,7 +251,7 @@ test("a failing storage write on the refused-key memory never breaks the call", 
   const kino2 = Object.freeze({ ...w.kino, storage: { ...real, get: (k) => real.get(k), remove: (k) => real.remove(k), set: (k, v, o) => { if (k === "refusedAcct") throw new Error("quota"); real.set(k, v, o); } } });
   const session = makeSession({ kino: kino2, portal: { call: async (p, b, o) => { if (p === "v8/login") { throw new PortalError("aaa100011", "bad"); } return { userId: "u", userToken: "TZ", jwtToken: "" }; } }, clock: { now: () => 1 }, random: () => 0 });
   await session.ensure();
-  assert.equal(JSON.parse(real.get("session")).userToken, "TZ");
+  assert.equal(JSON.parse(real.get("session")).userToken, "T0", "the call went on, on the anonymous token it had");
 });
 
 // ---- no secret in anything stored or logged -------------------------------------------------------

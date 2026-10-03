@@ -246,7 +246,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const wait = acc !== null && cooling(key);
     // Cooling down after a failed login: the anonymous token is used as is.
     if (wait && hasToken() && readSession().acct === "") return;
-    if (hasToken()) forgetToken();
+    // Another account's token goes; an anonymous one stays as the fallback until a login replaces
+    // it, so a failed login does not cost a reactivation of the device.
+    if (hasToken() && readSession().acct !== "") forgetToken();
     if (acc && !wait) {
       // A rejected credential or a portal down: anonymous is served before serving nothing.
       try { await loginUnlocked(acc.email, acc.password, bounds); clearRefused(key); endCooldown(); return; }
