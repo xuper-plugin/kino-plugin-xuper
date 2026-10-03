@@ -893,7 +893,7 @@ test("telemetry: apiVersion 6 boolean, a consent line, and kino.log.report write
   assert.equal(validateManifest(manifest({ apiVersion: 6, telemetry: true })).manifest.telemetry, true);
   assert.equal(validateManifest(manifest({ apiVersion: 6 })).manifest.telemetry, false);
   assert.equal(validateManifest(manifest({ apiVersion: 5, telemetry: "yes" })).manifest.telemetry, false);
-  assert.deepEqual(validateManifest(manifest({ apiVersion: 6, telemetry: "yes" })), { ok: false, field: "telemetry", message: 'El campo "telemetry" debe ser true o false' });
+  assert.deepEqual(validateManifest(manifest({ apiVersion: 6, telemetry: "yes" })), { ok: false, field: "telemetry", message: 'El campo "telemetry" debe ser true, false o "verbose"' });
   assert.deepEqual(consentLines(validateManifest(manifest({ apiVersion: 6, telemetry: true })).manifest),
     [{ text: "Comparte registros de errores con Kino para corregir fallas", danger: false }]);
   const { kino } = createKino(validateManifest(manifest({ apiVersion: 6, telemetry: true })).manifest);
@@ -909,6 +909,14 @@ test("telemetry: apiVersion 6 boolean, a consent line, and kino.log.report write
     console.error = before;
   }
   assert.ok(seen.join("").includes("[kino.log.report] session shared_fallback tries=2"), seen.join(""));
+});
+
+test("telemetry \"verbose\": accepted at apiVersion 6, with its own consent line", () => {
+  assert.equal(validateManifest(manifest({ apiVersion: 6, telemetry: "verbose" })).manifest.telemetry, "verbose");
+  assert.equal(validateManifest(manifest({ apiVersion: 5, telemetry: "verbose" })).manifest.telemetry, false);
+  assert.deepEqual(validateManifest(manifest({ apiVersion: 6, telemetry: "Verbose" })).ok, false);
+  assert.deepEqual(consentLines(validateManifest(manifest({ apiVersion: 6, telemetry: "verbose" })).manifest),
+    [{ text: "Comparte registros detallados de reproducción y errores con Kino para corregir fallas", danger: false }]);
 });
 
 test("--retry takes an optional HTTP status", () => {

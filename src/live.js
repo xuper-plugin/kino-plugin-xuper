@@ -10,7 +10,7 @@ import { isCfl, slbBean } from "./resolve.js";
 import { buildSignContext, tokenOf } from "./liveSign.js";
 import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
-import { trace, errCode, seedTag } from "./trace.js";
+import { trace, report, errCode, seedTag } from "./trace.js";
 
 // A rotation outcome as a breadcrumb word short enough for the app's scrubber ("already_exhausted"
 // with its key is 25 characters, which it blanks): the budget was already spent in this window.
@@ -166,7 +166,7 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     const cdns = withToken.filter((d) => ALTERNATE_HOST.test(d.cflHost));
     if (cdns.length === 0) throw bad("bad_cdn", TEXT.badHost);
 
-    const built = buildSignContext(signal.license, cdns);
+    const built = buildSignContext(signal.license, cdns, clock.now());
     if (!built) throw bad("too_long", TEXT.tooLong);
     if (built.kept.length < cdns.length) trace(kino, "live", "cdn_cut", { kept: built.kept.length, of: cdns.length });
     const primary = built.kept[0].cflHost;
@@ -179,6 +179,11 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     // code with this license is a 401).
     const playCode = notBlank(signal.playCode) ? signal.playCode : code;
     noteServed(code, signal.license);
+    // Which SLB entry became the primary (an index, never a host), how many were kept, the alternates, the expiry.
+    const primaryIndex = all.indexOf(built.kept[0]);
+    trace(kino, "live", "open", { cdns: all.length, kept: built.kept.length, primary: primaryIndex, alts: alternates.length, seed: !!seed, exp: expiresOf(slb) });
+    // The SLB's first entry could not be used (no token, a bad address): an edge case worth the board (verbose level).
+    if (primaryIndex > 0) report(kino, "live_cdn", "skip", { primary: primaryIndex, of: all.length });
     return {
       url: `http://${primary}/live/${playCode}.m3u8`,
       mime: "application/x-mpegurl",
@@ -202,6 +207,8 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
     const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
     trace(kino, "live", "conflict", { sess: sessOf(), outcome: OUTCOME_WORDS[outcome] ?? outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
+    // A 409 that moved (or could not move) the channel to another seed: an edge case for the board.
+    report(kino, "live_rotation", "conflict", { outcome: OUTCOME_WORDS[outcome] ?? outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
   }
 
   // AppGraph.resolveLive: the channel's rotated (or carried) seed first, only while the device is on

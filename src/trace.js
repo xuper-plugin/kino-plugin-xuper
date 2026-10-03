@@ -77,17 +77,52 @@ export function errCode(e) {
 }
 
 /**
- * Runs export `fn`'s body; when it fails, one `xuper:call fail fn=<fn> code=<code> ms=<elapsed>` line
- * (the error itself is rethrown untouched). A success writes nothing: its lines would never be sent.
+ * Runs export `fn`'s body between two breadcrumbs: `xuper:call start fn=<fn>` and, at its end,
+ * `xuper:call ok fn=<fn> ms=<elapsed>` (with `n=<count>` for a list) or `xuper:call fail fn=<fn> code=<code> ms=<elapsed>`
+ * (the error itself is rethrown untouched). [extra]: short fields of Kino's own (`kind=live`) on both lines.
+ * A success's lines never reach the board on their own (only a failed call's travel), but a debug install reads them in
+ * its Registro and in logcat (`KinoPlugin/xuper`).
  */
-export async function traced(kino, clock, fn, body) {
+export async function traced(kino, clock, fn, body, extra = {}) {
   const t0 = clock.now();
+  trace(kino, "call", "start", { fn, ...extra });
+  let out;
   try {
-    return await body();
+    out = await body();
   } catch (e) {
-    trace(kino, "call", "fail", { fn, code: errCode(e), ms: clock.now() - t0 });
+    trace(kino, "call", "fail", { fn, ...extra, code: errCode(e), ms: clock.now() - t0 });
     throw e;
   }
+  trace(kino, "call", "ok", { fn, ...extra, ms: clock.now() - t0, n: Array.isArray(out) ? out.length : undefined });
+  return out;
+}
+
+/**
+ * `sign` runs once per playlist and segment of a live channel (every few seconds): one start/ok pair per call
+ * would push everything else out of the Registro's 200 lines. Instead a running tally -- on the first sign and
+ * every [every]th: `xuper:sign stats n=<count> fail=<failures> maxMs=<slowest since the last tally> age=<the
+ * context's age, s> kind=<this request>` -- and a line of its own for a sign at or over [slowMs]
+ * (`xuper:sign slow kind=<kind> ms=<ms>`). A failure keeps its own line (plugin.js). Never throws.
+ */
+export function makeSignStats({ kino, every = 50, slowMs = 200 }) {
+  let n = 0;
+  let fails = 0;
+  let maxMs = 0;
+  return {
+    record({ kind, ms, ageS, ok }) {
+      try {
+        n++;
+        if (!ok) fails++;
+        const t = Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0;
+        if (t > maxMs) maxMs = t;
+        if (t >= slowMs) trace(kino, "sign", "slow", { kind, ms: t });
+        if (n === 1 || n % every === 0) {
+          trace(kino, "sign", "stats", { n, fail: fails, maxMs, age: Number.isFinite(ageS) ? ageS : undefined, kind });
+          maxMs = 0;
+        }
+      } catch (_) { /* a breadcrumb never fails a call */ }
+    },
+  };
 }
 
 /** 8 hex characters of a hash of a seed's sn: tells seeds apart in a report, never the sn. */

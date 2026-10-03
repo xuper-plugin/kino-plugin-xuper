@@ -4,7 +4,7 @@ import {
   REQUEST_TIMEOUT_MS, DEVICE_FIXED,
 } from "./config.js";
 import { isObject } from "./util.js";
-import { trace, errCode } from "./trace.js";
+import { trace, report, errCode } from "./trace.js";
 
 const MAX_SLEEP_MS = 5000; // kino.sleep ceiling
 const MAX_REQUEST_MS = 30000; // kino.fetch ceiling
@@ -247,7 +247,8 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
         bodyText = res.text();
         answer = JSON.parse(bodyText);
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
-        if (i > 0) trace(kino, "portal", "failover", { path: tp, to: i });
+        // Another host than the first answered: an edge case for the board (the same line, through kino.log.report).
+        if (i > 0) report(kino, "portal", "failover", { path: tp, to: i });
         preferredHost = host;
         const rc = answer.returnCode;
         const code = rc === undefined || rc === null ? "" : String(rc);

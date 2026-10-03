@@ -180,14 +180,39 @@ function errCode(e) {
   else c = name;
   return VALUE.test(c) ? c : "error";
 }
-async function traced(kino2, clock2, fn, body) {
+async function traced(kino2, clock2, fn, body, extra = {}) {
   const t0 = clock2.now();
+  trace(kino2, "call", "start", { fn, ...extra });
+  let out;
   try {
-    return await body();
+    out = await body();
   } catch (e) {
-    trace(kino2, "call", "fail", { fn, code: errCode(e), ms: clock2.now() - t0 });
+    trace(kino2, "call", "fail", { fn, ...extra, code: errCode(e), ms: clock2.now() - t0 });
     throw e;
   }
+  trace(kino2, "call", "ok", { fn, ...extra, ms: clock2.now() - t0, n: Array.isArray(out) ? out.length : void 0 });
+  return out;
+}
+function makeSignStats({ kino: kino2, every = 50, slowMs = 200 }) {
+  let n = 0;
+  let fails = 0;
+  let maxMs = 0;
+  return {
+    record({ kind, ms, ageS, ok }) {
+      try {
+        n++;
+        if (!ok) fails++;
+        const t = Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0;
+        if (t > maxMs) maxMs = t;
+        if (t >= slowMs) trace(kino2, "sign", "slow", { kind, ms: t });
+        if (n === 1 || n % every === 0) {
+          trace(kino2, "sign", "stats", { n, fail: fails, maxMs, age: Number.isFinite(ageS) ? ageS : void 0, kind });
+          maxMs = 0;
+        }
+      } catch (_) {
+      }
+    }
+  };
 }
 function seedTag(kino2, sn) {
   try {
@@ -390,7 +415,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
         bodyText = res.text();
         answer = JSON.parse(bodyText);
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
-        if (i > 0) trace(kino2, "portal", "failover", { path: tp, to: i });
+        if (i > 0) report(kino2, "portal", "failover", { path: tp, to: i });
         preferredHost = host;
         const rc = answer.returnCode;
         const code = rc === void 0 || rc === null ? "" : String(rc);
@@ -2893,10 +2918,12 @@ function authorityOf(url) {
   const at = m[1].lastIndexOf("@");
   return normalize(at >= 0 ? m[1].slice(at + 1) : m[1]);
 }
-function buildSignContext(license, cdns) {
+function buildSignContext(license, cdns, builtAtMs) {
+  const built = Number.isFinite(builtAtMs) ? { b: Math.trunc(builtAtMs / 1e3) } : {};
   const encode2 = (list, withToken) => JSON.stringify({
     l: license,
-    c: list.map((d) => withToken ? { h: d.cflHost, a: d.authBase, t: tokenOf(d.authBase) } : { h: d.cflHost, a: d.authBase })
+    c: list.map((d) => withToken ? { h: d.cflHost, a: d.authBase, t: tokenOf(d.authBase) } : { h: d.cflHost, a: d.authBase }),
+    ...built
   });
   const full = encode2(cdns, true);
   if (full.length <= MAX_CONTEXT_CHARS) return { context: full, kept: cdns };
@@ -2906,6 +2933,12 @@ function buildSignContext(license, cdns) {
     if (context.length <= MAX_CONTEXT_CHARS) return { context, kept };
   }
   return null;
+}
+var BUILT_AT = /"b":(\d{1,12})[,}]/;
+function contextAgeS(context, nowMs) {
+  const m = BUILT_AT.exec(typeof context === "string" ? context : "");
+  if (!m) return null;
+  return Math.max(0, Math.trunc(nowMs / 1e3) - Number(m[1]));
 }
 var signError = (why, message) => Object.assign(new Error(message), { why });
 function readContext(context) {
@@ -3239,7 +3272,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     if (withToken.length === 0) throw bad("no_token", TEXT.noToken);
     const cdns = withToken.filter((d) => ALTERNATE_HOST.test(d.cflHost));
     if (cdns.length === 0) throw bad("bad_cdn", TEXT.badHost);
-    const built = buildSignContext(signal.license, cdns);
+    const built = buildSignContext(signal.license, cdns, clock2.now());
     if (!built) throw bad("too_long", TEXT.tooLong);
     if (built.kept.length < cdns.length) trace(kino2, "live", "cdn_cut", { kept: built.kept.length, of: cdns.length });
     const primary = built.kept[0].cflHost;
@@ -3250,6 +3283,9 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     }
     const playCode = notBlank(signal.playCode) ? signal.playCode : code;
     noteServed(code, signal.license);
+    const primaryIndex = all.indexOf(built.kept[0]);
+    trace(kino2, "live", "open", { cdns: all.length, kept: built.kept.length, primary: primaryIndex, alts: alternates.length, seed: !!seed, exp: expiresOf(slb) });
+    if (primaryIndex > 0) report(kino2, "live_cdn", "skip", { primary: primaryIndex, of: all.length });
     return {
       url: `http://${primary}/live/${playCode}.m3u8`,
       mime: "application/x-mpegurl",
@@ -3277,6 +3313,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
     const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
     trace(kino2, "live", "conflict", { sess: sessOf(), outcome: OUTCOME_WORDS[outcome] ?? outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
+    report(kino2, "live_rotation", "conflict", { outcome: OUTCOME_WORDS[outcome] ?? outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
   }
   async function openWithRotation(code, deadline) {
     let seed = session.kind() === "seed" ? seedBySn(rotation.activeSn(code)) : null;
@@ -3820,15 +3857,23 @@ async function episodes(ref) {
 }
 async function resolve(ref, options) {
   await null;
-  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)));
+  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" });
 }
+var signStats = null;
 async function sign(request) {
   await null;
+  const t0 = clock.now();
+  let kind = "?";
   try {
-    return signRequest(request, clock.now());
+    signStats ?? (signStats = makeSignStats({ kino }));
+    kind = typeof request?.kind === "string" ? request.kind : "?";
+    const out = signRequest(request, t0);
+    signStats.record({ kind, ms: clock.now() - t0, ageS: contextAgeS(request && request.context, t0), ok: true });
+    return out;
   } catch (e) {
+    signStats?.record({ kind, ms: clock.now() - t0, ageS: null, ok: false });
     if (isKinoError(e)) throw e;
-    trace(kino, "sign", "fail", { why: typeof e?.why === "string" ? e.why : errCode(e) });
+    report(kino, "sign", "fail", { why: typeof e?.why === "string" ? e.why : errCode(e) });
     throw kino.error("unavailable", "No se pudo firmar la petici\xF3n del canal");
   }
 }
@@ -3844,10 +3889,10 @@ var migrator = makeMigrate();
 async function migrate(input) {
   await null;
   try {
-    return await migrator.migrate(input);
+    return await traced(kino, clock, "migrate", () => migrator.migrate(input), { kind: input && typeof input.kind === "string" ? input.kind : "?" });
   } catch (e) {
     if (isKinoError(e)) throw e;
-    trace(kino, "migrate", "fail", { code: errCode(e) });
+    report(kino, "migrate", "fail", { code: errCode(e) });
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }
@@ -3859,7 +3904,7 @@ var settings = () => settingsInstance ?? (settingsInstance = (() => {
 async function settingsStatus() {
   await null;
   try {
-    return await settings().settingsStatus();
+    return await traced(kino, clock, "settingsStatus", () => settings().settingsStatus());
   } catch (e) {
     trace(kino, "settings", "status_fail", { code: errCode(e) });
     return { status: "No se pudo consultar el estado" };
@@ -3868,7 +3913,7 @@ async function settingsStatus() {
 async function action(key) {
   await null;
   try {
-    return await traced(kino, clock, "action", () => settings().action(key));
+    return await traced(kino, clock, "action", () => settings().action(key), { key: typeof key === "string" ? key : "?" });
   } catch (e) {
     if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
@@ -3877,7 +3922,7 @@ async function action(key) {
 async function validateSettings(values) {
   await null;
   try {
-    return await traced(kino, clock, "validate", () => settings().validateSettings(values));
+    return await traced(kino, clock, "validateSettings", () => settings().validateSettings(values));
   } catch (e) {
     if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");

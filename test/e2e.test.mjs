@@ -598,6 +598,41 @@ test("the BUILT bundle (what Kino loads) answers home and liveCategories over th
 // ---- breadcrumbs through the real bundle ----------------------------------------------------------
 
 for (const file of ["src-bundle.mjs", "built-bundle.mjs"]) {
+  test(`${file}: every export leaves a start line and an ok/fail line with its time (sign: its running tally)`, async () => {
+    const s = await start({ routes: liveRoutes() }, file);
+    const lines = [];
+    globalThis.kino = Object.freeze({ ...s.kino, log: Object.assign((...a) => lines.push(a.map(String).join(" ")), { report: (...a) => lines.push(a.map(String).join(" ")) }) });
+    await s.plugin.search({ q: "Dune", type: "any", season: 0, episode: 0, tmdbId: 0 }).catch(() => {});
+    await s.plugin.home().catch(() => {});
+    await s.plugin.browse("nope", null).catch(() => {});
+    await s.plugin.section({}).catch(() => {});
+    await s.plugin.categories().catch(() => {});
+    await s.plugin.episodes("magis1:teleplay:0:SERIE").catch(() => {});
+    await s.plugin.resolve("magis1:movie:0:M1").catch(() => {});
+    const live = await s.plugin.resolve("CH1", {});
+    await s.plugin.liveCategories().catch(() => {});
+    await s.plugin.liveChannels({ categoryId: "11" }).catch(() => {});
+    await s.plugin.sign({ url: "http://live2.test:8080/live/pc-one/seg1.ts", kind: "segment", context: live.signContext });
+    await s.plugin.migrate({ kind: "title", ref: "https://example.com/x" }).catch(() => {});
+    await s.plugin.settingsStatus();
+    await s.plugin.action("login").catch(() => {});
+    await s.plugin.validateSettings({}).catch(() => {});
+    const text = lines.join("\n");
+    for (const fn of ["search", "home", "browse", "section", "categories", "episodes", "liveCategories", "liveChannels", "migrate", "settingsStatus", "action", "validateSettings"]) {
+      assert.ok(lines.some((l) => new RegExp(`^xuper:call start fn=${fn}( |$)`).test(l)), `${fn} start\n${text}`);
+      assert.ok(lines.some((l) => new RegExp(`^xuper:call (ok|fail) fn=${fn} `).test(l)), `${fn} end\n${text}`);
+    }
+    assert.ok(lines.includes("xuper:call start fn=resolve kind=vod"), text);
+    assert.ok(lines.includes("xuper:call start fn=resolve kind=live"), text);
+    assert.ok(lines.some((l) => /^xuper:call ok fn=resolve kind=live ms=\d+$/.test(l)), text);
+    assert.ok(lines.some((l) => /^xuper:sign stats n=1 fail=0 maxMs=\d+ age=\d+ kind=segment$/.test(l)), text);
+    assert.ok(lines.some((l) => /^xuper:live open cdns=2 kept=2 primary=0 alts=1 seed=0 exp=\d+$/.test(l)), text);
+    for (const secret of [HOST, APP, TOKEN, SN, USER, "live1.test", "live2.test", "LICENSE-ONE"]) assert.ok(!text.includes(secret), "logged " + secret);
+    assert.deepEqual(lines.filter((l) => !l.startsWith("xuper:")), []);
+  });
+}
+
+for (const file of ["src-bundle.mjs", "built-bundle.mjs"]) {
   test(`${file}: a failed export leaves its breadcrumbs (which export, code, ms) and none names a host, token, sn or the shared pair`, async () => {
     const s = await start({ routes: { "v3/searchByName": { returnCode: "portal100024", errorMessage: "geo" } } }, file);
     const lines = [];
@@ -613,8 +648,8 @@ for (const file of ["src-bundle.mjs", "built-bundle.mjs"]) {
   });
 }
 
-test("the manifest opts in to Kino's error board: telemetry true at apiVersion 6, said on the consent sheet", () => {
+test("the manifest opts in to Kino's error board at the verbose level (plugin 2.0: playback, live and cast instrumented), apiVersion 6", () => {
   assert.equal(checked.ok, true);
   assert.equal(checked.manifest.apiVersion, 6);
-  assert.equal(checked.manifest.telemetry, true);
+  assert.equal(checked.manifest.telemetry, "verbose");
 });

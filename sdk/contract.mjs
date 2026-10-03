@@ -171,9 +171,10 @@ export function validateManifest(text, { knownPermissions = contract.permissions
     debug = o.debug;
   }
   // apiVersion 6: diagnostic lines to Kino's error tracker (opt-in). Below it, unknown and ignored.
+  // true, false or "verbose" (playback summaries of good plays, live/cast problems and edge cases too).
   let telemetry = false;
   if (o.telemetry !== undefined && o.apiVersion >= m.telemetry.apiVersion) {
-    if (typeof o.telemetry !== "boolean") return bad("telemetry", m.telemetry.notBooleanMessage);
+    if (typeof o.telemetry !== "boolean" && o.telemetry !== m.telemetry.verbose.value) return bad("telemetry", m.telemetry.notBooleanMessage);
     telemetry = o.telemetry;
   }
   // apiVersion 6: the plugin's own section entry. Below it, unknown and ignored.

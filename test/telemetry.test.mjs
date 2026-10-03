@@ -4,8 +4,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { portalWorld, SEEDS, STORED } from "./helpers/portalWorld.mjs";
-import { traced } from "../src/trace.js";
-import { signRequest } from "../src/liveSign.js";
+import { traced, report, makeSignStats } from "../src/trace.js";
+import { signRequest, buildSignContext, contextAgeS } from "../src/liveSign.js";
 import { makeRegistration } from "../src/registration.js";
 import { appScrub } from "./helpers/appScrubber.mjs";
 
@@ -161,14 +161,63 @@ test("storage budget: a home tree that only fits trimmed says how far it was tri
   has(w, /^xuper:store trim what=tree root=[a-z_]+ step=[1-9]\d*$/);
 });
 
-test("traced: a failing export says which, the code and how long it ran; a success writes nothing", async () => {
+test("traced: every export says when it starts and how it ended, with its time (and its count for a list)", async () => {
   const w = portalWorld({ hosts: ["a.test"] });
   const err = Object.defineProperty(new Error("x"), "name", { value: "KinoError_unavailable" });
   await assert.rejects(traced(w.kino, w.clock, "home", async () => { w.clock.t += 1234; throw err; }), (e) => e === err);
+  has(w, /^xuper:call start fn=home$/);
   has(w, /^xuper:call fail fn=home code=unavailable ms=1234$/);
-  const before = w.logs.length;
+  assert.deepEqual(await traced(w.kino, w.clock, "search", async () => { w.clock.t += 40; return [1, 2, 3]; }), [1, 2, 3]);
   assert.equal(await traced(w.kino, w.clock, "search", async () => 7), 7);
-  assert.equal(w.logs.length, before);
+  has(w, /^xuper:call start fn=search$/);
+  has(w, /^xuper:call ok fn=search ms=40 n=3$/);
+  has(w, /^xuper:call ok fn=search ms=0$/);
+  await traced(w.kino, w.clock, "resolve", async () => ({}), { kind: "live" });
+  has(w, /^xuper:call start fn=resolve kind=live$/);
+  has(w, /^xuper:call ok fn=resolve kind=live ms=0$/);
+});
+
+test("sign: a running tally (count, time, the context's age, failures) on the first sign and every 50th, a slow one on its own", () => {
+  const w = portalWorld({ hosts: ["a.test"] });
+  const stats = makeSignStats({ kino: w.kino, every: 50, slowMs: 200 });
+  stats.record({ kind: "playlist", ms: 3, ageS: 12, ok: true });
+  has(w, /^xuper:sign stats n=1 fail=0 maxMs=3 age=12 kind=playlist$/);
+  for (let i = 0; i < 48; i++) stats.record({ kind: "segment", ms: 1, ageS: 20, ok: true });
+  stats.record({ kind: "segment", ms: 250, ageS: 21, ok: true });
+  has(w, /^xuper:sign slow kind=segment ms=250$/);
+  has(w, /^xuper:sign stats n=50 fail=0 maxMs=250 age=21 kind=segment$/);
+  stats.record({ kind: "segment", ms: 1, ageS: null, ok: false });
+  assert.equal(w.logs.filter((l) => l.startsWith("xuper:sign stats")).length, 2);
+});
+
+test("sign context: its build time rides along (seconds), and its age is read back without parsing", () => {
+  const ctx = buildSignContext("L", [{ cflHost: "h.live.test", authBase: "sign_type=cfl&token=941d98961990d67e249dcd1ac57378c8" }], 1_700_000_000_123).context;
+  assert.equal(JSON.parse(ctx).b, 1_700_000_000);
+  assert.equal(contextAgeS(ctx, 1_700_000_090_999), 90);
+  assert.equal(contextAgeS(JSON.stringify({ l: "L", c: [] }), 5), null);
+  // Without a time (older callers): no `b`, as before.
+  assert.equal("b" in JSON.parse(buildSignContext("L", [{ cflHost: "h.live.test", authBase: "token=941d98961990d67e249dcd1ac57378c8" }]).context), false);
+});
+
+test("live: an open says which SLB entry became the primary, how many were kept and the alternates; a skipped first entry is reported", async () => {
+  const w = portalWorld({ hosts: ["a.test"] });
+  await w.resolve.resolve("cyx-RCNHD");
+  has(w, /^xuper:live open cdns=\d+ kept=\d+ primary=0 alts=\d+ seed=0 exp=\d+$/);
+  assert.ok(w.reports.every((l) => !l.startsWith("xuper:live_cdn")), w.reports.join("\n"));
+});
+
+test("edge cases are reported (kino.log.report): a failed sign, a conflict's rotation, a portal failover, a failed migrate", async () => {
+  const lines = [];
+  const reports = [];
+  const kino = { log: Object.assign((l) => lines.push(l), { report: (l) => { lines.push(l); reports.push(l); } }) };
+  report(kino, "sign", "fail", { why: "context" });
+  assert.deepEqual(reports, ["xuper:sign fail why=context"]);
+  const w = portalWorld({ hosts: ["a.test"], seeds: SEEDS, session: { ...SEEDS[0], jwtToken: "", acct: "" } });
+  await w.resolve.resolve("cyx-RCNHD", { retry: { reason: "conflict", attempt: 1 } });
+  assert.ok(w.reports.some((l) => /^xuper:live_rotation conflict outcome=rotated tried=\d+ of=4$/.test(l)), w.reports.join("\n"));
+  const f = portalWorld({ hosts: ["a.test", "b.test"], dead: ["a.test"] });
+  await f.catalog.search(query);
+  assert.ok(f.reports.some((l) => /^xuper:portal failover path=v3\/searchByName to=1$/.test(l)), f.reports.join("\n"));
 });
 
 test("sign: a broken context or a CDN entry without a token throws with a short `why` the export logs", () => {

@@ -4,7 +4,9 @@ import { makeMigrate } from "./migrate.js";
 import { makeSettings } from "./settings.js";
 import { makeRegistration } from "./registration.js";
 import { isKinoError } from "./util.js";
-import { trace, traced, errCode } from "./trace.js";
+import { isChannelRef } from "./refs.js";
+import { contextAgeS } from "./liveSign.js";
+import { trace, traced, report, errCode, makeSignStats } from "./trace.js";
 
 
 export async function search(query) { await null; return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query))); }
@@ -15,14 +17,28 @@ export async function section(arg) { await null; return traced(kino, clock, "sec
 export async function categories() { await null; return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories())); }
 export async function episodes(ref) { await null; return traced(kino, clock, "episodes", () => guarded(({ catalog }) => catalog.episodes(ref))); }
 // `options` (the retry reason) drives a live channel's reopen; VOD ignores it.
-export async function resolve(ref, options) { await null; return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options))); }
+export async function resolve(ref, options) {
+  await null;
+  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" });
+}
 // Signing lane: pure, never builds the other deps (no storage, no network); a broken context is an `unavailable`.
+// Its breadcrumbs are a running tally (makeSignStats): a line per sign would crowd everything else out of the Registro.
+let signStats = null;
 export async function sign(request) {
   await null;
-  try { return signRequest(request, clock.now()); }
-  catch (e) {
+  const t0 = clock.now();
+  let kind = "?";
+  try {
+    signStats ??= makeSignStats({ kino });
+    kind = typeof request?.kind === "string" ? request.kind : "?";
+    const out = signRequest(request, t0);
+    signStats.record({ kind, ms: clock.now() - t0, ageS: contextAgeS(request && request.context, t0), ok: true });
+    return out;
+  } catch (e) {
+    signStats?.record({ kind, ms: clock.now() - t0, ageS: null, ok: false });
     if (isKinoError(e)) throw e;
-    trace(kino, "sign", "fail", { why: typeof e?.why === "string" ? e.why : errCode(e) });
+    // An edge case for the board (verbose level): the context the app handed over cannot sign.
+    report(kino, "sign", "fail", { why: typeof e?.why === "string" ? e.why : errCode(e) });
     throw kino.error("unavailable", "No se pudo firmar la petición del canal");
   }
 }
@@ -32,10 +48,10 @@ export async function liveChannels(args) { await null; return traced(kino, clock
 const migrator = makeMigrate();
 export async function migrate(input) {
   await null;
-  try { return await migrator.migrate(input); }
+  try { return await traced(kino, clock, "migrate", () => migrator.migrate(input), { kind: input && typeof input.kind === "string" ? input.kind : "?" }); }
   catch (e) {
     if (isKinoError(e)) throw e;
-    trace(kino, "migrate", "fail", { code: errCode(e) });
+    report(kino, "migrate", "fail", { code: errCode(e) });
     throw kino.error("unavailable", "Xuper no está disponible ahora");
   }
 }
@@ -48,12 +64,12 @@ const settings = () => (settingsInstance ??= (() => {
 })());
 export async function settingsStatus() {
   await null;
-  try { return await settings().settingsStatus(); }
+  try { return await traced(kino, clock, "settingsStatus", () => settings().settingsStatus()); }
   catch (e) { trace(kino, "settings", "status_fail", { code: errCode(e) }); return { status: "No se pudo consultar el estado" }; }
 }
 export async function action(key) {
   await null;
-  try { return await traced(kino, clock, "action", () => settings().action(key)); }
+  try { return await traced(kino, clock, "action", () => settings().action(key), { key: typeof key === "string" ? key : "?" }); }
   catch (e) {
     if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no está disponible ahora");
@@ -61,7 +77,7 @@ export async function action(key) {
 }
 export async function validateSettings(values) {
   await null;
-  try { return await traced(kino, clock, "validate", () => settings().validateSettings(values)); }
+  try { return await traced(kino, clock, "validateSettings", () => settings().validateSettings(values)); }
   catch (e) {
     if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no está disponible ahora");
