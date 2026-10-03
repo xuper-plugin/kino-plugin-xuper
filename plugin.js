@@ -267,6 +267,7 @@ var SEED_RESCUE_ROUNDS = 3;
 var SEED_SWITCH_TRIES = 5;
 var POOL_REFRESH_COOLDOWN_MS = 1e4;
 var PERIODIC_REFRESH_MS = 3 * 36e5;
+var PERIODIC_TIMEOUT_MS = 5e3;
 var MAX_SEEDS = 200;
 var str2 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var blank2 = (v) => str2(v).trim() === "";
@@ -451,6 +452,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         if (!autoRefresh() || !regionBlocked() || account()) return seedPool().length > 0;
         const at = readJson("seedsAt");
         if (typeof at === "number" && clock2.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
+        try {
+          writeJson("seedsAt", clock2.now());
+        } catch (_) {
+        }
       }
       const now = clock2.now();
       if (lastPoolRefreshMs !== null && now - lastPoolRefreshMs < POOL_REFRESH_COOLDOWN_MS) {
@@ -464,6 +469,12 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   async function ensure() {
     await null;
+    if (!hasToken()) {
+      try {
+        await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS });
+      } catch (_) {
+      }
+    }
     try {
       await lock(ensureUnlocked);
     } catch (e) {
@@ -575,7 +586,11 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       return { result: "all_failed", tries };
     });
   }
-  const adoptSession = (s) => lock(async () => writeSession(s));
+  const adoptSession = (s) => lock(async () => {
+    writeSession(s);
+    setRegion(false);
+    exhausted = false;
+  });
   function kind() {
     if (account()) return "account";
     const s = readSession();
@@ -2611,6 +2626,7 @@ var SEED_SWITCH_TOTAL_MS = 22e3;
 var SEED_DOWNLOAD_MS = 1e4;
 var SEND_CODE_REQUEST_MS = 1e4;
 var SEND_CODE_TOTAL_MS = 25e3;
+var RESEND_WAIT_MS = 6e4;
 var REGISTER_REQUEST_MS = 1e4;
 var REGISTER_TOTAL_MS = 25e3;
 var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
@@ -2690,6 +2706,10 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   }
   async function sendCode() {
     const email = typedEmail();
+    const prev = registration.pendingFor(email);
+    if (prev && prev.at !== null && clock2.now() >= prev.at && clock2.now() - prev.at < RESEND_WAIT_MS) {
+      return { message: "Ya te enviamos un c\xF3digo; espera un minuto antes de pedir otro" };
+    }
     const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock2.now() + SEND_CODE_TOTAL_MS };
     try {
       await registration.sendRegistrationCode(email, bounds);
@@ -2748,9 +2768,11 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
 var PENDING_KEY = "pendingRegistration";
 var PENDING_TTL_MS = 30 * 6e4;
 var SEND_FAILED = "No se pudo enviar el c\xF3digo: revisa el email";
+var BOUND_BUT_NOT_IN = "Cuenta creada. Toca Iniciar sesi\xF3n para entrar.";
+var NOT_SAVED = "No se pudo guardar el pedido; int\xE9ntalo de nuevo";
 var CONFIRM_FAILED = "C\xF3digo inv\xE1lido o cuenta ya registrada";
 var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
-function makeRegistration({ kino: kino2, portal, session }) {
+function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   const fingerprint = makeFingerprint(kino2);
   const failure = (e, text2) => {
     if (e instanceof PortalError) return kino2.error("unavailable", text2);
@@ -2766,7 +2788,7 @@ function makeRegistration({ kino: kino2, portal, session }) {
       const raw = kino2.storage.get(PENDING_KEY);
       const o = raw === null || raw === void 0 ? null : JSON.parse(raw);
       if (!o || typeof o !== "object" || blank(o.userToken) || blank(o.sn) || str5(o.email) !== email) return null;
-      return { userId: str5(o.userId), userToken: str5(o.userToken), sn: str5(o.sn), email: str5(o.email) };
+      return { userId: str5(o.userId), userToken: str5(o.userToken), sn: str5(o.sn), email: str5(o.email), at: typeof o.at === "number" ? o.at : null };
     } catch (_) {
       return null;
     }
@@ -2774,7 +2796,9 @@ function makeRegistration({ kino: kino2, portal, session }) {
   const savePending = (p) => {
     try {
       kino2.storage.set(PENDING_KEY, JSON.stringify(p), { ttlMs: PENDING_TTL_MS });
+      return true;
     } catch (_) {
+      return false;
     }
   };
   const dropPending = () => {
@@ -2792,13 +2816,13 @@ function makeRegistration({ kino: kino2, portal, session }) {
       const sn = snFrom(kino2, mint, snToken);
       const act = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn, ...bounds });
       if (blank(act && act.userToken)) throw new PortalError("active_sin_token", "activaci\xF3n sin userToken");
-      const pending = { userId: str5(act.userId), userToken: str5(act.userToken), sn, email };
+      const pending = { userId: str5(act.userId), userToken: str5(act.userToken), sn, email, at: clock2.now() };
       await portal.call(
         "v2/sendEmailVerifyCode",
         { email, type: "1", userId: pending.userId, userToken: pending.userToken },
         { baseFields: false, sn, ...bounds }
       );
-      savePending(pending);
+      if (!savePending(pending)) throw kino2.error("unavailable", NOT_SAVED);
       return pending;
     } catch (e) {
       throw failure(e, SEND_FAILED);
@@ -2809,9 +2833,11 @@ function makeRegistration({ kino: kino2, portal, session }) {
     const { email, userId, userToken, sn } = pending;
     const pwd = kino2.crypto.hash("md5", password + PASSWORD_SALT);
     const opts = { baseFields: false, sn, ...bounds };
+    let bound = false;
     try {
       await portal.call("v2/validateVerifyCode", { type: "1", email, verifyCode: code, userToken, userId }, opts);
       await portal.call("v2/bindEmail", { email, pwd, type: "1", userId, userToken }, opts);
+      bound = true;
       const j = await portal.call("v8/login", {
         accountType: "2",
         userName: email,
@@ -2828,6 +2854,10 @@ function makeRegistration({ kino: kino2, portal, session }) {
       if (blank(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
       await session.adoptSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn });
     } catch (e) {
+      if (bound) {
+        dropPending();
+        throw kino2.error("unavailable", BOUND_BUT_NOT_IN);
+      }
       throw failure(e, CONFIRM_FAILED);
     }
     dropPending();
@@ -2894,7 +2924,7 @@ async function migrate(input) {
 var settingsInstance = null;
 var settings = () => settingsInstance ?? (settingsInstance = (() => {
   const { session, portal } = getDeps();
-  return makeSettings({ kino, session, clock, registration: makeRegistration({ kino, portal, session }) });
+  return makeSettings({ kino, session, clock, registration: makeRegistration({ kino, portal, session, clock }) });
 })());
 async function settingsStatus() {
   await null;

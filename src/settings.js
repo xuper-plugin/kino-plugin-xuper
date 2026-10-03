@@ -17,6 +17,7 @@ const SEED_SWITCH_TOTAL_MS = 22_000; // no probe starts after this (cap 30 s)
 const SEED_DOWNLOAD_MS = 10_000;
 const SEND_CODE_REQUEST_MS = 10_000; // three portal calls: mint, activate, send
 const SEND_CODE_TOTAL_MS = 25_000; // cap 30 s
+const RESEND_WAIT_MS = 60_000;
 const REGISTER_REQUEST_MS = 10_000; // three portal calls: validate, bind, login
 const REGISTER_TOTAL_MS = 25_000;
 
@@ -105,6 +106,11 @@ export function makeSettings({ kino, session, clock, registration }) {
 
   async function sendCode() {
     const email = typedEmail();
+    // A double tap must not mint a second device and invalidate the code that is on its way.
+    const prev = registration.pendingFor(email);
+    if (prev && prev.at !== null && clock.now() >= prev.at && clock.now() - prev.at < RESEND_WAIT_MS) {
+      return { message: "Ya te enviamos un código; espera un minuto antes de pedir otro" };
+    }
     const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock.now() + SEND_CODE_TOTAL_MS };
     try { await registration.sendRegistrationCode(email, bounds); }
     catch (e) { throw surface(e); }

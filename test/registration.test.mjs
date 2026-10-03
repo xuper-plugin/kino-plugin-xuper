@@ -50,7 +50,7 @@ function world({ routes = {}, config = { email: EMAIL, password: PW }, hosts = [
   let session = null;
   const portal = makePortal({ kino, crypto, clock, snProvider: () => session.current().sn, config: { hosts, appId: "app-1", apkVersion: "9.9" } });
   session = makeSession({ kino, portal, clock, random: () => 0 });
-  const registration = makeRegistration({ kino, portal, session });
+  const registration = makeRegistration({ kino, portal, session, clock });
   const settings = makeSettings({ kino, session, clock, registration });
   return { kino, base, storage, clock, requests, session, settings, paths: () => requests.map((r) => r.path), stored: () => JSON.parse(base.storage.get("session")) };
 }
@@ -115,16 +115,20 @@ test("sendCode: the pending device sits in storage with a 30 minute ttl, under 1
   assert.deepEqual(pend[2], { ttlMs: 30 * 60_000 });
   assert.ok(pend[1].length <= 1024, "size " + pend[1].length);
   const o = JSON.parse(pend[1]);
-  assert.deepEqual(Object.keys(o).sort(), ["email", "sn", "userId", "userToken"]);
+  assert.deepEqual(Object.keys(o).sort(), ["at", "email", "sn", "userId", "userToken"]);
   assert.equal(o.email, EMAIL);
   assert.ok(!pend[1].includes(PW));
 });
 
-test("sendCode: a throwing storage.set never fails the action", async () => {
+test("sendCode: a failed save of the pending device is told, never a false \"we sent it\"", async () => {
   const w = world({ routes: goodRoutes() });
   w.storage.set = () => { throw new Error("quota " + PW); };
-  const out = await w.settings.action("sendCode");
-  assert.equal(out.message, "Te enviamos un código a " + EMAIL);
+  await assert.rejects(w.settings.action("sendCode"), (e) => {
+    assert.equal(e.name, "KinoError_unavailable");
+    assert.equal(e.message, "No se pudo guardar el pedido; inténtalo de nuevo");
+    assert.ok(!e.message.includes(PW));
+    return true;
+  });
 });
 
 test("sendCode: blank or malformed email never reaches the portal", async () => {
@@ -183,8 +187,8 @@ test("register: validate -> bind -> login with the pending device; only then the
   assert.equal(w.session.kind(), "account");
 });
 
-test("register: a refusal at validate, bind or login reads the native text; session and pending intact", async () => {
-  for (const failing of ["v2/validateVerifyCode", "v2/bindEmail", "v8/login"]) {
+test("register: a refusal at validate or bind reads the native text; session and pending intact", async () => {
+  for (const failing of ["v2/validateVerifyCode", "v2/bindEmail"]) {
     const w = await sent({}, { [failing]: refuse("x " + CODE + PW) });
     await assert.rejects(w.settings.action("register"), (e) => {
       assert.equal(e.message, "Código inválido o cuenta ya registrada");
@@ -194,12 +198,6 @@ test("register: a refusal at validate, bind or login reads the native text; sess
     assert.deepEqual(w.stored(), STORED, failing);
     assert.notEqual(w.base.storage.get(PENDING_KEY), null, "pending kept for a retry");
   }
-});
-
-test("register: a login answer with no token is refused and the session stays", async () => {
-  const w = await sent({}, { "v8/login": { userId: "u", userToken: "" } });
-  await rejects(w.settings.action("register"), "unavailable", "Código inválido o cuenta ya registrada");
-  assert.deepEqual(w.stored(), STORED);
 });
 
 test("register: no pending device (never asked, expired, or another email) asks for a new code", async () => {
@@ -276,4 +274,41 @@ test("slow portal: each step's request is clamped to what is left of the 25 s bu
   await rejects(dead.settings.action("register"), "unavailable");
   assert.ok(dead.clock.t - 5_000_000 < 30_000);
   assert.deepEqual(dead.stored(), STORED);
+});
+
+test("sendCode: a second tap inside 60 s for the same email mints nothing; after 60 s it sends again", async () => {
+  const w = world({ routes: goodRoutes() });
+  await w.settings.action("sendCode");
+  assert.equal(JSON.parse(w.base.storage.get(PENDING_KEY)).at, w.clock.t);
+  w.requests.length = 0;
+  w.clock.t += 59_999;
+  const out = await w.settings.action("sendCode");
+  assert.equal(out.message, "Ya te enviamos un código; espera un minuto antes de pedir otro");
+  keep(out);
+  assert.deepEqual(w.requests, []);
+  w.clock.t += 1;
+  assert.equal((await w.settings.action("sendCode")).message, "Te enviamos un código a " + EMAIL);
+  assert.equal(w.requests.length, 3);
+});
+
+test("register: login failing AFTER bindEmail says the account exists and drops the pending device", async () => {
+  for (const failure of [refuse("x"), new Error("offline"), { userId: "u", userToken: "" }]) {
+    const w = await sent({}, { "v8/login": failure });
+    await assert.rejects(w.settings.action("register"), (e) => {
+      assert.equal(e.message, "Cuenta creada. Toca Iniciar sesión para entrar.");
+      assert.ok(e.message.length <= 300);
+      return true;
+    });
+    assert.equal(w.base.storage.get(PENDING_KEY), null);
+    assert.deepEqual(w.stored(), STORED);
+  }
+});
+
+test("register: success clears the region-blocked flag and the exhausted state", async () => {
+  const w = await sent();
+  w.base.storage.set("region", JSON.stringify({ blocked: true }));
+  assert.equal(w.session.regionBlocked(), true);
+  await w.settings.action("register");
+  assert.equal(w.session.regionBlocked(), false);
+  assert.equal(w.session.seedsExhausted(), false);
 });

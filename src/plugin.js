@@ -40,7 +40,7 @@ export async function migrate(input) {
 let settingsInstance = null;
 const settings = () => (settingsInstance ??= (() => {
   const { session, portal } = getDeps();
-  return makeSettings({ kino, session, clock, registration: makeRegistration({ kino, portal, session }) });
+  return makeSettings({ kino, session, clock, registration: makeRegistration({ kino, portal, session, clock }) });
 })());
 export async function settingsStatus() {
   await null;

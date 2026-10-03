@@ -36,10 +36,12 @@ function fakePortal(kino) {
 
 function setup({ config = {}, seeds = null, stored = null, fetchAnswer = [], random = () => 0 } = {}) {
   const fetches = [];
+  const timeouts = [];
   const kino = fakeKino({
     config,
-    fetch: async (url) => {
+    fetch: async (url, o) => {
       fetches.push(url);
+      timeouts.push(o && o.timeoutMs);
       if (fetchAnswer instanceof Error) throw fetchAnswer;
       return reply(fetchAnswer);
     },
@@ -50,7 +52,7 @@ function setup({ config = {}, seeds = null, stored = null, fetchAnswer = [], ran
   const clock = { t: 1_000_000, now() { return this.t; } };
   const session = makeSession({ kino, portal, clock, seedsUrl: SEEDS_URL, random });
   const read = () => JSON.parse(kino.storage.get("session"));
-  return { kino, portal, clock, session, fetches, read };
+  return { kino, portal, clock, session, fetches, timeouts, read };
 }
 
 const seed = (n) => ({ sn: "seed-" + n, userId: "su" + n, userToken: "st" + n });
@@ -586,6 +588,47 @@ test("periodic refresh: the 'Actualizar semillas automáticamente' switch gates 
   blocked(acc);
   await acc.session.refreshSeeds({ periodic: true });
   assert.equal(acc.fetches.length, 0, "an account never uses seeds");
+});
+
+test("ensure(): the periodic refresh runs once per 3 h, bounded, only with no token / blocked / no account / switch on", async () => {
+  const blocked = (w) => w.kino.storage.set("region", JSON.stringify({ blocked: true }));
+  const mintOk = (w) => { w.portal.queue("v3/snToken", { snToken: "T" }); w.portal.queue("v8/active", act("T1")); };
+  // token present: returns first, no refresh
+  let w = setup({ fetchAnswer: [seed(1)], stored: sess("tok") });
+  blocked(w);
+  await w.session.ensure();
+  assert.equal(w.fetches.length, 0);
+  // blocked + no account + on + stale: exactly one fetch with a 5 s timeout
+  w = setup({ fetchAnswer: [seed(1)] });
+  blocked(w); mintOk(w);
+  await w.session.ensure();
+  assert.deepEqual(w.timeouts, [5000]);
+  assert.equal(w.session.current().userToken, "T1", "ensure result unaffected");
+  // fresh (< 3 h): none
+  w.kino.storage.set("session", JSON.stringify({ ...sess(""), userToken: "" }));
+  w.clock.t += 3 * 3600_000 - 1; mintOk(w);
+  await w.session.ensure();
+  assert.equal(w.fetches.length, 1);
+  // switch off / account: none
+  for (const config of [{ autoRefreshSeeds: false }, account]) {
+    w = setup({ fetchAnswer: [seed(1)], config }); blocked(w); mintOk(w); w.portal.queue("v8/login", act("T2"));
+    await w.session.ensure();
+    assert.equal(w.fetches.length, 0);
+  }
+});
+
+test("ensure(): a failing seeds download is swallowed and seedsAt still advances (no retry per call)", async () => {
+  const w = setup({ fetchAnswer: new Error("offline") });
+  w.kino.storage.set("region", JSON.stringify({ blocked: true }));
+  w.portal.queue("v3/snToken", { snToken: "T" }); w.portal.queue("v8/active", act("T1"));
+  await w.session.ensure();
+  assert.equal(w.fetches.length, 1);
+  assert.equal(JSON.parse(w.kino.storage.get("seedsAt")), w.clock.t);
+  w.kino.storage.set("session", JSON.stringify(sess("")));
+  w.clock.t += 10_000;
+  w.portal.queue("v8/active", act("T2"));
+  await w.session.ensure();
+  assert.equal(w.fetches.length, 1, "no retry inside the 3 h window");
 });
 
 test("a 50-seed pool stored stays well under the 256 KB storage limit (< 12 KB)", async () => {

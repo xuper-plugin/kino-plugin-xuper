@@ -15,6 +15,7 @@ const SEED_RESCUE_ROUNDS = 3;
 const SEED_SWITCH_TRIES = 5;
 const POOL_REFRESH_COOLDOWN_MS = 10_000;
 const PERIODIC_REFRESH_MS = 3 * 3600_000;
+const PERIODIC_TIMEOUT_MS = 5_000;
 const MAX_SEEDS = 200; // keeps the stored pool far below the 256 KB storage limit
 
 const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
@@ -200,6 +201,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
         if (!autoRefresh() || !regionBlocked() || account()) return seedPool().length > 0;
         const at = readJson("seedsAt");
         if (typeof at === "number" && clock.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
+        // Stamped BEFORE the attempt: a dead network must not retry on every call.
+        try { writeJson("seedsAt", clock.now()); } catch (_) { /* ignored */ }
       }
       const now = clock.now();
       if (lastPoolRefreshMs !== null && now - lastPoolRefreshMs < POOL_REFRESH_COOLDOWN_MS) {
@@ -215,6 +218,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   // ---- the public surface ----
   async function ensure() {
     await null;
+    // A call that already has a token never waits. Without one, the periodic pool refresh (blocked
+    // region, no account, switch on, > 3 h old) runs first, bounded and failure-proof.
+    if (!hasToken()) { try { await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS }); } catch (_) { /* ignored */ } }
     try { await lock(ensureUnlocked); } catch (e) { throw surface(e); }
   }
 
@@ -331,7 +337,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   }
 
   /** Makes `s` the stored session (registration: the temporary device that just logged in). */
-  const adoptSession = (s) => lock(async () => writeSession(s));
+  // A login on the direct path proves the region is not blocking this device (native markClear).
+  const adoptSession = (s) => lock(async () => { writeSession(s); setRegion(false); exhausted = false; });
 
   function kind() {
     if (account()) return "account";
