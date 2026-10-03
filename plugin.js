@@ -1815,6 +1815,8 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
 
 // src/catalog.js
 var ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
+var ADULT_ROOT_CODE = "masnew_adult";
+var ADULT_REF = "magis_adultos";
 var TREE_TTL_MS = 2 * 36e5;
 var TREE_PAGE_SIZE = 60;
 var TREE_BUDGET_BYTES = 2e4;
@@ -1956,7 +1958,41 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const row2 = await live2;
     return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
   }
+  let adultInflight = null;
+  async function fetchAdult(deadline) {
+    await session.ensure({ deadline });
+    const response = await session.withValidSession((v) => portal.call(
+      "getNextColumns",
+      { columnCode: ADULT_ROOT_CODE, pageNum: 1, pageSize: TREE_PAGE_SIZE, version: "" },
+      viewOpts(v)
+    ), { seedFallback: true, deadline });
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    for (const s of parseTree(response)) {
+      for (const item of s.items) {
+        if (isSeries(item.type) || seen.has(item.id)) continue;
+        seen.add(item.id);
+        out.push(item);
+      }
+    }
+    return out;
+  }
+  function adultMovies(deadline) {
+    if (!adultInflight) adultInflight = fetchAdult(deadline).finally(() => {
+      adultInflight = null;
+    });
+    return adultInflight;
+  }
+  async function browseAdult(cursor) {
+    const all = await adultMovies(callDeadline(clock2, CALL_BUDGET_MS.browse));
+    const offset = offsetOf(cursor);
+    const nowMs = clock2.now();
+    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null).map((i) => ({ ...i, adult: true }));
+    const next = offset + BROWSE_PAGE;
+    return next < all.length ? { items, next: String(next) } : { items };
+  }
   async function browse2(ref, cursor) {
+    if (ref === ADULT_REF) return browseAdult(cursor);
     const row2 = typeof ref === "string" ? (await buildRows()).find((r) => r.id === ref) : void 0;
     if (!row2) throw kino2.error("not_found", "No se encontr\xF3 esa lista");
     const offset = offsetOf(cursor);
@@ -3040,8 +3076,15 @@ function tilesOf(rows) {
   }
   return out;
 }
+var ADULT_TILE = Object.freeze({ id: ADULT_REF, title: "18+", ref: ADULT_REF, adult: true });
 function makeCategories({ catalog }) {
-  return { categories: async () => tilesOf(await catalog.rows(CALL_BUDGET_MS.categories)) };
+  return {
+    // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
+    categories: async () => {
+      const tiles = tilesOf(await catalog.rows(CALL_BUDGET_MS.categories));
+      return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES2 - 1), { ...ADULT_TILE }];
+    }
+  };
 }
 
 // src/countryRow.js

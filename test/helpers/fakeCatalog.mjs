@@ -20,6 +20,8 @@ export const fourRoots = () => ({
   masnew_series: answer(column("2026", assets("u", 3, { programType: "teleplay" })), column("All", assets("sd", 6, { programType: "teleplay" }))),
   masnew_anime: answer(column("All", assets("ac", 6, { programType: "series", tags: "Comedy" }))),
   masnew_kids: answer(column("All", assets("kf", 6, { tags: "Family" }))),
+  // Only ever asked by browse of the 18+ tile.
+  masnew_adult: answer(column("All", assets("ad", 6))),
 });
 
 function fakePortal(byCode) {

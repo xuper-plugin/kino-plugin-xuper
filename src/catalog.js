@@ -10,8 +10,12 @@ import { isKinoError } from "./util.js";
 
 export { parseShelveTime };
 
-// The portal's codes for the four VOD roots (adultos is never asked for).
+// The portal's codes for the four VOD roots Home, section and categories share (adultos is not one).
 const ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
+// The 18+ root (native "adultos", TvCatalogSections "18+"): asked ON DEMAND only, by browse of its one
+// Categorías tile, never stored, never part of the shared roots. Movies only, every item adult (D3).
+export const ADULT_ROOT_CODE = "masnew_adult";
+export const ADULT_REF = "magis_adultos";
 const TREE_TTL_MS = 2 * 3600_000;
 const TREE_PAGE_SIZE = 60;
 // Per-root budget for the stored tree: kino.storage is 256 KB for the whole plugin and a set over
@@ -183,7 +187,43 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
 
+  // The 18+ root's movies, deduplicated in the portal's order. Concurrent pages share one fetch.
+  let adultInflight = null;
+  async function fetchAdult(deadline) {
+    await session.ensure({ deadline });
+    const response = await session.withValidSession((v) => portal.call(
+      "getNextColumns",
+      { columnCode: ADULT_ROOT_CODE, pageNum: 1, pageSize: TREE_PAGE_SIZE, version: "" },
+      viewOpts(v),
+    ), { seedFallback: true, deadline });
+    const seen = new Set();
+    const out = [];
+    for (const s of parseTree(response)) {
+      for (const item of s.items) {
+        if (isSeries(item.type) || seen.has(item.id)) continue; // native plays the 18+ movies only
+        seen.add(item.id);
+        out.push(item);
+      }
+    }
+    return out;
+  }
+  function adultMovies(deadline) {
+    if (!adultInflight) adultInflight = fetchAdult(deadline).finally(() => { adultInflight = null; });
+    return adultInflight;
+  }
+
+  async function browseAdult(cursor) {
+    const all = await adultMovies(callDeadline(clock, CALL_BUDGET_MS.browse));
+    const offset = offsetOf(cursor);
+    const nowMs = clock.now();
+    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null)
+      .map((i) => ({ ...i, adult: true }));
+    const next = offset + BROWSE_PAGE;
+    return next < all.length ? { items, next: String(next) } : { items };
+  }
+
   async function browse(ref, cursor) {
+    if (ref === ADULT_REF) return browseAdult(cursor);
     const row = typeof ref === "string" ? (await buildRows()).find((r) => r.id === ref) : undefined;
     if (!row) throw kino.error("not_found", "No se encontró esa lista");
     const offset = offsetOf(cursor);

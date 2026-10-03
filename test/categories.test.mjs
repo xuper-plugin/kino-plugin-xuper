@@ -11,7 +11,10 @@ const setup = (opts) => {
 
 test("categories are the home's featured and genre rows in the classifier's order, ref = row id", async () => {
   const { categories, catalog } = setup();
-  const tiles = await categories.categories(null);
+  const all = await categories.categories(null);
+  // The 18+ tile closes the list (D3); the rest are Home's rows.
+  assert.equal(all.at(-1).adult, true);
+  const tiles = all.slice(0, -1);
   const home = await catalog.home();
   assert.deepEqual(tiles.map((t) => t.id), home.map((r) => r.id));
   assert.deepEqual(tiles.map((t) => t.title), home.map((r) => r.title));
@@ -55,16 +58,20 @@ test("at most 24 tiles (the contract cap), the tail of the genre round-robin is 
   };
   const tiles = await setup({ roots }).categories.categories(null);
   assert.equal(tiles.length, 24);
+  assert.equal(tiles.at(-1).adult, true, "the 18+ tile survives the cap");
   assert.deepEqual(tiles.slice(0, 4).map((t) => t.id), ["magis_recent_peliculas", "magis_new_series", "magis_top_peliculas", "magis_top_series"]);
   const checked = checkOutput("categories", tiles, manifest());
   assert.deepEqual(checked.drops, []);
   assert.equal(checked.value.length, 24);
 });
 
-test("no tile names the adult root, every title fits 40 characters", async () => {
-  const tiles = await setup().categories.categories(null);
+test("only the last tile is 18+ (marked adult); no other tile names the adult root; every title fits 40 characters", async () => {
+  const all = await setup().categories.categories(null);
+  assert.deepEqual(all.filter((t) => t.adult === true).map((t) => t.id), [all.at(-1).id]);
+  const tiles = all.slice(0, -1);
   assert.ok(tiles.length > 0);
-  assert.ok(tiles.every((t) => !/adult|18\+/i.test(t.id + t.title + t.ref)));
+  assert.ok(tiles.every((t) => !/adult|18\+/i.test(t.id + t.title + t.ref) && !("adult" in t)));
+  assert.ok(all.every((t) => t.title.length <= 40));
   assert.ok(tiles.every((t) => t.title.length <= 40));
 });
 
