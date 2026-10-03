@@ -301,24 +301,27 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   const readSession = () => {
     const s = readJson("session");
     const o = s && typeof s === "object" ? s : {};
-    return { userId: str2(o.userId), userToken: str2(o.userToken), jwtToken: str2(o.jwtToken), sn: str2(o.sn) };
+    return { userId: str2(o.userId), userToken: str2(o.userToken), jwtToken: str2(o.jwtToken), sn: str2(o.sn), acct: str2(o.acct) };
   };
   const writeSession = (s) => writeJson("session", {
     userId: str2(s.userId),
     userToken: str2(s.userToken),
     jwtToken: str2(s.jwtToken),
-    sn: str2(s.sn)
+    sn: str2(s.sn),
+    acct: str2(s.acct)
   });
   const view = () => {
     const s = readSession();
     return { userId: s.userId, userToken: s.userToken };
   };
   const hasToken = () => !blank2(readSession().userToken);
+  const accountKey = (email, password) => kino2.crypto.hash("sha256", str2(email) + "\n" + kino2.crypto.hash("md5", str2(password) + PASSWORD_SALT));
   const sharedPair = shared && !blank2(shared.email) && !blank2(shared.password) ? { email: str2(shared.email), password: str2(shared.password) } : null;
-  const sharedChosen = () => readJson("sharedAccount") === true;
-  const clearShared = () => {
+  const keyOf = (acc) => sharedPair && acc.email === sharedPair.email && acc.password === sharedPair.password ? "shared" : accountKey(acc.email, acc.password);
+  const legacyShared = () => readJson("sharedAccount") === true;
+  const dropLegacy = () => {
     try {
-      kino2.storage.set("sharedAccount", JSON.stringify(false));
+      if (kino2.storage.get("sharedAccount") !== null && kino2.storage.get("sharedAccount") !== void 0) kino2.storage.remove("sharedAccount");
     } catch (_) {
     }
   };
@@ -326,17 +329,45 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const email = kino2.config.get("email"), password = kino2.config.get("password");
     return blank2(email) || blank2(password) ? null : { email: str2(email), password: str2(password) };
   };
-  const account = () => {
+  const configuredAccount = () => {
     const own = ownAccount();
     if (own) {
-      if (sharedChosen()) clearShared();
+      dropLegacy();
       return own;
     }
-    return sharedPair && sharedChosen() ? sharedPair : null;
+    const toggle = kino2.config.get("useSharedAccount");
+    if (toggle !== void 0) dropLegacy();
+    const chosen = toggle === true || toggle === void 0 && legacyShared();
+    return sharedPair && chosen ? sharedPair : null;
   };
-  const dropDeadShared = (acc, e) => {
-    if (acc === sharedPair && e instanceof PortalError) clearShared();
+  const refusedKey = () => {
+    const k = readJson("refusedAcct");
+    return typeof k === "string" ? k : "";
   };
+  const setRefused = (key) => {
+    try {
+      writeJson("refusedAcct", key);
+    } catch (_) {
+    }
+  };
+  const clearRefused = (key) => {
+    if (key !== "" && refusedKey() === key) {
+      try {
+        kino2.storage.remove("refusedAcct");
+      } catch (_) {
+      }
+    }
+  };
+  const refusal = (e) => e instanceof PortalError;
+  const account = () => {
+    const acc = configuredAccount();
+    return acc && keyOf(acc) !== refusedKey() ? acc : null;
+  };
+  const currentKey = () => {
+    const acc = account();
+    return acc ? keyOf(acc) : "";
+  };
+  const tokenHeld = () => hasToken() && readSession().acct === currentKey();
   const autoRefresh = () => kino2.config.get("autoRefreshSeeds") !== false;
   const regionBlocked = () => {
     const r = readJson("region");
@@ -351,11 +382,11 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     return raw.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).map((e) => ({ sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) }));
   };
   const pick = (pool) => pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
-  const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn });
+  const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn, acct: "" });
   const surface = (e) => e instanceof PortalError ? mapPortalError(e.code, e.message, kino2) : e;
   const fingerprint = makeFingerprint(kino2);
-  function saveFromResponse(j) {
-    writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: readSession().sn });
+  function saveFromResponse(j, acct = "") {
+    writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: readSession().sn, acct });
   }
   async function activate(snToken, sn) {
     const j = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn });
@@ -367,7 +398,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (blank2(j && j.snToken)) throw new PortalError("snToken_failed", "el portal no devolvi\xF3 snToken");
     const snToken = str2(j.snToken);
     const sn = snFrom(kino2, j, snToken);
-    writeSession({ userId: "", userToken: "", jwtToken: "", sn });
+    writeSession({ userId: "", userToken: "", jwtToken: "", sn, acct: "" });
     await activate(snToken, sn);
   }
   async function directAnonymous() {
@@ -382,7 +413,8 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     return mintDevice();
   }
   async function ensureAnonymousUnlocked() {
-    if (hasToken()) return;
+    if (hasToken() && readSession().acct === "") return;
+    if (hasToken()) forgetToken();
     let direct;
     try {
       await directAnonymous();
@@ -414,17 +446,19 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     };
     const j = await portal.call("v8/login", bean, { baseFields: false, sn: readSession().sn || null, ...bounds });
     if (blank2(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
-    saveFromResponse(j);
+    saveFromResponse(j, keyOf({ email, password }));
   }
   async function ensureUnlocked() {
-    if (hasToken()) return;
+    if (tokenHeld()) return;
+    if (hasToken()) forgetToken();
     const acc = account();
     if (acc) {
       try {
         await loginUnlocked(acc.email, acc.password);
+        clearRefused(keyOf(acc));
         return;
       } catch (e) {
-        dropDeadShared(acc, e);
+        if (refusal(e)) setRefused(keyOf(acc));
       }
     }
     await ensureAnonymousUnlocked();
@@ -432,20 +466,21 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   function forgetToken() {
     const prev = readSession();
     if (prev.sn === "" && prev.userToken === "") return;
-    writeSession({ ...prev, userId: "", userToken: "", jwtToken: "" });
+    writeSession({ ...prev, userId: "", userToken: "", jwtToken: "", acct: "" });
   }
   const reauthenticate = (stale) => lock(async () => {
     const current = readSession().userToken;
     if (!blank2(current) && current !== stale) return true;
     forgetToken();
     try {
-      const acc = account();
+      const acc = configuredAccount();
       if (acc) {
         try {
           await loginUnlocked(acc.email, acc.password);
+          clearRefused(keyOf(acc));
         } catch (e) {
-          if (!(acc === sharedPair && e instanceof PortalError)) throw e;
-          clearShared();
+          if (!refusal(e)) throw e;
+          setRefused(keyOf(acc));
           await ensureAnonymousUnlocked();
         }
       } else await ensureAnonymousUnlocked();
@@ -498,7 +533,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   async function ensure() {
     await null;
-    if (!hasToken()) {
+    if (!tokenHeld()) {
       try {
         await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS });
       } catch (_) {
@@ -512,32 +547,34 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   async function login(email, password, bounds = {}) {
     await null;
+    const key = keyOf({ email, password });
     try {
       await lock(async () => {
         await loginUnlocked(email, password, bounds);
-        clearShared();
+        clearRefused(key);
+        dropLegacy();
       });
     } catch (e) {
-      if (e instanceof PortalError) throw kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas");
+      if (refusal(e)) {
+        setRefused(key);
+        throw kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas");
+      }
       throw e;
     }
   }
   async function useShared(bounds = {}) {
     await null;
     if (!sharedPair) throw kino2.error("unavailable", "La cuenta compartida no est\xE1 disponible");
-    if (ownAccount()) throw kino2.error("auth_required", "Ya tienes tu cuenta; cierra sesi\xF3n para usar la compartida");
     try {
       await lock(async () => {
         await loginUnlocked(sharedPair.email, sharedPair.password, bounds);
-        try {
-          kino2.storage.set("sharedAccount", JSON.stringify(true));
-        } catch (_) {
-          forgetToken();
-          throw kino2.error("unavailable", "No se pudo activar la cuenta compartida");
-        }
+        clearRefused("shared");
       });
     } catch (e) {
-      if (e instanceof PortalError) throw kino2.error("auth_required", "No se pudo activar la cuenta compartida");
+      if (refusal(e)) {
+        setRefused("shared");
+        throw kino2.error("auth_required", "No se pudo activar la cuenta compartida");
+      }
       throw e;
     }
   }
@@ -545,7 +582,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     await null;
     try {
       await lock(async () => {
-        clearShared();
+        dropLegacy();
         const prev = readSession();
         if (!blank2(prev.userToken)) {
           try {
@@ -628,7 +665,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
           const j = await portal.call("v8/active", activateBean(""), { baseFields: false, sn: c.sn, timeoutMs, deadline });
           reached = true;
           if (blank2(j && j.userToken)) continue;
-          writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: c.sn });
+          writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: c.sn, acct: "" });
           return { result: "ok", tries };
         } catch (e) {
           if (e instanceof PortalError) reached = true;
@@ -640,7 +677,8 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   const adoptSession = (s) => lock(async () => {
     writeSession(s);
-    clearShared();
+    clearRefused(str2(s.acct));
+    dropLegacy();
     setRegion(false);
     exhausted = false;
   });
@@ -648,8 +686,18 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const a = account();
     return a !== null && a === sharedPair;
   };
+  const sharedConfigured = () => {
+    const a = configuredAccount();
+    return a !== null && a === sharedPair;
+  };
+  function accountState() {
+    const conf = configuredAccount();
+    if (!conf) return "none";
+    if (keyOf(conf) === refusedKey()) return "refused";
+    return tokenHeld() ? "held" : "pending";
+  }
   function kind() {
-    if (account()) return "account";
+    if (accountState() === "held") return "account";
     const s = readSession();
     if (blank2(s.sn)) return "none";
     return seedPool().some((e) => e.sn === s.sn) ? "seed" : "own";
@@ -659,7 +707,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     withValidSession,
     current: readSession,
     kind,
+    accountState,
+    accountKey,
     usingShared,
+    sharedConfigured,
     login,
     useShared,
     logout,
@@ -2706,8 +2757,11 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     await null;
     try {
       const account = session.kind() === "account";
+      const state = session.accountState();
+      const shared = session.sharedConfigured();
+      const anonymous = state === "pending" ? `Conectando con ${shared ? "la cuenta compartida" : "tu cuenta"}\u2026 Mientras tanto, sesi\xF3n an\xF3nima` : state === "refused" ? shared ? "La cuenta compartida ya no funciona: sesi\xF3n an\xF3nima" : "No se pudo iniciar sesi\xF3n con tu cuenta: sesi\xF3n an\xF3nima. Revisa tu correo y contrase\xF1a" : "Sin cuenta: sesi\xF3n an\xF3nima";
       const who = session.usingShared() ? "Cuenta compartida" : `Conectado como ${savedAccount().email}`;
-      const parts = [account ? who : "Sin cuenta: sesi\xF3n an\xF3nima"];
+      const parts = [account ? who : anonymous];
       if (!account && session.regionBlocked()) {
         const n = session.seedPool().length;
         parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
@@ -2731,22 +2785,13 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     }
     return { message: "Sesi\xF3n iniciada", refresh: true };
   }
-  async function useShared() {
-    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock2.now() + LOGIN_TOTAL_MS };
-    try {
-      await session.useShared(bounds);
-    } catch (e) {
-      throw surface(e);
-    }
-    return { message: "Cuenta compartida activada", refresh: true };
-  }
   async function logout() {
     try {
       await session.logout();
     } catch (e) {
       throw surface(e);
     }
-    return { message: "Sesi\xF3n cerrada", refresh: true, clearSettings: ["email", "password"] };
+    return { message: "Sesi\xF3n cerrada", refresh: true, clearSettings: ["email", "password", "useSharedAccount"] };
   }
   async function switchSeed() {
     let r;
@@ -2803,7 +2848,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     }
     return { message: "Cuenta creada y sesi\xF3n iniciada", refresh: true, clearSettings: ["verifyCode"] };
   }
-  const ACTIONS = { login, useShared, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
+  const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
   async function action2(key) {
     await null;
     const run = Object.prototype.hasOwnProperty.call(ACTIONS, key) ? ACTIONS[key] : null;
@@ -2815,8 +2860,20 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     await null;
     const v = values && typeof values === "object" ? values : {};
     const email = str4(v.email).trim(), password = str4(v.password).trim();
+    const sharedOn = v.useSharedAccount === true || v.useSharedAccount === "true";
+    if (sharedOn && email === "" && password === "") {
+      const bounds2 = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
+      try {
+        await session.useShared(bounds2);
+        return null;
+      } catch (e) {
+        if (refusedCredentials(e)) return { useSharedAccount: "No se pudo activar la cuenta compartida" };
+        throw surface(e);
+      }
+    }
     if (email === "" && password === "") return null;
     const errors = {};
+    if (sharedOn) errors.useSharedAccount = "Quita tu cuenta o apaga la cuenta compartida";
     if (email === "") errors.email = "Escribe tu correo";
     else if (!email.includes("@")) errors.email = "Escribe un correo v\xE1lido";
     if (password === "") errors.password = "Escribe tu contrase\xF1a";
@@ -2921,7 +2978,7 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
         channel: "default"
       }, opts);
       if (blank(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
-      await session.adoptSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn });
+      await session.adoptSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn, acct: session.accountKey(email, password) });
     } catch (e) {
       if (bound) {
         dropPending();

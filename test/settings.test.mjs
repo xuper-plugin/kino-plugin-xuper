@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { PortalError } from "../src/portal.js";
 import { makeSession } from "../src/session.js";
@@ -34,6 +35,8 @@ function fakeSession(over = {}) {
     calls,
     kind: () => "own",
     usingShared: () => false,
+    sharedConfigured: () => false,
+    accountState: () => "none",
     regionBlocked: () => false,
     seedsExhausted: () => false,
     seedPool: () => [],
@@ -168,15 +171,15 @@ test("action login: a refused login is auth_required without the password; a net
   });
 });
 
-test("action logout: drops the session first, then asks the app to clear email and password", async () => {
+test("action logout: drops the session first, then asks the app to clear email, password and the shared-account choice", async () => {
   const { settings, sess } = setup({ config: { email: "ana@x.test", password: PW } });
   const out = await settings.action("logout");
   assert.deepEqual(sess.calls, [["logout"]]);
-  assert.deepEqual(out, { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password"] });
+  assert.deepEqual(out, { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password", "useSharedAccount"] });
   const drops = [];
   const kept = checkSettingsOutput("action", out, manifest, (t) => t, (d) => drops.push(d));
   assert.deepEqual(drops, [], "the kit dropped something");
-  assert.deepEqual(kept.clearSettings, ["email", "password"]);
+  assert.deepEqual(kept.clearSettings, ["email", "password", "useSharedAccount"]);
   assert.equal(kept.message, "Sesión cerrada");
   assert.equal(kept.refresh, true);
 });
@@ -341,7 +344,7 @@ test("real session: an accepted check stores the new token", async () => {
   const t = real({ stored: STORED });
   t.portal.queue("v8/login", { userId: "u1", userToken: "T1", jwtToken: "j1" });
   assert.equal(await t.settings.validateSettings({ email: "ana@x.test", password: PW }), null);
-  assert.deepEqual(JSON.parse(t.stored()), { userId: "u1", userToken: "T1", jwtToken: "j1", sn: "sn-own" });
+  assert.deepEqual(JSON.parse(t.stored()), { userId: "u1", userToken: "T1", jwtToken: "j1", sn: "sn-own", acct: createHash("sha256").update("ana@x.test\n" + createHash("md5").update(PW + "cloudstream").digest("hex")).digest("hex") });
   assert.equal(t.portal.calls[0].bean.userName, "ana@x.test");
 });
 
@@ -383,10 +386,10 @@ test("manifest: the account form has the actions and no leftover portalUrl", () 
   }
   const valueless = manifest.settings.filter((s) => ["section", "status", "action"].includes(s.type));
   const caps = JSON.parse(readFileSync(new URL("../contract.json", import.meta.url), "utf8")).settings;
-  assert.equal(valueless.length, 11);
+  assert.equal(valueless.length, 10);
   assert.ok(valueless.length <= caps.ui.maxItems && caps.ui.maxItems >= 16);
   assert.ok(manifest.settings.length - valueless.length <= caps.max);
-  assert.equal(manifest.settings.length - valueless.length, 4);
+  assert.equal(manifest.settings.length - valueless.length, 5);
 });
 
 test("manifest: three sections in order, each with its own settings; nothing outside the plugin tab", () => {
@@ -395,7 +398,7 @@ test("manifest: three sections in order, each with its own settings; nothing out
   assert.deepEqual(sections.map((s) => s.label), ["Cuenta", "Crear cuenta", "Semillas"]);
   const at = (k) => keys.indexOf(k);
   const [a, c, d] = sections.map((s) => at(s.key));
-  assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout", "useShared"]);
+  assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout", "useSharedAccount"]);
   assert.deepEqual(keys.slice(c + 1, d), ["verifyCode", "sendCode", "register"]);
   assert.deepEqual(keys.slice(d + 1), ["autoRefreshSeeds", "switchSeed", "refreshSeeds"]);
   const by = Object.fromEntries(manifest.settings.map((s) => [s.key, s]));

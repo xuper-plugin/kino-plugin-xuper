@@ -103,9 +103,15 @@ function scriptedKino({ routes = {}, config = {}, seeds = null, seedsText = "[]"
     if (out.returnCode !== undefined) return reply(out);
     return reply({ returnCode: "0", data: encrypt(JSON.stringify(out.data)) });
   };
-  const kino = Object.freeze({ ...base, fetch, sleep: async (ms) => { log.sleeps.push(ms); } });
+  // Settings the app changes behind the plugin's back (what a sync from another device does).
+  const overrides = {};
+  const configView = Object.freeze({
+    get: (k) => (k in overrides ? overrides[k] : base.config.get(k)),
+    all: () => ({ ...base.config.all(), ...overrides }),
+  });
+  const kino = Object.freeze({ ...base, config: configView, fetch, sleep: async (ms) => { log.sleeps.push(ms); } });
   if (seeds) base.storage.set("seeds", JSON.stringify(seeds));
-  return { kino, log, paths: () => log.requests.map((r) => r.path) };
+  return { kino, log, setConfig: (values) => Object.assign(overrides, values), paths: () => log.requests.map((r) => r.path) };
 }
 
 const mint = {
@@ -325,10 +331,10 @@ test("action logout: loginOut with the session, then clearSettings survives the 
   const drops = [];
   const kept = checkSettingsOutput("action", out, manifest, (t) => t, (d) => drops.push(d));
   assert.deepEqual(drops, []);
-  assert.deepEqual(kept.clearSettings, ["email", "password"]);
+  assert.deepEqual(kept.clearSettings, ["email", "password", "useSharedAccount"]);
 });
 
-test("action useShared: one v8/login with the (stand-in) shared pair, then the status line and a relogin follow it; the real pair never travels", async () => {
+test("validateSettings with the shared toggle: one v8/login with the (stand-in) shared pair, then the status line and a relogin follow it; the real pair never travels", async () => {
   const md5 = (t) => createHash("md5").update(t).digest("hex");
   let logins = 0;
   const s = await start({ routes: {
@@ -340,17 +346,41 @@ test("action useShared: one v8/login with the (stand-in) shared pair, then the s
     },
   } });
   await s.plugin.action("login").then(() => assert.fail("no own account saved"), kinoError("auth_required"));
-  const out = await s.plugin.action("useShared");
-  assert.deepEqual(out, { message: "Cuenta compartida activada", refresh: true });
-  assert.equal(checkSettingsOutput("action", out, manifest).message, out.message);
+  assert.equal(await s.plugin.validateSettings({ useSharedAccount: true }), null);
+  assert.equal(logins, 1);
+  assert.deepEqual(await s.plugin.validateSettings({ useSharedAccount: true, email: "ana@x.test", password: "pw" }),
+    { useSharedAccount: "Quita tu cuenta o apaga la cuenta compartida" });
+  s.setConfig({ useSharedAccount: true }); // the person saved it
   const st = await s.plugin.settingsStatus();
   assert.equal(st.status, "Cuenta compartida");
   assert.deepEqual(checkSettingsOutput("settingsStatus", st, manifest), st);
-  assert.equal(logins, 1);
+  assert.equal(await s.plugin.action("useShared"), null, "the action is gone");
   const lo = await s.plugin.action("logout");
-  assert.deepEqual(lo.clearSettings, ["email", "password"]);
+  assert.deepEqual(lo.clearSettings, ["email", "password", "useSharedAccount"]);
   const all = JSON.stringify(s.log) + JSON.stringify(s.kino.storage.get("session"));
   assert.ok(!all.includes(SHARED_EMAIL) && !all.includes(SHARED_PASSWORD), "the real shared pair travelled");
+});
+
+test("credentials appear in config by sync: the next call logs in on the SAME sn (no new snToken) and the status follows", async () => {
+  const md5 = (t) => createHash("md5").update(t).digest("hex");
+  const s = await start({ routes: { ...vodRoutes(), "v8/login": (bean) => {
+    assert.equal(bean.sn, SN, "the login bean carries this device's own sn");
+    assert.equal(bean.userName, "ana@x.test");
+    assert.equal(bean.password, md5("stand-in-pw" + "cloudstream"));
+    return { data: { userId: USER, userToken: TOKEN, jwtToken: "jwt" } };
+  } } });
+  await s.plugin.search({ q: "Dune", type: "any", season: 0, episode: 0, tmdbId: 0 });
+  assert.deepEqual(s.paths(), ["v3/snToken", "v8/active", "v3/searchByName"]);
+  assert.equal((await s.plugin.settingsStatus()).status, "Sin cuenta: sesión anónima");
+  s.setConfig({ email: "ana@x.test", password: "stand-in-pw" }); // no validateSettings: the sandbox is just reopened
+  assert.equal((await s.plugin.settingsStatus()).status, "Conectando con tu cuenta… Mientras tanto, sesión anónima");
+  await s.plugin.search({ q: "Arrival", type: "any", season: 0, episode: 0, tmdbId: 0 });
+  assert.deepEqual(s.paths().slice(3), ["v8/login", "v3/searchByName"]);
+  assert.equal(s.paths().filter((p) => p === "v3/snToken").length, 1, "no device minted by a config change");
+  assert.equal((await s.plugin.settingsStatus()).status, "Conectado como ana@x.test");
+  const stored = JSON.parse(s.kino.storage.get("session"));
+  assert.equal(stored.sn, SN);
+  assert.ok(!JSON.stringify(s.kino.storage.get("session")).includes("stand-in-pw"));
 });
 
 test("action switchSeed and refreshSeeds: probe a pool seed, then re-download the pool", async () => {

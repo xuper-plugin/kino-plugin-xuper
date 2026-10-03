@@ -15,6 +15,7 @@ const manifest = {
   settings: [
     { key: "email", label: "Correo electrónico", type: "text" },
     { key: "password", label: "Contraseña", type: "password" },
+    { key: "useSharedAccount", label: "Usar cuenta compartida", type: "toggle" },
     { key: "verifyCode", label: "Código de verificación", type: "text" },
     { key: "autoRefreshSeeds", label: "Actualizar semillas automáticamente", type: "toggle", default: true },
   ],

@@ -43,9 +43,19 @@ export function makeSettings({ kino, session, clock, registration }) {
   async function settingsStatus() {
     await null;
     try {
+      // What the stored token really is: an account configured but not logged in yet (credentials that
+      // arrived by sync, a change of account) or refused is NOT reported as connected.
       const account = session.kind() === "account";
+      const state = session.accountState();
+      const shared = session.sharedConfigured();
+      const anonymous = state === "pending"
+        ? `Conectando con ${shared ? "la cuenta compartida" : "tu cuenta"}… Mientras tanto, sesión anónima`
+        : state === "refused"
+          ? (shared ? "La cuenta compartida ya no funciona: sesión anónima"
+            : "No se pudo iniciar sesión con tu cuenta: sesión anónima. Revisa tu correo y contraseña")
+          : "Sin cuenta: sesión anónima";
       const who = session.usingShared() ? "Cuenta compartida" : `Conectado como ${savedAccount().email}`;
-      const parts = [account ? who : "Sin cuenta: sesión anónima"];
+      const parts = [account ? who : anonymous];
       if (!account && session.regionBlocked()) {
         const n = session.seedPool().length;
         parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
@@ -70,18 +80,11 @@ export function makeSettings({ kino, session, clock, registration }) {
     return { message: "Sesión iniciada", refresh: true };
   }
 
-  async function useShared() {
-    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock.now() + LOGIN_TOTAL_MS };
-    try { await session.useShared(bounds); }
-    catch (e) { throw surface(e); }
-    return { message: "Cuenta compartida activada", refresh: true };
-  }
-
   async function logout() {
     try { await session.logout(); }
     catch (e) { throw surface(e); }
     // The app clears these only if this action succeeded; session.logout() runs first on purpose.
-    return { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password"] };
+    return { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password", "useSharedAccount"] };
   }
 
   async function switchSeed() {
@@ -139,7 +142,7 @@ export function makeSettings({ kino, session, clock, registration }) {
     return { message: "Cuenta creada y sesión iniciada", refresh: true, clearSettings: ["verifyCode"] };
   }
 
-  const ACTIONS = { login, useShared, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };
+  const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };
 
   /** Runs the button `key`; an unknown key is `null` (the app shows "Listo"). */
   async function action(key) {
@@ -153,14 +156,26 @@ export function makeSettings({ kino, session, clock, registration }) {
   /**
    * Runs BEFORE the new email/password are saved. Blank both = anonymous use. Both set = one real
    * login: refused credentials are a field error; anything else (network, portal down) throws, so
-   * the person can still save without checking.
+   * the person can still save without checking. The shared-account toggle on (and no own account) is
+   * one bounded shared login; on together with an own account it is a field error.
    */
   async function validateSettings(values) {
     await null;
     const v = values && typeof values === "object" ? values : {};
     const email = str(v.email).trim(), password = str(v.password).trim();
+    const sharedOn = v.useSharedAccount === true || v.useSharedAccount === "true";
+    if (sharedOn && email === "" && password === "") {
+      // The shared account: one bounded login, so a dead pair is told before saving.
+      const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
+      try { await session.useShared(bounds); return null; }
+      catch (e) {
+        if (refusedCredentials(e)) return { useSharedAccount: "No se pudo activar la cuenta compartida" };
+        throw surface(e);
+      }
+    }
     if (email === "" && password === "") return null;
     const errors = {};
+    if (sharedOn) errors.useSharedAccount = "Quita tu cuenta o apaga la cuenta compartida";
     if (email === "") errors.email = "Escribe tu correo";
     else if (!email.includes("@")) errors.email = "Escribe un correo válido";
     if (password === "") errors.password = "Escribe tu contraseña";
