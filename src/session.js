@@ -49,37 +49,63 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const readSession = () => {
     const s = readJson("session");
     const o = s && typeof s === "object" ? s : {};
-    return { userId: str(o.userId), userToken: str(o.userToken), jwtToken: str(o.jwtToken), sn: str(o.sn) };
+    // `acct` is the account the token belongs to: "" anonymous/seed (also every session stored before
+    // this field existed), "shared", or a hash of the own account (never the password itself).
+    return { userId: str(o.userId), userToken: str(o.userToken), jwtToken: str(o.jwtToken), sn: str(o.sn), acct: str(o.acct) };
   };
   const writeSession = (s) => writeJson("session", {
-    userId: str(s.userId), userToken: str(s.userToken), jwtToken: str(s.jwtToken), sn: str(s.sn),
+    userId: str(s.userId), userToken: str(s.userToken), jwtToken: str(s.jwtToken), sn: str(s.sn), acct: str(s.acct),
   });
   const view = () => { const s = readSession(); return { userId: s.userId, userToken: s.userToken }; };
   const hasToken = () => !blank(readSession().userToken);
+  // Same hash the portal gets, then hashed again with the email: the stored key cannot give the password back.
+  const accountKey = (email, password) =>
+    kino.crypto.hash("sha256", str(email) + "\n" + kino.crypto.hash("md5", str(password) + PASSWORD_SALT));
 
   // The shared "cuenta compartida" (native fallback account): injected like the other deployment
   // values; a blank pair means the feature is unavailable (native: blank pair = no-op).
   const sharedPair = shared && !blank(shared.email) && !blank(shared.password)
     ? { email: str(shared.email), password: str(shared.password) } : null;
-  const sharedChosen = () => readJson("sharedAccount") === true;
-  // The choice is a flag, no ttl; a failed clear is harmless (the own account wins, a later write overwrites).
-  const clearShared = () => { try { kino.storage.set("sharedAccount", JSON.stringify(false)); } catch (_) { /* ignored */ } };
+  const keyOf = (acc) =>
+    sharedPair && acc.email === sharedPair.email && acc.password === sharedPair.password ? "shared" : accountKey(acc.email, acc.password);
 
+  // The choice "Usar cuenta compartida" is the synced setting `useSharedAccount`. Before it existed the
+  // choice lived in storage (`sharedAccount`): honoured only while the setting was never saved.
+  const legacyShared = () => readJson("sharedAccount") === true;
+  const dropLegacy = () => {
+    try { if (kino.storage.get("sharedAccount") !== null && kino.storage.get("sharedAccount") !== undefined) kino.storage.remove("sharedAccount"); }
+    catch (_) { /* ignored */ }
+  };
   const ownAccount = () => {
     const email = kino.config.get("email"), password = kino.config.get("password");
     return blank(email) || blank(password) ? null : { email: str(email), password: str(password) };
   };
-  // The account in use: the person's own (plugin settings, read each time, never copied), else the
-  // shared pair when the person chose it. The native treats a linked fallback as an own account.
-  // Seeing an own account retires the choice for good: blanking the fields later must not quietly
-  // bring the shared pair back.
-  const account = () => {
+  // The account the settings ask for (own wins, else the shared pair when chosen; email alone or
+  // password alone is no account), whether or not the portal ever accepted it.
+  const configuredAccount = () => {
     const own = ownAccount();
-    if (own) { if (sharedChosen()) clearShared(); return own; }
-    return sharedPair && sharedChosen() ? sharedPair : null;
+    if (own) { dropLegacy(); return own; }
+    const toggle = kino.config.get("useSharedAccount");
+    if (toggle !== undefined) dropLegacy(); // explicitly set: the setting is the truth from now on
+    const chosen = toggle === true || (toggle === undefined && legacyShared());
+    return sharedPair && chosen ? sharedPair : null;
   };
-  // A portal refusal of the shared pair (not a network failure) means it no longer works: drop the choice.
-  const dropDeadShared = (acc, e) => { if (acc === sharedPair && e instanceof PortalError) clearShared(); };
+
+  // The last account key the portal REFUSED: not retried on every call, only when the key changes
+  // or on an explicit login / reauthentication.
+  const refusedKey = () => { const k = readJson("refusedAcct"); return typeof k === "string" ? k : ""; };
+  const setRefused = (key) => { try { writeJson("refusedAcct", key); } catch (_) { /* ignored */ } };
+  const clearRefused = (key) => { if (key !== "" && refusedKey() === key) { try { kino.storage.remove("refusedAcct"); } catch (_) { /* ignored */ } } };
+  const refusal = (e) => e instanceof PortalError;
+
+  // The account in use: configured and not known to be refused. Null means anonymous.
+  const account = () => {
+    const acc = configuredAccount();
+    return acc && keyOf(acc) !== refusedKey() ? acc : null;
+  };
+  const currentKey = () => { const acc = account(); return acc ? keyOf(acc) : ""; };
+  // A stored token only counts when it belongs to the account in use (an anonymous one when none).
+  const tokenHeld = () => hasToken() && readSession().acct === currentKey();
 
   // The "Actualizar semillas automáticamente" toggle; unset (never saved) counts as on, like native.
   const autoRefresh = () => kino.config.get("autoRefreshSeeds") !== false;
@@ -94,7 +120,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       .map((e) => ({ sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) }));
   };
   const pick = (pool) => pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
-  const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn });
+  const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn, acct: "" });
 
   // Portal errors a person reads become Spanish kino errors; anything else passes through.
   const surface = (e) => (e instanceof PortalError ? mapPortalError(e.code, e.message, kino) : e);
@@ -103,8 +129,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const fingerprint = makeFingerprint(kino);
 
   // The device belongs to the DEVICE: login and reactivation keep the stored sn.
-  function saveFromResponse(j) {
-    writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: readSession().sn });
+  function saveFromResponse(j, acct = "") {
+    writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: readSession().sn, acct });
   }
 
   async function activate(snToken, sn) {
@@ -119,7 +145,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const snToken = str(j.snToken);
     const sn = snFrom(kino, j, snToken);
     // Saved BEFORE activating: that same call's device dict must carry it.
-    writeSession({ userId: "", userToken: "", jwtToken: "", sn });
+    writeSession({ userId: "", userToken: "", jwtToken: "", sn, acct: "" });
     await activate(snToken, sn);
   }
 
@@ -135,8 +161,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     return mintDevice();
   }
 
+  // An anonymous token on this device (`acct` ""); a token of another account is dropped first.
   async function ensureAnonymousUnlocked() {
-    if (hasToken()) return;
+    if (hasToken() && readSession().acct === "") return;
+    if (hasToken()) forgetToken();
     let direct;
     try { await directAnonymous(); setRegion(false); return; } catch (e) { direct = e; }
     // Direct path failed: what an unflagged geo-block looks like. Any pool session beats none.
@@ -155,15 +183,19 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     // Logging in does NOT activate the device: that would burn an activation per sn.
     const j = await portal.call("v8/login", bean, { baseFields: false, sn: readSession().sn || null, ...bounds });
     if (blank(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
-    saveFromResponse(j);
+    saveFromResponse(j, keyOf({ email, password }));
   }
 
   async function ensureUnlocked() {
-    if (hasToken()) return;
+    if (tokenHeld()) return;
+    // A token of another account (credentials arrived by sync, account changed or cleared) is no
+    // token; the device (sn) stays, so nothing is minted.
+    if (hasToken()) forgetToken();
     const acc = account();
     if (acc) {
       // A rejected credential or a portal down: anonymous is served before serving nothing.
-      try { await loginUnlocked(acc.email, acc.password); return; } catch (e) { dropDeadShared(acc, e); }
+      try { await loginUnlocked(acc.email, acc.password); clearRefused(keyOf(acc)); return; }
+      catch (e) { if (refusal(e)) setRefused(keyOf(acc)); }
     }
     await ensureAnonymousUnlocked();
   }
@@ -171,7 +203,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   function forgetToken() {
     const prev = readSession();
     if (prev.sn === "" && prev.userToken === "") return;
-    writeSession({ ...prev, userId: "", userToken: "", jwtToken: "" });
+    writeSession({ ...prev, userId: "", userToken: "", jwtToken: "", acct: "" });
   }
 
   // ---- single-flight helpers ----
@@ -182,12 +214,13 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (!blank(current) && current !== stale) return true;
     forgetToken();
     try {
-      const acc = account();
+      // Reauthentication retries even an account refused before (the retry is rare and bounded).
+      const acc = configuredAccount();
       if (acc) {
-        try { await loginUnlocked(acc.email, acc.password); }
+        try { await loginUnlocked(acc.email, acc.password); clearRefused(keyOf(acc)); }
         catch (e) {
-          if (!(acc === sharedPair && e instanceof PortalError)) throw e;
-          clearShared(); // refused: the session falls to the anonymous path, as `ensure` does
+          if (!refusal(e)) throw e;
+          setRefused(keyOf(acc)); // refused: the session falls to the anonymous path, as `ensure` does
           await ensureAnonymousUnlocked();
         }
       } else await ensureAnonymousUnlocked();
@@ -245,36 +278,28 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     await null;
     // A call that already has a token never waits. Without one, the periodic pool refresh (blocked
     // region, no account, switch on, > 3 h old) runs first, bounded and failure-proof.
-    if (!hasToken()) { try { await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS }); } catch (_) { /* ignored */ } }
+    if (!tokenHeld()) { try { await refreshSeeds({ periodic: true, timeoutMs: PERIODIC_TIMEOUT_MS }); } catch (_) { /* ignored */ } }
     try { await lock(ensureUnlocked); } catch (e) { throw surface(e); }
   }
 
   async function login(email, password, bounds = {}) {
     await null;
-    try { await lock(async () => { await loginUnlocked(email, password, bounds); clearShared(); }); }
-    catch (e) {
-      if (e instanceof PortalError) throw kino.error("auth_required", "Credenciales de Xuper inválidas");
+    const key = keyOf({ email, password });
+    try {
+      await lock(async () => { await loginUnlocked(email, password, bounds); clearRefused(key); dropLegacy(); });
+    } catch (e) {
+      if (refusal(e)) { setRefused(key); throw kino.error("auth_required", "Credenciales de Xuper inválidas"); }
       throw e;
     }
   }
 
-  /** "Usar cuenta compartida": logs in with the shared pair; the choice is kept only on success. */
+  /** The shared pair: one login on this device's sn. The choice itself is the synced setting. */
   async function useShared(bounds = {}) {
     await null;
     if (!sharedPair) throw kino.error("unavailable", "La cuenta compartida no está disponible");
-    if (ownAccount()) throw kino.error("auth_required", "Ya tienes tu cuenta; cierra sesión para usar la compartida");
-    try {
-      await lock(async () => {
-        await loginUnlocked(sharedPair.email, sharedPair.password, bounds);
-        try { kino.storage.set("sharedAccount", JSON.stringify(true)); }
-        catch (_) {
-          // Half-done activation: drop the shared token (the device stays), like logout does.
-          forgetToken();
-          throw kino.error("unavailable", "No se pudo activar la cuenta compartida");
-        }
-      });
-    } catch (e) {
-      if (e instanceof PortalError) throw kino.error("auth_required", "No se pudo activar la cuenta compartida");
+    try { await lock(async () => { await loginUnlocked(sharedPair.email, sharedPair.password, bounds); clearRefused("shared"); }); }
+    catch (e) {
+      if (refusal(e)) { setRefused("shared"); throw kino.error("auth_required", "No se pudo activar la cuenta compartida"); }
       throw e;
     }
   }
@@ -283,11 +308,11 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     await null;
     try {
       await lock(async () => {
-        clearShared();
+        dropLegacy(); // clearing the setting would make an old flag count again
         const prev = readSession();
         if (!blank(prev.userToken)) {
           // Result ignored: the stored token is dropped either way. The account itself lives in
-          // the plugin settings, which only the person can clear.
+          // the plugin settings, which the app clears after this action succeeds.
           try {
             await portal.call("v5/loginOut", { userId: prev.userId, userToken: prev.userToken },
               { baseFields: false, sn: prev.sn || null });
@@ -373,7 +398,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
           const j = await portal.call("v8/active", activateBean(""), { baseFields: false, sn: c.sn, timeoutMs, deadline });
           reached = true;
           if (blank(j && j.userToken)) continue;
-          writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: c.sn });
+          writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: c.sn, acct: "" });
           return { result: "ok", tries };
         } catch (e) { if (e instanceof PortalError) reached = true; /* this seed does not work right now: next */ }
       }
@@ -385,20 +410,33 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   /** Makes `s` the stored session (registration: the temporary device that just logged in). */
   // A login on the direct path proves the region is not blocking this device (native markClear).
-  const adoptSession = (s) => lock(async () => { writeSession(s); clearShared(); setRegion(false); exhausted = false; });
+  // `s.acct` is the key of the account that logged in (`accountKey`).
+  const adoptSession = (s) => lock(async () => { writeSession(s); clearRefused(str(s.acct)); dropLegacy(); setRegion(false); exhausted = false; });
 
   /** True when the shared account (not the person's own) is the one in use. */
   const usingShared = () => { const a = account(); return a !== null && a === sharedPair; };
+  /** True when the settings ask for the shared account, even if the portal refused it. */
+  const sharedConfigured = () => { const a = configuredAccount(); return a !== null && a === sharedPair; };
 
+  // "none" no account configured, "refused" the portal rejected it, "held" its token is the one stored,
+  // "pending" configured but not logged in yet (credentials just arrived by sync).
+  function accountState() {
+    const conf = configuredAccount();
+    if (!conf) return "none";
+    if (keyOf(conf) === refusedKey()) return "refused";
+    return tokenHeld() ? "held" : "pending";
+  }
+
+  // "account" only while the stored token really belongs to the account in use.
   function kind() {
-    if (account()) return "account";
+    if (accountState() === "held") return "account";
     const s = readSession();
     if (blank(s.sn)) return "none";
     return seedPool().some((e) => e.sn === s.sn) ? "seed" : "own";
   }
 
   return {
-    ensure, withValidSession, current: readSession, kind, usingShared, login, useShared, logout, regionBlocked,
+    ensure, withValidSession, current: readSession, kind, accountState, accountKey, usingShared, sharedConfigured, login, useShared, logout, regionBlocked,
     seedsExhausted: () => exhausted, switchSeed, refreshSeeds, seedPool, adoptSession,
   };
 }

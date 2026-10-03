@@ -10,7 +10,9 @@ const md5 = (s) => createHash("md5").update(s).digest("hex");
 const SEEDS_URL = "https://seeds.test/seeds.json";
 const reply = (obj) => ({ text: () => JSON.stringify(obj) });
 const dead = () => new PortalError("aaa100028", "未登录");
-const sess = (userToken, sn = "sn-own", userId = "u1") => ({ userId, userToken, jwtToken: "", sn });
+const sess = (userToken, sn = "sn-own", userId = "u1", acct = "") => ({ userId, userToken, jwtToken: "", sn, acct });
+// The key the session stores for an own account.
+const acctKey = (email, password) => createHash("sha256").update(email + "\n" + md5(password + PASSWORD_SALT)).digest("hex");
 const act = (userToken, userId = "u1") => ({ userId, userToken, jwtToken: "jwt" });
 
 // Fake portal: a FIFO queue of answers per path (ok objects, thrown errors), and a record of every
@@ -72,8 +74,8 @@ test("mint saves the sn (empty token) BEFORE v8/active, and activates with that 
   assert.equal(active.opts.baseFields, false);
   assert.equal(active.bean.snToken, "TOK");
   assert.equal(active.bean.macAddr, FIXED_MAC);
-  assert.deepEqual(JSON.parse(active.stored), { userId: "", userToken: "", jwtToken: "", sn });
-  assert.deepEqual(read(), { userId: "u1", userToken: "T1", jwtToken: "jwt", sn });
+  assert.deepEqual(JSON.parse(active.stored), { userId: "", userToken: "", jwtToken: "", sn, acct: "" });
+  assert.deepEqual(read(), { userId: "u1", userToken: "T1", jwtToken: "jwt", sn, acct: "" });
 });
 
 test("sn comes from the response when present, lowercased; else md5(snToken+salt) lowercase", async () => {
@@ -109,7 +111,7 @@ test("reactivating a stored sn (v8/active, snToken empty) succeeds without minti
   assert.deepEqual(portal.paths(), ["v8/active"]);
   assert.equal(portal.calls[0].bean.snToken, "");
   assert.equal(portal.calls[0].opts.sn, "sn-stored");
-  assert.deepEqual(read(), { userId: "u1", userToken: "T9", jwtToken: "jwt", sn: "sn-stored" });
+  assert.deepEqual(read(), { userId: "u1", userToken: "T9", jwtToken: "jwt", sn: "sn-stored", acct: "" });
 });
 
 test("only aaa100080 / aaa100082 authorize minting a new device", async () => {
@@ -173,7 +175,7 @@ test("a failed direct mint with a seed pool falls back to a pool seed", async ()
   const { portal, session, read } = setup({ seeds: [seed(1), seed(2)], random: () => 0.99 });
   portal.queue("v3/snToken", new PortalError("portal100024", "geo"));
   await session.ensure();
-  assert.deepEqual(read(), { userId: "su2", userToken: "st2", jwtToken: "", sn: "seed-2" });
+  assert.deepEqual(read(), { userId: "su2", userToken: "st2", jwtToken: "", sn: "seed-2", acct: "" });
 });
 
 // ---- account ---------------------------------------------------------------------------------
@@ -205,7 +207,7 @@ test("login does NOT re-activate, saves the session with the EXISTING sn", async
   portal.queue("v8/login", act("TL", "ulogin"));
   await session.login("e@x.test", "secret");
   assert.deepEqual(portal.paths(), ["v8/login"]);
-  assert.deepEqual(read(), { userId: "ulogin", userToken: "TL", jwtToken: "jwt", sn: "sn-keep" });
+  assert.deepEqual(read(), { userId: "ulogin", userToken: "TL", jwtToken: "jwt", sn: "sn-keep", acct: acctKey("e@x.test", "secret") });
 });
 
 test("login without userToken fails and leaves the session alone", async () => {
@@ -231,7 +233,7 @@ test("logout: loginOut result ignored, token dropped, sn kept, back to anonymous
   assert.deepEqual(portal.calls[0].bean, { userId: "uacc", userToken: "T-acc" });
   assert.equal(portal.calls[0].opts.baseFields, false);
   assert.deepEqual(JSON.parse(portal.calls[1].stored), sess("", "sn-keep", ""));
-  assert.deepEqual(read(), { userId: "u1", userToken: "T-anon", jwtToken: "jwt", sn: "sn-keep" });
+  assert.deepEqual(read(), { userId: "u1", userToken: "T-anon", jwtToken: "jwt", sn: "sn-keep", acct: "" });
 });
 
 // ---- kind ------------------------------------------------------------------------------------
@@ -245,14 +247,14 @@ test("kind(): none / own / seed (iff sn in the live pool) / account", async () =
   assert.equal(session.kind(), "seed");
   kino.storage.set("seeds", JSON.stringify([seed(1)]));
   assert.equal(session.kind(), "own");
-  const acc = setup({ config: account, stored: sess("T", "seed-1"), seeds: [seed(1)] });
+  const acc = setup({ config: account, stored: sess("T", "seed-1", "u1", acctKey(account.email, account.password)), seeds: [seed(1)] });
   assert.equal(acc.session.kind(), "account");
 });
 
 test("current() mirrors the stored session", async () => {
   const { session } = setup({ stored: sess("T", "s", "u") });
-  assert.deepEqual(session.current(), { userId: "u", userToken: "T", jwtToken: "", sn: "s" });
-  assert.deepEqual(setup().session.current(), { userId: "", userToken: "", jwtToken: "", sn: "" });
+  assert.deepEqual(session.current(), { userId: "u", userToken: "T", jwtToken: "", sn: "s", acct: "" });
+  assert.deepEqual(setup().session.current(), { userId: "", userToken: "", jwtToken: "", sn: "", acct: "" });
 });
 
 // ---- withValidSession ------------------------------------------------------------------------
@@ -415,12 +417,12 @@ test("a half session (sn saved, empty token) after a failed mint is completed by
   portal.queue("v8/active", new PortalError("portal100099", "down"));
   await assert.rejects(session.ensure(), (e) => e.code === "unavailable");
   const sn = md5("TOK" + SNTOKEN_SALT);
-  assert.deepEqual(read(), { userId: "", userToken: "", jwtToken: "", sn });
+  assert.deepEqual(read(), { userId: "", userToken: "", jwtToken: "", sn, acct: "" });
   portal.queue("v8/active", act("T5"));
   await session.ensure();
   assert.deepEqual(portal.paths(), ["v3/snToken", "v8/active", "v8/active"], "reactivated the saved sn: no second mint");
   assert.equal(portal.calls[2].opts.sn, sn);
-  assert.deepEqual(read(), { userId: "u1", userToken: "T5", jwtToken: "jwt", sn });
+  assert.deepEqual(read(), { userId: "u1", userToken: "T5", jwtToken: "jwt", sn, acct: "" });
 });
 
 test("rescue never runs for an account", async () => {

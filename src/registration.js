@@ -78,7 +78,7 @@ export function makeRegistration({ kino, portal, session, clock }) {
         verificationCode: "", verificationToken: "", matadata: "", signdata: "", channel: "default",
       }, opts);
       if (blank(j && j.userToken)) throw new PortalError("login_sin_token", "login sin userToken");
-      await session.adoptSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn });
+      await session.adoptSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn, acct: session.accountKey(email, password) });
     } catch (e) {
       // The account exists now: the old code is spent, so the pending device is useless.
       if (bound) { dropPending(); throw kino.error("unavailable", BOUND_BUT_NOT_IN); }

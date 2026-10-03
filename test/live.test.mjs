@@ -315,13 +315,14 @@ test("aaa100028 on startPlayLive is auth_required with the live text, and no CDN
 
 test("with the real session: aaa100028 that survives the relogin is the live auth_required", async () => {
   const kino = fakeKino({ config: { email: "a@b.test", password: "pw" } });
-  kino.storage.set("session", JSON.stringify({ userId: "u-own", userToken: "t-own", jwtToken: "", sn: "sn-own" }));
   const portal = fakePortal({
     "v4/startPlayLive": [new PortalError("aaa100028", "未登录！"), new PortalError("aaa100028", "未登录！")],
     "v8/login": [{ userId: "u-own", userToken: "t2", jwtToken: "" }],
   });
   const clock = { now: () => NOW };
   const session = makeSession({ kino, portal, clock, random: () => 0 });
+  // The stored token belongs to the saved account (an `acct`-less one would be re-logged first).
+  kino.storage.set("session", JSON.stringify({ userId: "u-own", userToken: "t-own", jwtToken: "", sn: "sn-own", acct: session.accountKey("a@b.test", "pw") }));
   const live = makeLive({ kino, portal, session, clock, config: { apkVersion: "49902" }, random: () => 0 });
   await rejectsWith(live.resolveLive("c"), "auth_required", NO_ACCOUNT_TEXT);
   assert.deepEqual(portal.calls.map((c) => c.path), ["v4/startPlayLive", "v8/login", "v4/startPlayLive"]);

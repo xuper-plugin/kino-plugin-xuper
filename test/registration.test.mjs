@@ -182,7 +182,8 @@ test("register: validate -> bind -> login with the pending device; only then the
   assert.equal(login.bean.password, md5(PW + PASSWORD_SALT));
   assert.equal(login.bean.sn, pendSn);
   for (const r of w.requests) assert.equal(r.session, JSON.stringify(STORED), "stored session untouched during " + r.path);
-  assert.deepEqual(w.stored(), { userId: "u-new", userToken: "tok-new", jwtToken: "jwt-new", sn: pendSn });
+  assert.deepEqual(w.stored(), { userId: "u-new", userToken: "tok-new", jwtToken: "jwt-new", sn: pendSn,
+    acct: createHash("sha256").update(EMAIL + "\n" + md5(PW + PASSWORD_SALT)).digest("hex") });
   assert.equal(w.base.storage.get(PENDING_KEY), null, "pending device deleted");
   assert.equal(w.session.kind(), "account");
 });
