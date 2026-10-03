@@ -285,11 +285,68 @@ test("all roots empty: no rows and NO cache write (Review Focus 5)", async () =>
   assert.deepEqual(kino.storage.keys(), []);
 });
 
-test("all roots failing: no rows, no cache write, nothing thrown", async () => {
-  const boom = () => new Error("down");
-  const { catalog, sets } = setup({ roots: { masnew_movies: boom, masnew_series: boom, masnew_anime: boom, masnew_kids: boom } });
-  assert.deepEqual(await catalog.home(), []);
+// ---- every root failing (port of main 2d285106 + 465773f1): one retry, then the error ----------
+
+const allRoots = (a) => ({ masnew_movies: a, masnew_series: a, masnew_anime: a, masnew_kids: a });
+const kinoErr = (code, message) => (e) => { assert.equal(e.name, "KinoError_" + code, e.message); if (message) assert.equal(e.message, message); return true; };
+
+test("all roots failing twice: one retry of the pass, then the error is thrown (Home shows the failure and Reintentar), nothing cached", async () => {
+  const { catalog, sets, portal } = setup({ roots: allRoots(() => new Error("down")) });
+  await assert.rejects(catalog.home(), kinoErr("unavailable", "Xuper no está disponible ahora"));
+  assert.equal(portal.calls.length, 8, "one pass + exactly one retry");
   assert.deepEqual(sets, []);
+});
+
+test("all roots failing once: the retried pass answers and Home shows its rows", async () => {
+  let n = 0;
+  const { catalog, portal } = setup({ roots: allRoots(() => (++n <= 4 ? new Error("down") : smallTree("p" + n))) });
+  const rows = await catalog.home();
+  assert.ok(rows.length > 0);
+  assert.equal(portal.calls.length, 8);
+});
+
+test("the retry waits a short pause first, as native (1.5 s)", async () => {
+  const t = setup({ roots: allRoots(() => new Error("down")) });
+  const sleeps = [];
+  const kino = Object.freeze({ ...t.kino, sleep: async (ms) => { sleeps.push(ms); } });
+  const catalog = makeCatalog({ kino, portal: t.portal, session: t.session, clock: t.clock });
+  await assert.rejects(catalog.home());
+  assert.deepEqual(sleeps, [1500]);
+});
+
+test("the thrown error is the person-actionable one: a kino error from a root wins over a plain unavailable", async () => {
+  const { kino } = spyKino();
+  const geo = kino.error("geo_blocked", "Este contenido no está disponible en tu región");
+  const { catalog } = setup({ roots: { masnew_movies: () => new Error("down"), masnew_series: () => geo, masnew_anime: () => new Error("x"), masnew_kids: () => new Error("y") } });
+  await assert.rejects(catalog.home(), (e) => e === geo);
+});
+
+test("browse over a home whose every root failed throws the same error, not \"No se encontró esa lista\"", async () => {
+  const { catalog } = setup({ roots: allRoots(() => new Error("down")) });
+  await assert.rejects(catalog.browse("magis_top_peliculas", null), kinoErr("unavailable", "Xuper no está disponible ahora"));
+});
+
+test("not every root failed: no retry, no error (an empty root is not a failure, a cached root is content)", async () => {
+  const empty = setup({ roots: emptyRoots() });
+  assert.deepEqual(await empty.catalog.home(), []);
+  assert.equal(empty.portal.calls.length, 4, "all empty but none failed: no retry");
+
+  const mixed = setup({ roots: { ...allRoots(() => new Error("down")), masnew_kids: answer() } });
+  assert.deepEqual(await mixed.catalog.home(), []);
+  assert.equal(mixed.portal.calls.length, 4, "three failed, one answered empty: no retry");
+
+  const cached = setup({ roots: allRoots(() => new Error("down")) });
+  cached.kino.storage.set("tree:peliculas", encodeTree(parseTree(smallTree("c"))), { ttlMs: HOUR });
+  const rows = await cached.catalog.home();
+  assert.ok(rows.length > 0, "the cached root still shows");
+  assert.equal(cached.portal.calls.length, 3, "only the three missing roots were asked, once");
+});
+
+test("no retry when the call's time is nearly spent: the error comes at once", async () => {
+  const t = setup({ roots: allRoots(() => new Error("down")) });
+  t.portal.call = async (path, bean, opts) => { t.portal.calls.push({ path, bean, opts }); t.clock.t += 16_000; throw new Error("down"); };
+  await assert.rejects(t.catalog.home(), kinoErr("unavailable"));
+  assert.equal(t.portal.calls.length, 4);
 });
 
 test("a tree whose columns hold no usable items is empty, not cached", async () => {

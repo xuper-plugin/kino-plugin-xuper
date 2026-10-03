@@ -6,6 +6,7 @@ import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
+import { isKinoError } from "./util.js";
 
 export { parseShelveTime };
 
@@ -29,6 +30,10 @@ const SHED_STEPS = [
 ];
 
 const BROWSE_PAGE = 50;
+// Every root failed: the pass is asked once more after this pause (native EMPTY_PASS_RETRY_DELAYS_MS
+// starts at 1.5 s), only when at least the pause plus this much of the call's time is left.
+const HOME_RETRY_PAUSE_MS = 1_500;
+const HOME_RETRY_MIN_MS = 3_000;
 const MAX_HOME_ROWS = 20; // SDK output caps
 const MAX_ROW_ITEMS = 60;
 const MAX_GENRES = 5;
@@ -100,7 +105,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
     }
   }
 
-  // A failing root is an empty root (native: failure is indistinguishable from empty).
+  // `{ sections, error }`: a failing root shows as empty, but its error is kept so that a Home where
+  // EVERY root failed can say so instead of being a silent blank (main 2d285106 + 465773f1).
   async function fetchRoot(root, deadline) {
     try {
       const response = await session.withValidSession((v) => portal.call(
@@ -109,14 +115,19 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
         viewOpts(v),
       ), { seedFallback: true, deadline });
       const sections = parseTree(response);
-      if (!hasItems(sections)) return [];
+      if (!hasItems(sections)) return { sections: [], error: null };
       writeTree(root, sections);
-      return sections;
+      return { sections, error: null };
     } catch (e) {
       try { kino.log(`xuper home ${root}: ${(e && (e.code || e.name)) || "error"}`); } catch (_) {}
-      return [];
+      return { sections: [], error: isKinoError(e) ? e : kino.error("unavailable", "Xuper no está disponible ahora") };
     }
   }
+
+  // Every root asked failed (none cached, none answered, not even empty).
+  const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
+  // What to tell the person: a root's specific error (geo, account...) before a plain unavailable.
+  const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
 
   // The classified rows over the four roots: stored trees first, the rest from the portal in parallel.
   async function buildRows() {
@@ -130,8 +141,18 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
     if (missing.length > 0) {
       // The session is not created by withValidSession: ensure it first; a failure here is the error.
       await session.ensure({ deadline });
-      const fetched = await Promise.all(missing.map((root) => fetchRoot(root, deadline)));
-      missing.forEach((root, i) => { roots[root] = fetched[i]; });
+      const pass = () => Promise.all(missing.map((root) => fetchRoot(root, deadline)));
+      let fetched = await pass();
+      if (allFailed(fetched)) {
+        // Every root failed: one more pass after a short pause (native), if the call's time allows;
+        // still all failed, the error is thrown so Home says Xuper failed and offers "Reintentar".
+        if (deadline - clock.now() >= HOME_RETRY_PAUSE_MS + HOME_RETRY_MIN_MS) {
+          try { await kino.sleep(HOME_RETRY_PAUSE_MS); } catch (_) { /* no pause: retry at once */ }
+          fetched = await pass();
+        }
+        if (allFailed(fetched)) throw worstOf(fetched);
+      }
+      missing.forEach((root, i) => { roots[root] = fetched[i].sections; });
     }
     return classify(roots);
   }

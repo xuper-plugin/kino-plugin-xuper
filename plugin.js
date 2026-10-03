@@ -1816,6 +1816,8 @@ var SHED_STEPS = [
   { descMax: 0, genres: false, backdrop: false, perSection: 50 }
 ];
 var BROWSE_PAGE = 50;
+var HOME_RETRY_PAUSE_MS = 1500;
+var HOME_RETRY_MIN_MS = 3e3;
 var MAX_HOME_ROWS = 20;
 var MAX_ROW_ITEMS = 60;
 var MAX_GENRES = 5;
@@ -1885,17 +1887,19 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
         viewOpts(v)
       ), { seedFallback: true, deadline });
       const sections = parseTree(response);
-      if (!hasItems(sections)) return [];
+      if (!hasItems(sections)) return { sections: [], error: null };
       writeTree(root, sections);
-      return sections;
+      return { sections, error: null };
     } catch (e) {
       try {
         kino2.log(`xuper home ${root}: ${e && (e.code || e.name) || "error"}`);
       } catch (_) {
       }
-      return [];
+      return { sections: [], error: isKinoError(e) ? e : kino2.error("unavailable", "Xuper no est\xE1 disponible ahora") };
     }
   }
+  const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
+  const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
   async function buildRows() {
     const deadline = callDeadline(clock2, CALL_BUDGET_MS.home);
     const roots = {};
@@ -1907,9 +1911,20 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
     }
     if (missing.length > 0) {
       await session.ensure({ deadline });
-      const fetched = await Promise.all(missing.map((root) => fetchRoot(root, deadline)));
+      const pass = () => Promise.all(missing.map((root) => fetchRoot(root, deadline)));
+      let fetched = await pass();
+      if (allFailed(fetched)) {
+        if (deadline - clock2.now() >= HOME_RETRY_PAUSE_MS + HOME_RETRY_MIN_MS) {
+          try {
+            await kino2.sleep(HOME_RETRY_PAUSE_MS);
+          } catch (_) {
+          }
+          fetched = await pass();
+        }
+        if (allFailed(fetched)) throw worstOf(fetched);
+      }
       missing.forEach((root, i) => {
-        roots[root] = fetched[i];
+        roots[root] = fetched[i].sections;
       });
     }
     return classify(roots);

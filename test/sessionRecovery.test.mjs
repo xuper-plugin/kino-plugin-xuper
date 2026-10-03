@@ -105,7 +105,8 @@ test("shared account, empty pool, dead pool URL: home's four parallel roots shar
     session: { userId: "u-sh", userToken: "tok-sh", jwtToken: "", sn: "sn-dev", acct: "shared" },
     routes: { getNextColumns: GEO, "v8/login": { userId: "u-sh", userToken: "tok-sh" } },
   });
-  assert.deepEqual(await w.catalog.home(), []);
+  // Every root still failing, home throws the root's error (Home: "Reintentar") instead of a blank.
+  await assert.rejects(w.catalog.home(), (e) => e.name === "KinoError_geo_blocked");
   assert.ok(w.elapsed() <= 19_000, `home ran ${w.elapsed()} ms`);
   assert.equal(w.seedDownloads.length, 1, "one shared download");
 });

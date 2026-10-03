@@ -42,9 +42,8 @@ for (const [name, e] of Object.entries(EXPORTS)) {
 
   test(`${name}: every host dead ends in the plugin's own unavailable inside the cap`, async () => {
     const w = portalWorld({ dead: ["a.test", "b.test"] });
-    // home serves an empty list when every root fails (native) and browse then finds no row; the rest reject.
-    if (name === "home") assert.deepEqual(await e.run(w), []);
-    else await assert.rejects(e.run(w), kinoErr(name === "browse" ? "not_found" : "unavailable"));
+    // Every root failing makes home (and browse over it) throw too, so Home offers "Reintentar".
+    await assert.rejects(e.run(w), kinoErr("unavailable"));
     within(w, e.cap, name);
   });
 

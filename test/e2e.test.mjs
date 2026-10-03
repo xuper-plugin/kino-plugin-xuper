@@ -479,9 +479,9 @@ test("a non-kino error thrown inside an export becomes the Spanish unavailable",
     });
   }
   // home with the portal answering garbage (not an encrypted JSON): every root is asked, each
-  // garbage answer is a failed root, and home is the empty list (native: a failing root is empty).
+  // garbage answer is a failed root, the pass is retried once and home throws the Spanish unavailable.
   const t = await start({ routes: { getNextColumns: { returnCode: "0", data: "zz" } } });
-  assert.deepEqual(await t.plugin.home(), []);
+  await assert.rejects(t.plugin.home(), (e) => { assert.equal(e.name, "KinoError_unavailable"); assert.ok(!e.message.includes("zz")); return true; });
   assert.deepEqual([...new Set(t.log.requests.filter((r) => r.path === "getNextColumns").map((r) => r.bean.columnCode))].sort(),
     ["masnew_anime", "masnew_kids", "masnew_movies", "masnew_series"]);
 });
