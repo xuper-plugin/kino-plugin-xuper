@@ -3488,6 +3488,12 @@ var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a
 var str4 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
+var FILL_ACCOUNT = `Faltan los datos de tu cuenta: compl\xE9talos en ${SETTINGS_PLACE}.`;
+var ACCOUNT_REFUSED = `Xuper no acept\xF3 esa cuenta. Revisa los datos en ${SETTINGS_PLACE}.`;
+var FILL_EMAIL = `Escribe tu correo en ${SETTINGS_PLACE}.`;
+var BAD_EMAIL = `Escribe un correo v\xE1lido en ${SETTINGS_PLACE}.`;
+var FILL_CODE = `Escribe el c\xF3digo que te enviamos en ${SETTINGS_PLACE}.`;
+var ASK_CODE_AGAIN = "Pide el c\xF3digo otra vez.";
 function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   const surface = (e) => {
     if (isKinoError(e)) return e;
@@ -3518,12 +3524,12 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   }
   async function login() {
     const { email, password } = savedAccount();
-    if (email === "" || password === "") throw kino2.error("auth_required", "Escribe tu correo y contrase\xF1a en Ajustes");
+    if (email === "" || password === "") throw told(kino2, "auth_required", "Escribe tu correo y contrase\xF1a en Ajustes", FILL_ACCOUNT);
     const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock2.now() + LOGIN_TOTAL_MS };
     try {
       await session.login(email, password, bounds);
     } catch (e) {
-      throw refusedCredentials(e) ? kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas") : surface(e);
+      throw refusedCredentials(e) ? told(kino2, "auth_required", "Credenciales de Xuper inv\xE1lidas", ACCOUNT_REFUSED) : surface(e);
     }
     return { message: "Sesi\xF3n iniciada", refresh: true };
   }
@@ -3556,8 +3562,8 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   }
   function typedEmail() {
     const { email } = savedAccount();
-    if (email === "") throw kino2.error("auth_required", "Escribe tu correo en Ajustes");
-    if (!email.includes("@")) throw kino2.error("auth_required", "Escribe un correo v\xE1lido");
+    if (email === "") throw told(kino2, "auth_required", "Escribe tu correo en Ajustes", FILL_EMAIL);
+    if (!email.includes("@")) throw told(kino2, "auth_required", "Escribe un correo v\xE1lido", BAD_EMAIL);
     return email;
   }
   async function sendCode() {
@@ -3577,11 +3583,11 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   async function register() {
     const email = typedEmail();
     const code = str4(kino2.config.get("verifyCode")).trim();
-    if (code === "") throw kino2.error("auth_required", "Escribe el c\xF3digo de verificaci\xF3n");
+    if (code === "") throw told(kino2, "auth_required", "Escribe el c\xF3digo de verificaci\xF3n", FILL_CODE);
     const { password } = savedAccount();
-    if (password === "") throw kino2.error("auth_required", "Escribe tu contrase\xF1a en Ajustes");
+    if (password === "") throw told(kino2, "auth_required", "Escribe tu contrase\xF1a en Ajustes", FILL_ACCOUNT);
     const pending = registration.pendingFor(email);
-    if (!pending) throw kino2.error("unavailable", "Pide el c\xF3digo otra vez");
+    if (!pending) throw told(kino2, "unavailable", "Pide el c\xF3digo otra vez", ASK_CODE_AGAIN);
     const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock2.now() + REGISTER_TOTAL_MS };
     try {
       await registration.confirmRegistration(pending, code, password, bounds);

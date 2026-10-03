@@ -508,3 +508,33 @@ test("validate: the registration code and the toggle never reach the portal and 
     assert.deepEqual(sess.calls, [["login", "ana@x.test", PW]], "only the credentials are checked");
   }
 });
+
+// Task-23 smoke: a failed "Iniciar sesión" read "Configura Xuper en Menú ▸ Plugins". That is the
+// app's fallback for an auth_required WITHOUT the plugin's own sentence (PluginErrors.userMessage);
+// every error an action throws on purpose now carries a userMessage the app's filter lets through,
+// pointing to the plugin's own tab, never to the Plugins screen.
+test("action errors carry a sentence the app shows: Ajustes ▸ Xuper, never the app's Plugins fallback", async () => {
+  const { shownSentence } = await import("../sdk/kino-shim.mjs");
+  const refused = fakeSession({ login: async () => { throw new PortalError("aaa100002", "账号或密码错误"); } });
+  const registration = { pendingFor: () => null, sendRegistrationCode: async () => {}, confirmRegistration: async () => {} };
+  const cases = [
+    [{}, "login", undefined],
+    [{ email: "ana@x.test", password: PW }, "login", refused],
+    [{ password: PW }, "sendCode", undefined],
+    [{ email: "sin-arroba" }, "sendCode", undefined],
+    [{ email: "ana@x.test", password: PW }, "register", undefined], // no code typed
+    [{ email: "ana@x.test", verifyCode: "123456" }, "register", undefined], // no password
+    [{ email: "ana@x.test", password: PW, verifyCode: "123456" }, "register", undefined], // no code asked
+  ];
+  for (const [config, key, session] of cases) {
+    const kino = fakeKino({ config });
+    const settings = makeSettings({ kino, session: session ?? fakeSession(), clock: { now: () => 0 }, registration });
+    await assert.rejects(settings.action(key), (e) => {
+      const label = `${key} ${JSON.stringify(Object.keys(config))}: ${e.message}`;
+      assert.equal(typeof e.userMessage, "string", label);
+      assert.equal(shownSentence(e), e.userMessage, "the app's filter lets it through: " + label);
+      assert.ok(!e.userMessage.includes("Plugins"), label);
+      return true;
+    });
+  }
+});

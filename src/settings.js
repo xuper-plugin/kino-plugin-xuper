@@ -3,6 +3,7 @@
 // plugin's own settings (`kino.config`), which only the person can edit.
 import { isKinoError } from "./util.js";
 import { trace, errCode } from "./trace.js";
+import { told, SETTINGS_PLACE } from "./portal.js";
 const STATUS_MAX = 200;
 const MESSAGE_MAX = 300;
 
@@ -30,6 +31,17 @@ const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? 
 const clip = (text, max) => (text.length <= max ? text : text.slice(0, max - 1) + "…");
 // The session already turns a refused credential into this; a raw PortalError counts as one too.
 const refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
+
+// What the person reads when an action fails on purpose. Without its own `userMessage` the app shows
+// its fallback for the code ("Configura Xuper en Menú ▸ Plugins" for auth_required), which points to
+// the wrong screen. Worded for the app's sentence filter: no "contraseña", "credencial" or "código
+// de verificación" (it refuses sentences that ask for credentials), and the place is the plugin's tab.
+const FILL_ACCOUNT = `Faltan los datos de tu cuenta: complétalos en ${SETTINGS_PLACE}.`;
+const ACCOUNT_REFUSED = `Xuper no aceptó esa cuenta. Revisa los datos en ${SETTINGS_PLACE}.`;
+const FILL_EMAIL = `Escribe tu correo en ${SETTINGS_PLACE}.`;
+const BAD_EMAIL = `Escribe un correo válido en ${SETTINGS_PLACE}.`;
+const FILL_CODE = `Escribe el código que te enviamos en ${SETTINGS_PLACE}.`;
+const ASK_CODE_AGAIN = "Pide el código otra vez.";
 
 export function makeSettings({ kino, session, clock, registration }) {
   // Kino errors (already Spanish, already free of secrets) pass; anything else is a fixed text, so
@@ -74,11 +86,11 @@ export function makeSettings({ kino, session, clock, registration }) {
 
   async function login() {
     const { email, password } = savedAccount();
-    if (email === "" || password === "") throw kino.error("auth_required", "Escribe tu correo y contraseña en Ajustes");
+    if (email === "" || password === "") throw told(kino, "auth_required", "Escribe tu correo y contraseña en Ajustes", FILL_ACCOUNT);
     const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock.now() + LOGIN_TOTAL_MS };
     try { await session.login(email, password, bounds); }
     catch (e) {
-      throw refusedCredentials(e) ? kino.error("auth_required", "Credenciales de Xuper inválidas") : surface(e);
+      throw refusedCredentials(e) ? told(kino, "auth_required", "Credenciales de Xuper inválidas", ACCOUNT_REFUSED) : surface(e);
     }
     return { message: "Sesión iniciada", refresh: true };
   }
@@ -113,8 +125,8 @@ export function makeSettings({ kino, session, clock, registration }) {
   // portal or logged. Blank fields are the person's to fill, so they never cost a portal call.
   function typedEmail() {
     const { email } = savedAccount();
-    if (email === "") throw kino.error("auth_required", "Escribe tu correo en Ajustes");
-    if (!email.includes("@")) throw kino.error("auth_required", "Escribe un correo válido");
+    if (email === "") throw told(kino, "auth_required", "Escribe tu correo en Ajustes", FILL_EMAIL);
+    if (!email.includes("@")) throw told(kino, "auth_required", "Escribe un correo válido", BAD_EMAIL);
     return email;
   }
 
@@ -134,11 +146,11 @@ export function makeSettings({ kino, session, clock, registration }) {
   async function register() {
     const email = typedEmail();
     const code = str(kino.config.get("verifyCode")).trim();
-    if (code === "") throw kino.error("auth_required", "Escribe el código de verificación");
+    if (code === "") throw told(kino, "auth_required", "Escribe el código de verificación", FILL_CODE);
     const { password } = savedAccount();
-    if (password === "") throw kino.error("auth_required", "Escribe tu contraseña en Ajustes");
+    if (password === "") throw told(kino, "auth_required", "Escribe tu contraseña en Ajustes", FILL_ACCOUNT);
     const pending = registration.pendingFor(email);
-    if (!pending) throw kino.error("unavailable", "Pide el código otra vez");
+    if (!pending) throw told(kino, "unavailable", "Pide el código otra vez", ASK_CODE_AGAIN);
     const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock.now() + REGISTER_TOTAL_MS };
     try { await registration.confirmRegistration(pending, code, password, bounds); }
     catch (e) { throw surface(e); }
