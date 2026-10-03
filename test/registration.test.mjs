@@ -23,15 +23,17 @@ const hexToText = (hex) => Buffer.from(hex, "hex").toString("utf8");
 
 // Real portal + real session over a scripted fetch. Requests are decrypted with the stand-in key;
 // answers go out plain ({returnCode:"0", ...fields}), which the portal accepts as-is.
-function world({ routes = {}, config = { email: EMAIL, password: PW }, hosts = ["h1.test"], onFetch, } = {}) {
+function world({ routes = {}, config = { email: EMAIL, password: PW }, hosts = ["h1.test"], onFetch, saved = null } = {}) {
   const clock = { t: 5_000_000, now() { return this.t; } };
   const requests = [];
   const base = fakeKino({ config });
   const decrypt = (wire) => base.crypto.decrypt("des-ede3-ecb", { key: base.secret("magisKey"), data: hexToText(wire), padding: "pkcs7" });
   // A mutable wrapper: the kit's storage is frozen and tests need to make it throw or spy on it.
   const storage = { get: (k) => base.storage.get(k), set: (k, v, o) => base.storage.set(k, v, o), remove: (k) => base.storage.remove(k) };
+  // `saved`: a plain map the test edits like the app's settings store (the kit's config is frozen).
+  const configOver = saved ? { config: Object.freeze({ get: (k) => saved[k], all: () => ({ ...saved }) }) } : {};
   const kino = Object.freeze({
-    ...base, storage, sleep: async () => {},
+    ...base, ...configOver, storage, sleep: async () => {},
     fetch: async (url, opts) => {
       const path = new URL(url).pathname.replace("/api/portalCore/", "");
       const bean = JSON.parse(decrypt(opts.body));
@@ -312,4 +314,51 @@ test("register: success clears the region-blocked flag and the exhausted state",
   await w.settings.action("register");
   assert.equal(w.session.regionBlocked(), false);
   assert.equal(w.session.seedsExhausted(), false);
+});
+
+// ---- the whole "Crear cuenta" flow through the settings form -----------------------------------
+
+// The app's Guardar: validateSettings first; only a null answer stores the draft.
+async function save(w, saved, values) {
+  const verdict = await w.settings.validateSettings(values);
+  if (verdict === null) Object.assign(saved, values);
+  return verdict;
+}
+
+test("Crear cuenta end to end: save the email alone, send the code, save code + password, register", async () => {
+  const saved = {};
+  let bound = false;
+  const routes = goodRoutes({
+    // The account does not exist until bindEmail: the portal refuses its login before that.
+    "v2/bindEmail": () => { bound = true; return {}; },
+    "v8/login": () => (bound ? { userId: "u-new", userToken: "tok-new", jwtToken: "jwt-new" } : refuse("用户不存在")),
+  });
+  const w = world({ routes, saved });
+
+  assert.equal(await save(w, saved, { email: EMAIL }), null, "an email alone is saved");
+  assert.equal(saved.email, EMAIL);
+  assert.deepEqual(w.requests, [], "an email alone costs no portal call");
+
+  assert.equal((await w.settings.action("sendCode")).message, "Te enviamos un código a " + EMAIL);
+
+  assert.equal(await save(w, saved, { email: EMAIL, password: PW, verifyCode: CODE }), null,
+    "a refused login does not block saving while a registration is pending");
+  assert.equal(saved.password, PW);
+
+  const out = await w.settings.action("register");
+  assert.equal(out.message, "Cuenta creada y sesión iniciada");
+  assert.deepEqual(out.clearSettings, ["verifyCode"]);
+  const s = w.stored();
+  assert.equal(s.userToken, "tok-new");
+  assert.equal(s.acct, w.session.accountKey(EMAIL, PW));
+  assert.equal(w.session.accountState(), "held", "the new account is the one in use");
+});
+
+test("validateSettings: a filled verify code alone (no pending device here) also saves over a refused login", async () => {
+  const saved = {};
+  const w = world({ routes: goodRoutes({ "v8/login": refuse("用户不存在") }), saved });
+  assert.equal(await save(w, saved, { email: EMAIL, password: PW, verifyCode: CODE }), null);
+  // Without either, a refused login is still the field error.
+  assert.deepEqual(await save(w, {}, { email: EMAIL, password: PW }), { password: "Credenciales de Xuper inválidas" });
+  assert.deepEqual(await save(w, {}, { email: EMAIL, password: PW, verifyCode: "  " }), { password: "Credenciales de Xuper inválidas" });
 });

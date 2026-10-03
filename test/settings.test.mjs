@@ -246,10 +246,10 @@ test("validate: blank email and password is anonymous use, no login attempt", as
 test("validate: field errors without a login attempt", async () => {
   let t = setup();
   assert.deepEqual(await t.settings.validateSettings({ email: "ana", password: PW }), { email: "Escribe un correo válido" });
-  assert.deepEqual(await t.settings.validateSettings({ email: "ana@x.test" }), { password: "Escribe tu contraseña" });
+  // An email alone is saved (it is what "Crear cuenta" sends the code to); no password, no login.
+  assert.equal(await t.settings.validateSettings({ email: "ana@x.test" }), null);
   assert.deepEqual(await t.settings.validateSettings({ password: PW }), { email: "Escribe tu correo" });
-  assert.deepEqual(await t.settings.validateSettings({ email: "ana", password: "" }),
-    { email: "Escribe un correo válido", password: "Escribe tu contraseña" });
+  assert.deepEqual(await t.settings.validateSettings({ email: "ana", password: "" }), { email: "Escribe un correo válido" });
   assert.deepEqual(t.sess.calls, []);
   const kept = checkSettingsOutput("validateSettings", { password: "Escribe tu contraseña" }, manifest);
   assert.equal(kept.accepted, false);

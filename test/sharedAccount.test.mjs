@@ -242,7 +242,7 @@ test("validateSettings: toggle on with an own account is a field error and never
   assert.ok(msg.length <= 200);
   const half = await t.settings.validateSettings({ useSharedAccount: true, email: OWN.email, password: "" });
   assert.equal(half.useSharedAccount, msg);
-  assert.equal(half.password, "Escribe tu contraseña");
+  assert.equal(half.password, undefined, "an email alone is no field error");
   assert.deepEqual(t.portal.calls, []);
 });
 

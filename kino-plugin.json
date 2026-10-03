@@ -63,7 +63,7 @@
       "key": "createAccount",
       "label": "Crear cuenta",
       "type": "section",
-      "hint": "Usa el correo y la contraseña de arriba; el código llega por correo."
+      "hint": "Guarda tu correo y toca Enviar código; luego guarda código y contraseña."
     },
     {
       "key": "verifyCode",

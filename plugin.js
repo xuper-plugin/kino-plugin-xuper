@@ -2972,14 +2972,17 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     if (sharedOn) errors.useSharedAccount = "Quita tu cuenta o apaga la cuenta compartida";
     if (email === "") errors.email = "Escribe tu correo";
     else if (!email.includes("@")) errors.email = "Escribe un correo v\xE1lido";
-    if (password === "") errors.password = "Escribe tu contrase\xF1a";
     if (Object.keys(errors).length > 0) return errors;
+    if (password === "") return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
     try {
       await session.login(email, password, bounds);
       return null;
     } catch (e) {
-      if (refusedCredentials(e)) return { password: "Credenciales de Xuper inv\xE1lidas" };
+      if (refusedCredentials(e)) {
+        const creating = str4(v.verifyCode).trim() !== "" || registration !== void 0 && registration !== null && registration.pendingFor(email) !== null;
+        return creating ? null : { password: "Credenciales de Xuper inv\xE1lidas" };
+      }
       throw surface(e);
     }
   }

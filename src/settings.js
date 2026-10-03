@@ -154,10 +154,13 @@ export function makeSettings({ kino, session, clock, registration }) {
   }
 
   /**
-   * Runs BEFORE the new email/password are saved. Blank both = anonymous use. Both set = one real
-   * login: refused credentials are a field error; anything else (network, portal down) throws, so
-   * the person can still save without checking. The shared-account toggle on (and no own account) is
-   * one bounded shared login; on together with an own account it is a field error.
+   * Runs BEFORE the new email/password are saved. Blank both = anonymous use. An email alone is
+   * saved as is ("Crear cuenta" sends the code to the SAVED email; no password means no login). Both
+   * set = one real login: refused credentials are a field error, except while an account is being
+   * created (a pending registration for that email, or a verify code typed): that account may not
+   * exist yet. Anything else (network, portal down) throws, so the person can still save without
+   * checking. The shared-account toggle on (and no own account) is one bounded shared login; on
+   * together with an own account it is a field error.
    */
   async function validateSettings(values) {
     await null;
@@ -178,12 +181,15 @@ export function makeSettings({ kino, session, clock, registration }) {
     if (sharedOn) errors.useSharedAccount = "Quita tu cuenta o apaga la cuenta compartida";
     if (email === "") errors.email = "Escribe tu correo";
     else if (!email.includes("@")) errors.email = "Escribe un correo válido";
-    if (password === "") errors.password = "Escribe tu contraseña";
     if (Object.keys(errors).length > 0) return errors;
+    if (password === "") return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
     try { await session.login(email, password, bounds); return null; }
     catch (e) {
-      if (refusedCredentials(e)) return { password: "Credenciales de Xuper inválidas" };
+      if (refusedCredentials(e)) {
+        const creating = str(v.verifyCode).trim() !== "" || (registration !== undefined && registration !== null && registration.pendingFor(email) !== null);
+        return creating ? null : { password: "Credenciales de Xuper inválidas" };
+      }
       throw surface(e);
     }
   }
