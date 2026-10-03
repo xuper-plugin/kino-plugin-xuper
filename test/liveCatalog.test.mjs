@@ -66,11 +66,12 @@ const checkChannels = (value) => checkOutput("liveChannels", value, manifest);
 
 // ---- categories --------------------------------------------------------------------------------
 
-test("categories: ChannelList is Todos, ids are decimal text, the adult one and the column with no id are out", async () => {
+test("categories: ChannelList is Todos, ids are decimal text, the adult one is marked and the column with no id is out", async () => {
   const { live } = setup({ queues: { getNextColumns: [categories()] } });
   assert.deepEqual(await live.liveCategories(), [
     { id: "76182", title: "Todos" },
     { id: "76183", title: "Deportes" },
+    { id: "76184", title: "18+", adult: true },
   ]);
 });
 
@@ -86,11 +87,11 @@ test("categories: asks masnew_live with pageSize 200, the session's credentials,
   assert.deepEqual(opts, { baseFields: true, userId: "u1", userToken: "tok1", deadline: 18_000 });
 });
 
-test("categories: every adult name is hidden, trimmed and case-insensitive", async () => {
+test("categories: every adult name is recognized, trimmed and case-insensitive", async () => {
   const names = ["18+", "Adultos", " adulto ", "XXX", "+18"];
   const recommendList = [...names.map((name, i) => ({ columnId: 100 + i, name })), { columnId: 200, name: "Cine" }];
   const { live } = setup({ queues: { getNextColumns: [{ recommendList }] } });
-  assert.deepEqual(await live.liveCategories(), [{ id: "200", title: "Cine" }]);
+  assert.deepEqual((await live.liveCategories()).filter((c) => !c.adult), [{ id: "200", title: "Cine" }]);
 });
 
 test("categories: a text columnId counts, a non-integer or blank-named column is skipped, the SDK cap of 200 holds", async () => {
@@ -130,7 +131,7 @@ test("categories: the output passes the kit with zero drops", async () => {
   const { live } = setup({ queues: { getNextColumns: [categories()] } });
   const r = checkOutput("liveCategories", await live.liveCategories(), manifest);
   assert.deepEqual(r.drops, []);
-  assert.deepEqual(r.value.categories.map((c) => c.id), ["76182", "76183"]);
+  assert.deepEqual(r.value.categories.map((c) => c.id), ["76182", "76183", "76184"]);
 });
 
 // ---- channels ----------------------------------------------------------------------------------
@@ -258,16 +259,16 @@ test("channels: a garbage or zero cursor is page 1", async () => {
 
 // ---- adult categories --------------------------------------------------------------------------
 
-test("adult: an adult category's channels are never served (empty page, no channel call)", async () => {
+test("adult: an adult category's channels are served marked adult (one channel call)", async () => {
   const { live, portal } = setup({ queues: withCats({ "v6/getLiveData": [page(chan("X"))] }) });
-  assert.deepEqual(await live.liveChannels({ categoryId: "76184" }), { items: [] });
-  assert.equal(portal.count("v6/getLiveData"), 0);
+  assert.deepEqual((await live.liveChannels({ categoryId: "76184" })).items.map((c) => c.adult), [true]);
+  assert.equal(portal.count("v6/getLiveData"), 1);
 });
 
 test("adult: ids seen by liveCategories are remembered, so channels re-reads nothing", async () => {
-  const { live, portal } = setup({ queues: withCats({ "v6/getLiveData": [page(chan("A")), page(chan("B"))] }) });
+  const { live, portal } = setup({ queues: withCats({ "v6/getLiveData": [page(chan("X")), page(chan("A")), page(chan("B"))] }) });
   await live.liveCategories();
-  assert.deepEqual(await live.liveChannels({ categoryId: "76184" }), { items: [] });
+  assert.equal((await live.liveChannels({ categoryId: "76184" })).items[0].adult, true);
   await live.liveChannels({ categoryId: "76183" });
   await live.liveChannels({ categoryId: "76183", cursor: "2" });
   assert.equal(portal.count("getNextColumns"), 1);
@@ -290,8 +291,8 @@ test("adult: a later EMPTY categories answer does not wipe the adult ids from th
   const { live, portal } = setup({ queues: { getNextColumns: [categories(), { recommendList: [] }], "v6/getLiveData": [page(chan("A"))] } });
   assert.ok((await live.liveCategories()).length > 0);
   assert.deepEqual(await live.liveCategories(), []);
-  assert.deepEqual(await live.liveChannels({ categoryId: "76184" }), { items: [] }, "the adult category is still known as adult");
-  assert.equal(portal.count("v6/getLiveData"), 0);
+  assert.equal((await live.liveChannels({ categoryId: "76184" })).items[0].adult, true, "the adult category is still known as adult");
+  assert.equal(portal.count("v6/getLiveData"), 1);
   assert.equal(portal.count("getNextColumns"), 2, "channels re-read nothing");
 });
 
@@ -300,4 +301,35 @@ test("adult: a page-2 call with no adult ids known and a failing categories re-r
   assert.deepEqual(await live.liveChannels({ categoryId: "76183", cursor: "2" }), { items: [] });
   assert.equal(portal.count("v6/getLiveData"), 0);
   assert.equal(portal.count("getNextColumns"), 1);
+});
+
+// ---- Task 17 (D3): 18+ is marked, not hidden; the app gates it behind the device's 18+ code ------
+
+test("D3: liveCategories lists every adult name, marked adult: true; the others carry no flag", async () => {
+  const names = ["18+", "Adultos", " adulto ", "XXX", "+18"];
+  const recommendList = [...names.map((name, i) => ({ columnId: 100 + i, name })), { columnId: 200, name: "Cine" }];
+  const { live } = setup({ queues: { getNextColumns: [{ recommendList }] } });
+  assert.deepEqual(await live.liveCategories(), [
+    ...names.map((title, i) => ({ id: String(100 + i), title, adult: true })),
+    { id: "200", title: "Cine" },
+  ]);
+});
+
+test("D3: an adult category's channels are returned, each marked adult: true", async () => {
+  const { live, portal } = setup({ queues: withCats({ "v6/getLiveData": [page(chan("X1"), chan("X2"))] }) });
+  const out = await live.liveChannels({ categoryId: "76184" });
+  assert.deepEqual(out.items.map((c) => [c.id, c.adult]), [["X1", true], ["X2", true]]);
+  assert.equal(portal.count("v6/getLiveData"), 1);
+  const plain = setup({ queues: withCats({ "v6/getLiveData": [page(chan("A"))] }) });
+  assert.equal("adult" in (await plain.live.liveChannels({ categoryId: "76183" })).items[0], false);
+});
+
+test("D3: the kit at apiVersion 6 keeps the adult category and the adult channels", async () => {
+  const { live } = setup({ queues: withCats({ "v6/getLiveData": [page(chan("X1"))] }) });
+  const cats = checkOutput("liveCategories", await live.liveCategories(), manifest);
+  assert.deepEqual(cats.drops, []);
+  assert.deepEqual(cats.value.categories.find((c) => c.id === "76184"), { id: "76184", title: "18+", country: "", genre: cats.value.categories[0].genre, adult: true });
+  const chans = checkChannels(await live.liveChannels({ categoryId: "76184" }));
+  assert.deepEqual(chans.drops, []);
+  assert.equal(chans.value.items[0].adult, true);
 });

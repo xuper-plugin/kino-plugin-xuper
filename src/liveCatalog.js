@@ -1,6 +1,7 @@
 // Live categories and channels over the Magis portal (native-magis.md §6.1, §6.2; MagisLiveCatalog.kt).
 // No plugin-side cache (controller ruling R19): the app caches both lists for an hour. The one thing
-// kept in memory is the set of adult category ids, so an adult category's channels are never served.
+// kept in memory is the set of adult category ids, so an adult category's channels are always marked.
+// 18+ is marked `adult: true`, never hidden (D3): Kino shows it only behind the device's 18+ code.
 import { PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { logoOf } from "./homeTree.js";
 import { isObject, asText, isBlank, isKinoError, intOrNull } from "./util.js";
@@ -60,13 +61,14 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
 
   async function liveCategories() {
     const all = await readCategories(callDeadline(clock, CALL_BUDGET_MS.liveCategories));
-    return all.filter((c) => !c.adult && ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => ({ id: c.id, title: c.name }));
+    return all.filter((c) => ID.test(c.id)).slice(0, MAX_CATEGORIES)
+      .map((c) => (c.adult ? { id: c.id, title: c.name, adult: true } : { id: c.id, title: c.name }));
   }
 
   async function isAdultCategory(id, deadline) {
     if (adultIds === null) {
       await readCategories(deadline);
-      // No categories at all: it cannot be told apart from an adult one, so it is not served.
+      // No categories at all: it cannot be told apart from an adult one, so it is not served unmarked.
       if (adultIds === null) throw kino.error("unavailable", "Xuper no está disponible ahora");
     }
     return adultIds.has(id);
@@ -82,7 +84,7 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
   }
 
-  function project(list, categoryId) {
+  function project(list, categoryId, adult) {
     const seen = new Set();
     const items = [];
     for (const c of list) {
@@ -93,6 +95,7 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
       seen.add(code);
       const n = intOrNull(c.channelNumber);
       const item = { id: code, title, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
+      if (adult) item.adult = true;
       const logo = logoOf(c);
       if (logo) item.logo = logo;
       items.push(item);
@@ -110,9 +113,9 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     if (page > MAX_PAGES) return { items: [] };
     // Native "stops at the first failed page": page 1 fails loudly, a later one just ends the listing.
     try {
-      if (await isAdultCategory(id, deadline)) return { items: [] };
+      const adult = await isAdultCategory(id, deadline);
       const list = await fetchPage(id, page, deadline);
-      const items = project(list, id);
+      const items = project(list, id, adult);
       return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
       if (page > 1) return { items: [] };

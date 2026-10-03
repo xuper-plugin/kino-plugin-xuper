@@ -1,12 +1,16 @@
 // The `migrate` capability: claims the values Kino saved while Xuper was native (library titles,
 // their chapters, live favorites) and answers them in this plugin's own terms. Pure: no network,
 // no storage. Only refs this plugin can read (`magis1:` and the legacy gateway form) and the
-// native live provider key are claimed; everything else is `null`, which the app remembers.
+// live provider keys (native "xuper", Kino's neutral "legacy") are claimed; everything else is `null`,
+// which the app remembers.
 import { decode, encode, encodeChapter } from "./refs.js";
 import { isObject } from "./util.js";
 
-/** The provider key the app files native Xuper live favorites/recents under (LiveChannelKeys.XUPER). */
-export const LIVE_PROVIDER = "xuper";
+/**
+ * The provider keys the app files native Xuper live favorites/recents under: "xuper" (LiveChannelKeys.XUPER)
+ * and "legacy", Kino's neutral key for these rows from 0.9.50 on.
+ */
+export const LIVE_PROVIDERS = new Set(["xuper", "legacy"]);
 
 // The contract's item id (itemIdPattern): what search/home emit as `id` and liveChannels as a code.
 const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
@@ -46,7 +50,7 @@ function chapter(input) {
 }
 
 function live(input) {
-  if (input.provider !== LIVE_PROVIDER) return null;
+  if (!LIVE_PROVIDERS.has(input.provider)) return null;
   return typeof input.code === "string" && ITEM_ID.test(input.code) ? { kind: "live", code: input.code } : null;
 }
 

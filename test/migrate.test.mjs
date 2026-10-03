@@ -137,3 +137,15 @@ test("foreign and garbage input is null, never a throw", async () => {
 test("migrate is async from the first line", () => {
   assert.ok(migrate({ kind: "title", ref: "x" }) instanceof Promise);
 });
+
+// ---- Task 17: Kino's neutral "legacy" live key (0.9.50 on) is claimed as well as "xuper" ----------
+
+test("a live channel under Kino's neutral legacy key answers its bare code; xuper still does; a plugin key does not", async () => {
+  const input = { kind: "live", provider: "legacy", code: "123" };
+  const out = await migrate(input);
+  assert.deepEqual(out, { kind: "live", code: "123" });
+  assert.deepEqual(kept(input, out), out);
+  assert.deepEqual(await migrate({ kind: "live", provider: "xuper", code: "123" }), { kind: "live", code: "123" });
+  assert.equal(await migrate({ kind: "live", provider: "plugin:x", code: "123" }), null);
+  assert.equal(await migrate({ kind: "live", provider: "legacy", code: "bad code" }), null);
+});

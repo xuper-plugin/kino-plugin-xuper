@@ -172,7 +172,8 @@ const liveRoutes = () => ({
   },
   "v6/getLiveData": (bean) => {
     withSession(bean);
-    assert.equal(bean.columnId, 11);
+    assert.ok(bean.columnId === 11 || bean.columnId === 13, String(bean.columnId));
+    if (bean.columnId === 13) return { data: { channelList: [{ channelCode: "AD1", name: "Canal Adulto", channelNumber: 90 }] } };
     return { data: { channelList: [{ channelCode: "CH1", name: "Canal Uno", channelNumber: 1 }, { channelCode: "CH2", name: "Canal Dos", channelNumber: 2 }] } };
   },
   ...homeRoutes(),
@@ -273,15 +274,17 @@ test("resolve (live channel code) then sign: a request-signed stream whose signC
   assert.ok(kept.headers["Content-Auth"].startsWith(cflUrl(TOKEN_B) + "&sign2_method=sign_o3"), "the second CDN's own token signs its host");
 });
 
-test("liveCategories and liveChannels: the adult category is hidden, channels pass the kit", async () => {
+test("liveCategories and liveChannels: the adult category and its channels are marked adult (D3), all pass the kit", async () => {
   const s = await start({ routes: liveRoutes() });
   const cats = await s.plugin.liveCategories();
-  assert.deepEqual(cats.map((c) => c.title), ["Noticias", "Todos"]);
+  assert.deepEqual(cats.map((c) => [c.title, c.adult === true]), [["Noticias", false], ["Todos", false], ["Adultos", true]]);
   clean(checkOutput("liveCategories", cats, manifest));
   const page = await s.plugin.liveChannels({ categoryId: "11" });
   assert.deepEqual(page.items.map((c) => c.id), ["CH1", "CH2"]);
   clean(checkOutput("liveChannels", page, manifest));
-  assert.deepEqual(await s.plugin.liveChannels({ categoryId: "13" }), { items: [] });
+  const adult = await s.plugin.liveChannels({ categoryId: "13" });
+  assert.deepEqual(adult.items.map((c) => [c.id, c.adult]), [["AD1", true]]);
+  clean(checkOutput("liveChannels", adult, manifest));
 });
 
 test("migrate: claims a saved title, a chapter and a native live code, and leaves the rest alone", async () => {
@@ -291,6 +294,7 @@ test("migrate: claims a saved title, a chapter and a native live code, and leave
     { kind: "chapter", ref: "magis1:teleplay:3:S9", season: 1 },
     { kind: "live", provider: "xuper", code: "CH1" },
     { kind: "title", ref: "https://example.com/x" },
+    { kind: "live", provider: "legacy", code: "CH2" },
   ];
   const out = [];
   for (const input of inputs) {
@@ -299,7 +303,7 @@ test("migrate: claims a saved title, a chapter and a native live code, and leave
     const r = migrateAnswer(v, input);
     assert.deepEqual(r.drops, [], JSON.stringify(v));
   }
-  assert.deepEqual(out.map((v) => v && v.kind), ["movie", "episode", "live", undefined].map((k) => k ?? null));
+  assert.deepEqual(out.map((v) => v && v.kind), ["movie", "episode", "live", undefined, "live"].map((k) => k ?? null));
   assert.equal(out[3], null);
   assert.deepEqual(s.log.requests, []);
 });
@@ -587,6 +591,6 @@ test("the BUILT bundle (what Kino loads) answers home and liveCategories over th
   clean(checkOutput("home", rows, manifest));
   assert.ok(rows.length >= 1);
   const cats = await s.plugin.liveCategories();
-  assert.deepEqual(cats.map((c) => c.title), ["Noticias", "Todos"]);
+  assert.deepEqual(cats.map((c) => [c.title, c.adult === true]), [["Noticias", false], ["Todos", false], ["Adultos", true]]);
   clean(checkOutput("liveCategories", cats, manifest));
 });

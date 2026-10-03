@@ -2294,7 +2294,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   }
   async function liveCategories2() {
     const all = await readCategories(callDeadline(clock2, CALL_BUDGET_MS.liveCategories));
-    return all.filter((c) => !c.adult && ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => ({ id: c.id, title: c.name }));
+    return all.filter((c) => ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => c.adult ? { id: c.id, title: c.name, adult: true } : { id: c.id, title: c.name });
   }
   async function isAdultCategory(id, deadline) {
     if (adultIds === null) {
@@ -2312,7 +2312,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     ), { deadline });
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
   }
-  function project(list, categoryId) {
+  function project(list, categoryId, adult) {
     const seen = /* @__PURE__ */ new Set();
     const items = [];
     for (const c of list) {
@@ -2323,6 +2323,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
       seen.add(code);
       const n = intOrNull(c.channelNumber);
       const item = { id: code, title: title2, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
+      if (adult) item.adult = true;
       const logo = logoOf(c);
       if (logo) item.logo = logo;
       items.push(item);
@@ -2338,9 +2339,9 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     const page = typeof cursor === "string" && POSITIVE.test(cursor) && Number(cursor) >= 1 ? Number(cursor) : 1;
     if (page > MAX_PAGES) return { items: [] };
     try {
-      if (await isAdultCategory(id, deadline)) return { items: [] };
+      const adult = await isAdultCategory(id, deadline);
       const list = await fetchPage(id, page, deadline);
-      const items = project(list, id);
+      const items = project(list, id, adult);
       return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
       if (page > 1) return { items: [] };
@@ -3060,7 +3061,7 @@ async function guarded(body) {
 }
 
 // src/migrate.js
-var LIVE_PROVIDER = "xuper";
+var LIVE_PROVIDERS = /* @__PURE__ */ new Set(["xuper", "legacy"]);
 var ITEM_ID3 = /^[A-Za-z0-9._~-]{1,128}$/;
 var MAX_NUMBER = 99999;
 var MAX_SEASON = 999;
@@ -3088,7 +3089,7 @@ function chapter(input) {
   return out;
 }
 function live(input) {
-  if (input.provider !== LIVE_PROVIDER) return null;
+  if (!LIVE_PROVIDERS.has(input.provider)) return null;
   return typeof input.code === "string" && ITEM_ID3.test(input.code) ? { kind: "live", code: input.code } : null;
 }
 function makeMigrate() {
