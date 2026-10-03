@@ -121,7 +121,7 @@ test("shared account + geo-blocked search: retried with a seed, stored session s
   assert.equal(t.session.regionBlocked(), true, "the geo-block still flags the region");
   assert.equal(t.session.seedsExhausted(), false);
   assert.equal(t.session.kind(), "account");
-  assert.ok(t.logs.some((l) => /seed_fallback/.test(l)), "one counts-only log line");
+  assert.ok(t.logs.some((l) => /seed_fallback|shared_seed/.test(l)), "one counts-only log line");
   noSecretsLogged(t);
 });
 
@@ -202,7 +202,7 @@ test("no account + geo-blocked: today's path (the stored session switches to a s
   const out = await search(searchQuery);
   assert.equal(out[0].id, "D1");
   assert.ok(t.stored().userToken.startsWith("seedtok"), "the old switchToBackup swap, as before");
-  assert.ok(!t.logs.some((l) => /seed_fallback/.test(l)), "not the per-call fallback");
+  assert.ok(!t.logs.some((l) => /seed_fallback|shared_seed/.test(l)), "not the per-call fallback");
 });
 
 test("live open with the shared account geo-blocked: no seed attempt", async () => {

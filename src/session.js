@@ -241,8 +241,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (pool.length > 0) {
       const chosen = pick(pool);
       writeSession(seedSession(chosen));
-      // Degraded: no anonymous session of its own, a seed's instead.
-      report(kino, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino, chosen.sn) });
+      // Degraded: no anonymous session of its own, a seed's instead (its own area: its own hourly report).
+      report(kino, "seed", "pick", { pool: pool.length, seed: seedTag(kino, chosen.sn) });
       return;
     }
     trace(kino, "session", "no_seed", { code: errCode(direct) });
@@ -283,7 +283,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       } catch (e) {
         const refused = refusal(e, key);
         // Degraded: the account the person chose failed, the call goes on anonymous.
-        report(kino, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
+        report(kino, "anon_fallback", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
         if (refused) setRefused(key); else startCooldown(key);
       }
     }
@@ -483,7 +483,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     }
     // Counts only: never a token or an sn.
     // A seed that answered is a degraded success (reported); none answering ends in the call's own failure.
-    const note = (tries, outcome) => (outcome === "answered" ? report : trace)(kino, "session", "seed_fallback", { outcome, tries, pool: candidates.length, refreshed });
+    const note = (tries, outcome) => outcome === "answered"
+      ? report(kino, "shared_seed", "answered", { tries, pool: candidates.length, refreshed })
+      : trace(kino, "session", "seed_fallback", { outcome, tries, pool: candidates.length, refreshed });
     let tries = 0;
     for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
       if (left() < SEED_FALLBACK_MIN_MS) break;

@@ -230,7 +230,8 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     const deadline = callDeadline(clock, CALL_BUDGET_MS.resolve); // a channel resolve has the app's 20 s
     try {
       const retry = isObject(options) && isObject(options.retry) ? options.retry : null;
-      if (retry) trace(kino, "live", "retry", { reason: typeof retry.reason === "string" ? retry.reason : "?", attempt: retry.attempt });
+      // `status` (the origin's 401/403/409, when the app heard one) says which refusal sent the player back here.
+      if (retry) trace(kino, "live", "retry", { reason: typeof retry.reason === "string" ? retry.reason : "?", attempt: retry.attempt, status: Number.isInteger(retry.status) ? retry.status : undefined });
       if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
       return await openWithRotation(code, deadline);
     } catch (e) {

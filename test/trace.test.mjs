@@ -91,8 +91,8 @@ test("report writes the same line through kino.log.report when the app has it, e
   const plain = [];
   const reported = [];
   const log = Object.assign((...a) => plain.push(a.map(String).join(" ")), { report: (...a) => reported.push(a.map(String).join(" ")) });
-  report({ ...fakeKino(), log }, "session", "seed_pick", { pool: 3, seed: "ab12cd34", token: "x" });
-  assert.deepEqual(reported, ["xuper:session seed_pick pool=3 seed=ab12cd34"]);
+  report({ ...fakeKino(), log }, "seed", "pick", { pool: 3, seed: "ab12cd34", token: "x" });
+  assert.deepEqual(reported, ["xuper:seed pick pool=3 seed=ab12cd34"]);
   assert.deepEqual(plain, []);
   const { kino, lines } = capture();
   report(kino, "session", "seed_pick", { pool: 3 });

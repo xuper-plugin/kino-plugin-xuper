@@ -36,7 +36,7 @@
     "fetchHosts": { "value": "any", "apiVersion": 4 },
     "discoverable": { "default": true },
     "debug": { "apiVersion": 6 },
-    "telemetry": { "apiVersion": 6, "consentLine": "Comparte registros de errores con Kino para corregir fallas", "notBooleanMessage": "El campo \"telemetry\" debe ser true o false", "switchLabel": "Enviar registros de errores", "report": { "windowSeconds": 3600, "areaMaxChars": 40 } },
+    "telemetry": { "apiVersion": 6, "consentLine": "Comparte registros de errores con Kino para corregir fallas", "notBooleanMessage": "El campo \"telemetry\" debe ser true o false", "switchLabel": "Enviar registros de errores", "report": { "windowSeconds": 3600, "areaMaxChars": 24, "areaPattern": "^(?=[a-z0-9_:]*[_:])[a-z0-9_:]{1,24}$", "otherArea": "other", "perPluginPerSession": 3, "sessionShare": 10 } },
     "section": { "apiVersion": 6, "labelMaxChars": 20, "export": "section" },
     "theme": {
       "apiVersion": 6,

@@ -98,7 +98,7 @@ test("an account the portal refuses: acct kind, code and that it is remembered a
   const w = portalWorld({ hosts: ["a.test"], session: null, config: { email: "persona@correo.test", password: "clave-secreta-9" },
     routes: { "v8/login": { returnCode: "aaa100002" } } });
   await w.catalog.search(query);
-  has(w, /^xuper:session login acct=own ok=0 code=aaa100002 refused=1$/);
+  has(w, /^xuper:anon_fallback login acct=own ok=0 code=aaa100002 refused=1$/);
 });
 
 test("an account that logs in: acct kind and ok", async () => {
@@ -112,9 +112,9 @@ test("shared account, still geo-blocked: the per-call seed fallback with counts"
   const w = portalWorld({ hosts: ["a.test"], seeds: SEEDS, shared, config: { useSharedAccount: true },
     routes: { "v3/searchByName": (b) => (isSeed(b) ? searchAnswer : GEO) } });
   await w.catalog.search(query);
-  has(w, /^xuper:session seed_fallback outcome=answered tries=1 pool=2 refreshed=0$/);
+  has(w, /^xuper:shared_seed answered tries=1 pool=2 refreshed=0$/);
   // A seed that answered for the shared account is a degraded success: reported to the error board.
-  assert.deepEqual(w.reports, ["xuper:session seed_fallback outcome=answered tries=1 pool=2 refreshed=0"]);
+  assert.deepEqual(w.reports, ["xuper:shared_seed answered tries=1 pool=2 refreshed=0"]);
 });
 
 test("degraded results are reported, failures and successes are not", async () => {
@@ -122,7 +122,7 @@ test("degraded results are reported, failures and successes are not", async () =
   const refused = portalWorld({ hosts: ["a.test"], session: null, config: { email: "persona@correo.test", password: "clave-secreta-9" },
     routes: { "v8/login": { returnCode: "aaa100002" } } });
   await refused.catalog.search(query);
-  assert.deepEqual(refused.reports, ["xuper:session login acct=own ok=0 code=aaa100002 refused=1"]);
+  assert.deepEqual(refused.reports, ["xuper:anon_fallback login acct=own ok=0 code=aaa100002 refused=1"]);
   // A login that works reports nothing.
   const ok = portalWorld({ hosts: ["a.test"], session: null, config: { email: "persona@correo.test", password: "clave-secreta-9" } });
   await ok.catalog.search(query);
@@ -130,7 +130,7 @@ test("degraded results are reported, failures and successes are not", async () =
   // Every seed dead: the call fails (its own failure event carries the lines), nothing is reported as degraded.
   const dead = portalWorld({ hosts: ["a.test"], seeds: SEEDS, seedsText: JSON.stringify(SEEDS), routes: { "v3/searchByName": DEAD } });
   await assert.rejects(dead.catalog.search(query));
-  assert.ok(dead.reports.every((l) => !/seed_fallback/.test(l)), dead.reports.join("\n"));
+  assert.ok(dead.reports.every((l) => !/shared_seed|seed_fallback/.test(l)), dead.reports.join("\n"));
 });
 
 test("live: a conflict retry says what the rotation did; a seed that cannot open is logged by hash and code", async () => {
@@ -264,4 +264,25 @@ test("a Home where every root fails ends with one compact summary line, inside t
   assert.match(summary[0], /^xuper:home all_fail roots=4 rounds=\d c1=geo_blocked( c2=[a-z0-9_]+)?( c3=[a-z0-9_]+)?$/);
   assert.equal(appScrub(summary[0]), summary[0]);
   assert.equal(lines[lines.length - 1], summary[0], "the newest line, so it is the last one cut");
+});
+
+test("each degraded result has its own area (its own hourly report), each a namespaced word the app keeps", async () => {
+  const AREA = /^(?=[a-z0-9_:]*[_:])[a-z0-9_:]{1,24}$/;
+  const shared = { email: "compartida@correo.test", password: "compartida-pw-7" };
+  const seed = portalWorld({ hosts: ["a.test"], seeds: SEEDS, shared, config: { useSharedAccount: true },
+    routes: { "v3/searchByName": (b) => (isSeed(b) ? searchAnswer : GEO) } });
+  await seed.catalog.search(query);
+  const refused = portalWorld({ hosts: ["a.test"], session: null, config: { email: "persona@correo.test", password: "clave-secreta-9" },
+    routes: { "v8/login": { returnCode: "aaa100002" } } });
+  await refused.catalog.search(query);
+  const areas = [...seed.reports, ...refused.reports].map((l) => l.split(" ")[0]);
+  assert.ok(areas.length >= 2);
+  assert.equal(new Set(areas).size, areas.length, areas.join(","));
+  for (const a of areas) assert.match(a, AREA);
+});
+
+test("live: a retry's HTTP status is logged when the app sends one", async () => {
+  const w = portalWorld({ hosts: ["a.test"], seeds: SEEDS, session: { ...SEEDS[0], jwtToken: "", acct: "" } });
+  await w.resolve.resolve("cyx-RCNHD", { retry: { reason: "expired", attempt: 2, status: 403 } });
+  has(w, /^xuper:live retry reason=expired attempt=2 status=403$/);
 });

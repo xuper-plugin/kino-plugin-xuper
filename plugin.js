@@ -714,7 +714,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (pool.length > 0) {
       const chosen = pick(pool);
       writeSession(seedSession(chosen));
-      report(kino2, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino2, chosen.sn) });
+      report(kino2, "seed", "pick", { pool: pool.length, seed: seedTag(kino2, chosen.sn) });
       return;
     }
     trace(kino2, "session", "no_seed", { code: errCode(direct) });
@@ -754,7 +754,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         return;
       } catch (e) {
         const refused = refusal(e, key);
-        report(kino2, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
+        report(kino2, "anon_fallback", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
         if (refused) setRefused(key);
         else startCooldown(key);
       }
@@ -969,7 +969,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       const j = Math.min(i, Math.floor(rand() * (i + 1)));
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
-    const note = (tries2, outcome) => (outcome === "answered" ? report : trace)(kino2, "session", "seed_fallback", { outcome, tries: tries2, pool: candidates.length, refreshed });
+    const note = (tries2, outcome) => outcome === "answered" ? report(kino2, "shared_seed", "answered", { tries: tries2, pool: candidates.length, refreshed }) : trace(kino2, "session", "seed_fallback", { outcome, tries: tries2, pool: candidates.length, refreshed });
     let tries = 0;
     for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
       if (left() < SEED_FALLBACK_MIN_MS) break;
@@ -3299,7 +3299,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     const deadline = callDeadline(clock2, CALL_BUDGET_MS.resolve);
     try {
       const retry = isObject(options) && isObject(options.retry) ? options.retry : null;
-      if (retry) trace(kino2, "live", "retry", { reason: typeof retry.reason === "string" ? retry.reason : "?", attempt: retry.attempt });
+      if (retry) trace(kino2, "live", "retry", { reason: typeof retry.reason === "string" ? retry.reason : "?", attempt: retry.attempt, status: Number.isInteger(retry.status) ? retry.status : void 0 });
       if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
       return await openWithRotation(code, deadline);
     } catch (e) {

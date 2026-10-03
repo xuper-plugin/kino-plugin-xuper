@@ -466,7 +466,7 @@ declare namespace kino {
   /** Writes to Kino's log (and console.* does the same); lines are cut at 2000 characters. When a call of a recommended-catalog plugin, or of one whose manifest says `"telemetry": true` (apiVersion 6) with the person's "Enviar registros de errores" on, fails (sign and the settings exports included), the last 30 lines it logged (cut at 300 characters, scrubbed of URLs, hosts, ids, secrets and the person's text, 2 KB in all) go with the failure report; never for a call that succeeds. Log what happened, never what the person typed. */
   function log(...args: unknown[]): void;
   namespace log {
-    /** apiVersion 6, with `"telemetry": true`: a log line that also tells Kino's error tracker your plugin served a degraded result (a fallback account, a backup source). The line's first word is its area; at most one report per area an hour, scrubbed like any line. Without telemetry (or switched off) it is only a log line. */
+    /** apiVersion 6, with `"telemetry": true`: a log line that also tells Kino's error tracker your plugin served a degraded result (a fallback account, a backup source). The line's first word is its area (`[a-z0-9_:]`, with a `_` or `:`, up to 24 characters; anything else is filed as "other"); at most one report per area an hour and 3 per plugin per session, scrubbed like any line. Without telemetry (or switched off) it is only a log line. */
     function report(...args: unknown[]): void;
   }
 
