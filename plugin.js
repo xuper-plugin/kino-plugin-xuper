@@ -1910,6 +1910,15 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
       return { sections: [], error: isKinoError(e) ? e : kino2.error("unavailable", "Xuper no est\xE1 disponible ahora") };
     }
   }
+  const inflight = /* @__PURE__ */ new Map();
+  function sharedFetchRoot(root, deadline) {
+    let pending = inflight.get(root);
+    if (!pending) {
+      pending = fetchRoot(root, deadline).finally(() => inflight.delete(root));
+      inflight.set(root, pending);
+    }
+    return pending;
+  }
   const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
   const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
   async function buildRows(budgetMs = CALL_BUDGET_MS.home) {
@@ -1923,7 +1932,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
     }
     if (missing.length > 0) {
       await session.ensure({ deadline });
-      const pass = () => Promise.all(missing.map((root) => fetchRoot(root, deadline)));
+      const pass = () => Promise.all(missing.map((root) => sharedFetchRoot(root, deadline)));
       let fetched = await pass();
       if (allFailed(fetched)) {
         if (deadline - clock2.now() >= HOME_RETRY_PAUSE_MS + HOME_RETRY_MIN_MS) {

@@ -93,3 +93,19 @@ test("the real captured rows (home-1.json) split by root, kit-valid", { skip: fi
     assert.deepEqual(checkOutput("section", out, manifest()).drops, [], id);
   }
 });
+
+// ---- Task 15 review minor 1: concurrent cold calls share the pending root fetches ----------------
+
+test("home, section and categories called cold at the same moment ask each root once (4 getNextColumns, not 12)", async () => {
+  const { makeCategories } = await import("../src/categories.js");
+  const w = setup();
+  const categories = makeCategories({ catalog: w.catalog });
+  await Promise.all([w.catalog.home(), w.section.section(null), categories.categories()]);
+  const roots = w.portal.calls.filter((c) => c.path === "getNextColumns").map((c) => c.bean.columnCode);
+  assert.equal(roots.length, 4, roots.join(","));
+  assert.equal(new Set(roots).size, 4);
+  // Once settled, a later cold root is asked again (nothing stays pinned in memory).
+  w.kino.storage.remove("tree:peliculas");
+  await w.catalog.home();
+  assert.equal(w.portal.calls.filter((c) => c.path === "getNextColumns").length, 5);
+});

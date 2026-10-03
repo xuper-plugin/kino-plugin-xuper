@@ -124,6 +124,18 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
     }
   }
 
+  // A root being fetched right now: concurrent cold callers (home, section, categories, browse) share
+  // that fetch instead of asking the portal again. Dropped once it settles, so nothing is pinned.
+  const inflight = new Map();
+  function sharedFetchRoot(root, deadline) {
+    let pending = inflight.get(root);
+    if (!pending) {
+      pending = fetchRoot(root, deadline).finally(() => inflight.delete(root));
+      inflight.set(root, pending);
+    }
+    return pending;
+  }
+
   // Every root asked failed (none cached, none answered, not even empty).
   const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
   // What to tell the person: a root's specific error (geo, account...) before a plain unavailable.
@@ -142,7 +154,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
     if (missing.length > 0) {
       // The session is not created by withValidSession: ensure it first; a failure here is the error.
       await session.ensure({ deadline });
-      const pass = () => Promise.all(missing.map((root) => fetchRoot(root, deadline)));
+      const pass = () => Promise.all(missing.map((root) => sharedFetchRoot(root, deadline)));
       let fetched = await pass();
       if (allFailed(fetched)) {
         // Every root failed: one more pass after a short pause (native), if the call's time allows;
