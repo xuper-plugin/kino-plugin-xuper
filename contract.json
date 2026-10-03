@@ -13,7 +13,7 @@
     "requiresMessage": "La capacidad \"{capability}\" necesita también \"{requires}\"",
     "needsApproval": ["download", "drm", "channels", "migrate"],
     "exports": { "channels": ["liveCategories", "liveChannels"] },
-    "optionalExports": { "channels": ["guide"], "resolve": ["sign"] }
+    "optionalExports": { "channels": ["guide", "liveSearch"], "resolve": ["sign"] }
   },
   "manifest": {
     "maxBytes": 16384,
@@ -132,6 +132,7 @@
     "maxEpisodeNumber": 99999,
     "maxSubtitles": 30,
     "maxAudioTracks": 8,
+    "maxAlternatives": 8,
     "maxHeaders": 20,
     "drmKeys": ["drm", "license", "licenseUrl", "drmLicenseUrl", "keySystem", "widevine"],
     "drm": { "field": "drm", "types": ["widevine"] },
@@ -146,6 +147,11 @@
     "maxCategories": 200,
     "maxChannelsPerPage": 500,
     "maxPagesPerCategory": 10,
+    "pagesPerStep": 5,
+    "maxChannelsPerCategory": 10000,
+    "maxTotalPagesPerCategory": 200,
+    "maxSearchChannels": 100,
+    "minSearchChars": 2,
     "maxGuideChannels": 50,
     "maxGuideWindowMs": 86400000,
     "maxGuideEntriesPerChannel": 100,
@@ -185,6 +191,7 @@
     "liveCategories": 20000,
     "liveChannels": 20000,
     "guide": 20000,
+    "liveSearch": 15000,
     "settingsStatus": 10000,
     "action": 30000,
     "section": 20000,
@@ -238,7 +245,17 @@
     "pbkdf2MaxKeyBytes": 64,
     "randomMaxBytes": 1024,
     "maxDataBytes": 5242880,
-    "errorCode": "crypto_error"
+    "errorCode": "crypto_error",
+    "keyPairs": {
+      "apiVersion": 6,
+      "types": ["ec", "ed25519", "x25519"],
+      "curves": ["P-256", "P-384"],
+      "signHashes": ["SHA-256", "SHA-384"],
+      "signatureFormats": ["der", "ieee-p1363"],
+      "importFormats": ["jwk", "spki", "raw"],
+      "maxKeysPerRuntime": 64,
+      "maxSignatureBytes": 512
+    }
   },
   "sleep": {
     "maxMs": 5000

@@ -21,7 +21,7 @@ import { checkOutput, contract, kb, requiredExports, validateManifest } from "./
 import { resolvePalette } from "./palette.mjs";
 import { decodeCipherKey } from "./seal.mjs";
 import { createKino, signingLane } from "./kino-shim.mjs";
-import { call, parseArgs, resolveFirstLiveRef, signExportProblem } from "./run.mjs";
+import { call, markLiveSearch, parseArgs, resolveFirstLiveRef, signExportProblem, unmarkedSearchNote } from "./run.mjs";
 import { loadPlaylist } from "./live-playlist.mjs";
 import { fingerprint, normalizeBinding, verifyEntry } from "./seal.mjs";
 
@@ -31,6 +31,8 @@ import { fingerprint, normalizeBinding, verifyEntry } from "./seal.mjs";
 const refused = (problems) => ({ ok: false, problems, drops: [], output: null, consent: [], notes: [] });
 
 /** The note for a plugin that declares scopedSearch while its entry never reads `query.within`. */
+/** A plugin that uses apiVersion 6's key pairs but declares an older apiVersion: an older Kino installs it and the call fails there. */
+export const KEY_PAIRS_OLD_API = `Usa kino.crypto.generateKeyPair/sign/verify/importKey/deriveSharedSecret, que llegaron con apiVersion ${contract.crypto.keyPairs.apiVersion}: declara "apiVersion": ${contract.crypto.keyPairs.apiVersion} para que un Kino anterior no lo instale y falle al llamarlas`;
 export const SCOPED_IGNORED = 'Declara "scopedSearch" pero search() no lee query.within: Kino le pide buscar dentro de una página "Ver más" y recibiría la búsqueda completa (responde null si no puede buscar en esa página)';
 
 /**
@@ -101,7 +103,7 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   // The app honors fetchHosts only on a plugin it converted from a Nuvio scraper (never on one written by hand).
   if (m.fetchHostsAny) notes.push("fetchHosts solo tiene efecto en plugins convertidos desde Nuvio; en tu plugin se ignora");
   if (m.secrets && Object.keys(m.secrets).length) {
-    notes.push("No se puede comprobar aquí para qué repositorio se sellaron los secretos: Kino lo comprueba al instalar. Además, solo se abren si la persona instala el plugin desde su rama principal, sin @rama.");
+    notes.push("No se puede comprobar aquí para qué repositorio se sellaron los secretos: Kino lo comprueba al instalar. Además, solo se abren si la persona instala el plugin desde su rama principal, sin @rama. Y desde una URL del manifest (kino-plugin.json fuera de GitHub) Kino rechaza el plugin: los sellos son de un repositorio.");
   }
   const sg = contract.manifest.signature;
   if (m.apiVersion === sg.apiVersion) {
@@ -118,10 +120,15 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   if (m.capabilities.includes(contract.search.scoped.capability) && !new RegExp(`\\b${contract.search.scoped.field}\\b`).test(readFileSync(entry, "utf8"))) {
     notes.push(SCOPED_IGNORED);
   }
+  if (m.apiVersion < contract.crypto.keyPairs.apiVersion && /\b(generateKeyPair|importKey|deriveSharedSecret)\b|crypto\s*\.\s*(sign|verify)\b/.test(readFileSync(entry, "utf8"))) {
+    notes.push(KEY_PAIRS_OLD_API);
+  }
   if (statSync(entry).size > contract.manifest.entryMaxBytes) problems.push(`${m.entry} is bigger than ${kb(contract.manifest.entryMaxBytes)}: Kino refuses it`);
   if (m.signature) {
     authorFingerprint = fingerprint(Buffer.from(m.signature.authorKey, "hex"));
     notes.push(`${sg.authorKeyLabel}: ${authorFingerprint} (Kino la muestra en los detalles del plugin, no en la ventana de instalación)`);
+    // The signature is bound to owner/repo: a plugin installed from its kino-plugin.json URL elsewhere is unsigned.
+    notes.push("La firma solo vale si se instala desde el repositorio de GitHub: desde una URL del manifest (kino-plugin.json fuera de GitHub) el plugin se instala sin firma.");
     // The author key committed by mistake: anyone could then sign "updates" Kino accepts.
     trackedByGit(dir, ["*.pem"]).forEach((f) => problems.push(`${f} is tracked by git: anyone can read your author key on GitHub. Remove it (git rm --cached ${f}), add it to .gitignore, and since it leaked, make a new key (everyone must reinstall)`));
     let binding = null;
@@ -171,6 +178,13 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
         drops.push(...checkedOut.drops);
         const noSign = run === "resolve" ? signExportProblem(output, plugin) : null;
         if (noSign) problems.push(noSign);
+        // A search hit is 18+ by its own marks and the plugin's categories (as in the app): unmarked ones get a warning.
+        if (run === "liveSearch") {
+          const marked = await markLiveSearch(plugin, output, m, servers);
+          output = marked.value;
+          const note = unmarkedSearchNote(marked);
+          if (note) notes.push(note);
+        }
         // Playing a listed channel sends its ref to resolve() as a live channel's: follow the first.
         if (run === "liveChannels") {
           const r = await resolveFirstLiveRef(plugin, output, m, servers);
@@ -183,6 +197,7 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
             const s = await loadPlaylist(p, { manifest: m, servers, fetchImpl });
             if (s.channels === 0) problems.push(`playlist ${p.url}: 0 canales (${s.skipped} entradas descartadas, ${s.hidden} ocultas)`);
             if (s.skipped) drops.push(`playlist ${p.url}: ${s.skipped} entradas descartadas`);
+            if (s.cut) drops.push(`playlist ${p.url}: pasa de ${Math.round(contract.live.maxPlaylistBytes / (1024 * 1024))} MB, Kino lee solo su comienzo`);
           } catch (e) {
             problems.push(`playlist ${p.url}: not downloaded: ${e.message}`);
           }

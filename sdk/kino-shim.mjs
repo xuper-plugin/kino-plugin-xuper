@@ -13,7 +13,7 @@
 // from `.kino-secrets.json` next to the manifest (`{ "<name>": "<value>" }`, written by hand during
 // development; `seal.mjs` only ever produces the sealed string that goes in the manifest) and
 // simulates the app's marker, substitution, declared-host-and-https and redaction rules on top of that.
-import { createCipheriv, createDecipheriv, createHash, createHmac, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, createPublicKey, diffieHellman, generateKeyPairSync, pbkdf2Sync, randomBytes, randomUUID, sign as nodeSign, verify as nodeVerify } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { contract, hostMatches, isUserServer, kb, schemeAllowed } from "./contract.mjs";
@@ -141,6 +141,199 @@ export function errorReport(err, pluginName = "Plugin") {
 }
 
 export { hostMatches as hostAllowed };
+
+// --- kino.crypto key pairs (apiVersion 6), with Node's crypto: the same answers, formats and errors
+// as the app's PluginKeys / PluginKeyRing. A private key is a KeyObject kept in this kino's own Map;
+// the plugin gets a handle that means nothing to another createKino() (another runtime in the app). ---
+
+const KP = contract.crypto.keyPairs;
+const KEY_UNKNOWN = "clave desconocida: una clave privada vive solo mientras este plugin está abierto; genera otra";
+const BAD_PUBLIC_KEY = "clave pública inválida";
+const COORD_BYTES = { "P-256": 32, "P-384": 48 };
+const SPKI_PREFIX = {
+  "P-256": Buffer.from("3059301306072a8648ce3d020106082a8648ce3d030107034200", "hex"),
+  "P-384": Buffer.from("3076301006072a8648ce3d020106052b81040022036200", "hex"),
+  ed25519: Buffer.from("302a300506032b6570032100", "hex"),
+  x25519: Buffer.from("302a300506032b656e032100", "hex"),
+};
+const OKP_CRV = { ed25519: "Ed25519", x25519: "X25519" };
+
+function keyPairApi({ pluginSecrets, buf }) {
+  const fail = (message) => { throw kinoError("crypto_error", message); };
+  const cut = (v) => String(v).slice(0, 20);
+  const ring = new Map();
+  const isObj = (v) => v !== null && typeof v === "object";
+  const optStr = (v) => (v === undefined || v === null ? undefined : String(v));
+  const handleOf = (k) => (typeof k === "string" ? k : isObj(k) && typeof k.handle === "string" ? k.handle : undefined);
+  const strings = (v, out = []) => {
+    if (typeof v === "string") out.push(v);
+    else if (isObj(v)) for (const [k, x] of Object.entries(v)) { out.push(k); strings(x, out); }
+    return out;
+  };
+  // Like the app: no sealed value in any field of these ops.
+  const refuseSealed = (o) => {
+    if (pluginSecrets && strings(o).some((t) => pluginSecrets.containsMarker(t) || pluginSecrets.containsCipherKeyMarker(t))) fail(SEALED_CRYPTO_REFUSED);
+  };
+  const keyType = (t) => (KP.types.includes(t) ? t : fail(`tipo de clave desconocido: ${cut(t ?? "")} (ec, ed25519 o x25519)`));
+  const curveOf = (c) => (KP.curves.includes(c) ? c : fail(`curva desconocida: ${cut(c ?? "")} (P-256 o P-384)`));
+  const outEnc = (e = "base64") => (e === "base64" || e === "hex" ? e : fail("una firma o un secreto sale en base64 o hex"));
+  const hashOf = (h = "SHA-256") => (KP.signHashes.includes(h) ? h.replace("-", "").toLowerCase() : fail(`hash de firma desconocido: ${cut(h)} (SHA-256 o SHA-384)`));
+  const formatOf = (f = "der") => (KP.signatureFormats.includes(f) ? f : fail(`formato de firma desconocido: ${cut(f)} (der o ieee-p1363)`));
+  const b64 = (v, field) => buf(v, "base64", field);
+
+  // { type, curve, raw } -> a Node public KeyObject (an EC point checked on its curve by Node).
+  const nodePublic = ({ type, curve, raw }) => {
+    try {
+      if (type === "ec") {
+        const n = COORD_BYTES[curve];
+        if (raw.length !== 1 + 2 * n || raw[0] !== 4) throw new Error();
+        return createPublicKey({ key: { kty: "EC", crv: curve, x: raw.subarray(1, 1 + n).toString("base64url"), y: raw.subarray(1 + n).toString("base64url") }, format: "jwk" });
+      }
+      if (raw.length !== 32) throw new Error();
+      return createPublicKey({ key: { kty: "OKP", crv: OKP_CRV[type], x: raw.toString("base64url") }, format: "jwk" });
+    } catch {
+      return fail(BAD_PUBLIC_KEY);
+    }
+  };
+  const checked = (pub) => { nodePublic(pub); return pub; };
+  const fromSpki = (der) => {
+    for (const [name, prefix] of Object.entries(SPKI_PREFIX)) {
+      if (der.length > prefix.length && der.subarray(0, prefix.length).equals(prefix)) {
+        const ec = KP.curves.includes(name);
+        return checked({ type: ec ? "ec" : name, curve: ec ? name : undefined, raw: Buffer.from(der.subarray(prefix.length)) });
+      }
+    }
+    return fail("spki no reconocido: solo P-256, P-384, Ed25519 o X25519 con curva nombrada");
+  };
+  const fromJwk = (j) => {
+    const field = (name) => (typeof j[name] === "string" ? b64(j[name], `jwk.${name}`) : fail(`al JWK le falta "${name}"`));
+    if (j.kty === "EC") {
+      const curve = curveOf(j.crv);
+      const x = field("x"), y = field("y");
+      if (x.length !== COORD_BYTES[curve] || y.length !== COORD_BYTES[curve]) fail(BAD_PUBLIC_KEY);
+      return checked({ type: "ec", curve, raw: Buffer.concat([Buffer.from([4]), x, y]) });
+    }
+    if (j.kty === "OKP") {
+      const type = j.crv === "Ed25519" ? "ed25519" : j.crv === "X25519" ? "x25519" : fail(`curva de JWK desconocida: ${cut(j.crv ?? "")}`);
+      return checked({ type, curve: undefined, raw: field("x") });
+    }
+    return fail(`kty de JWK desconocido: ${cut(j.kty ?? "")} (EC u OKP)`);
+  };
+  const rawOf = (publicKey, type) => {
+    const j = publicKey.export({ format: "jwk" });
+    return type === "ec" ? Buffer.concat([Buffer.from([4]), Buffer.from(j.x, "base64url"), Buffer.from(j.y, "base64url")]) : Buffer.from(j.x, "base64url");
+  };
+  const publicOut = ({ type, curve, raw }) => {
+    const n = COORD_BYTES[curve];
+    const jwk = Object.freeze(type === "ec"
+      ? { crv: curve, kty: "EC", x: raw.subarray(1, 1 + n).toString("base64url"), y: raw.subarray(1 + n).toString("base64url") }
+      : { crv: OKP_CRV[type], kty: "OKP", x: raw.toString("base64url") });
+    const spki = Buffer.concat([SPKI_PREFIX[curve || type], raw]).toString("base64");
+    return Object.freeze(curve ? { type, namedCurve: curve, jwk, spki, raw: raw.toString("base64") } : { type, jwk, spki, raw: raw.toString("base64") });
+  };
+  const entryOf = (k) => {
+    const h = handleOf(k);
+    if (h === undefined) fail('falta "key": la clave privada de generateKeyPair');
+    return ring.get(h) || fail(KEY_UNKNOWN);
+  };
+  // A public key given as { spki } (what generateKeyPair/importKey answer) or { jwk }; for verify, also a private key.
+  const publicOf = (k, allowPrivate) => {
+    if (isObj(k) && typeof k.spki === "string") return fromSpki(b64(k.spki, "publicKey"));
+    if (isObj(k) && isObj(k.jwk)) return fromJwk(k.jwk);
+    if (allowPrivate && handleOf(k) !== undefined) { const e = entryOf(k); return { type: e.type, curve: e.curve, raw: e.raw }; }
+    return fail('falta "publicKey": usa la de generateKeyPair o importKey');
+  };
+
+  return {
+    generateKeyPair(o) {
+      const p = isObj(o) ? o : {};
+      refuseSealed(p);
+      const type = keyType(optStr(p.type));
+      const curve = type === "ec" ? curveOf(optStr(p.namedCurve)) : undefined;
+      const { privateKey, publicKey } = type === "ec" ? generateKeyPairSync("ec", { namedCurve: curve }) : generateKeyPairSync(type);
+      const raw = rawOf(publicKey, type);
+      const handle = "kinokey_" + randomBytes(16).toString("hex");
+      ring.set(handle, { type, curve, privateKey, raw });
+      while (ring.size > KP.maxKeysPerRuntime) ring.delete(ring.keys().next().value);
+      const priv = Object.freeze(curve ? { type, namedCurve: curve, handle } : { type, handle });
+      return Object.freeze({ privateKey: priv, publicKey: publicOut({ type, curve, raw }) });
+    },
+    importKey(o) {
+      const p = isObj(o) ? o : {};
+      refuseSealed(p);
+      const format = optStr(p.format);
+      if (format === "jwk") {
+        if (!isObj(p.key)) fail('importKey con format "jwk" necesita key: un objeto JWK');
+        return publicOut(fromJwk(p.key));
+      }
+      if (format === "spki") return publicOut(fromSpki(b64(optStr(p.key), "key")));
+      if (format === "raw") {
+        const type = keyType(optStr(p.type));
+        const curve = type === "ec" ? curveOf(optStr(p.namedCurve)) : undefined;
+        return publicOut(checked({ type, curve, raw: b64(optStr(p.key), "key") }));
+      }
+      return fail(`formato de clave desconocido: ${cut(format ?? "")} (jwk, spki o raw)`);
+    },
+    sign(o) {
+      const p = isObj(o) ? o : {};
+      refuseSealed(p);
+      const data = buf(p.data === undefined ? undefined : String(p.data), p.encoding || "utf8", "data");
+      const e = entryOf(p.key);
+      let sig;
+      if (e.type === "ec") {
+        const hash = hashOf(optStr(p.hash));
+        sig = nodeSign(hash, data, { key: e.privateKey, dsaEncoding: formatOf(optStr(p.format)) });
+      } else if (e.type === "ed25519") {
+        if (p.hash !== undefined && p.hash !== null) fail('ed25519 no lleva hash: quita "hash"');
+        sig = nodeSign(null, data, e.privateKey);
+      } else {
+        fail("una clave x25519 no firma: úsala con deriveSharedSecret");
+      }
+      return sig.toString(outEnc(p.outputEncoding));
+    },
+    verify(o) {
+      const p = isObj(o) ? o : {};
+      refuseSealed(p);
+      const data = buf(p.data === undefined ? undefined : String(p.data), p.encoding || "utf8", "data");
+      const sig = buf(optStr(p.signature), p.signatureEncoding || "base64", "signature");
+      if (sig.length > KP.maxSignatureBytes) fail(`la firma pasa de ${KP.maxSignatureBytes} bytes`);
+      const pub = publicOf(p.key, true);
+      try {
+        if (pub.type === "ec") {
+          const hash = hashOf(optStr(p.hash));
+          const format = formatOf(optStr(p.format));
+          if (format === "ieee-p1363" && sig.length !== 2 * COORD_BYTES[pub.curve]) return false;
+          return nodeVerify(hash, data, { key: nodePublic(pub), dsaEncoding: format }, sig);
+        }
+        if (pub.type === "ed25519") {
+          if (p.hash !== undefined && p.hash !== null) fail('ed25519 no lleva hash: quita "hash"');
+          if (sig.length !== 64) return false;
+          return nodeVerify(null, data, nodePublic(pub), sig);
+        }
+      } catch (err) {
+        if (err && String(err.name).startsWith("KinoError")) throw err;
+        return false;
+      }
+      return fail("una clave x25519 no verifica firmas");
+    },
+    deriveSharedSecret(o) {
+      const p = isObj(o) ? o : {};
+      refuseSealed(p);
+      const e = entryOf(p.privateKey);
+      const peer = publicOf(p.publicKey, false);
+      if (peer.type !== e.type || peer.curve !== e.curve) fail("las dos claves deben ser del mismo tipo y curva");
+      if (e.type === "ed25519") fail("una clave ed25519 no deriva secretos: usa x25519 o ec");
+      let secret;
+      try {
+        secret = diffieHellman({ privateKey: e.privateKey, publicKey: nodePublic(peer) });
+      } catch (err) {
+        if (err && String(err.name).startsWith("KinoError")) throw err;
+        fail(BAD_PUBLIC_KEY);
+      }
+      return secret.toString(outEnc(p.outputEncoding));
+    },
+  };
+}
 
 // --- sealed secrets: the same encodings, marker shape and redaction the app's PluginSecrets uses
 // (spec 2026-09-29-plugin-sealed-secrets §5, §6). The kit never opens a seal: it reads the plain
@@ -811,6 +1004,8 @@ export function createKino(manifest, { appVersion = "sdk", lang = "es-CO", stora
       return redactOut(out(randomBytes(n), enc));
     },
     uuid: () => redactOut(randomUUID()),
+    // apiVersion 6's key pairs: the kit reports apiVersion contract.apiVersion, so they are here whenever the app's are.
+    ...(contract.apiVersion >= KP.apiVersion ? keyPairApi({ pluginSecrets, buf }) : {}),
   });
 
   const kino = Object.freeze({

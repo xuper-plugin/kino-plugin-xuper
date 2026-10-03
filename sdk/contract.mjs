@@ -717,9 +717,32 @@ function stream(value, { manifest, servers, allowDrm, liveChannel = false, inlin
     return true;
   });
   const sig = signingOf(value, manifest, drm, inline, alternateOk, drop);
-  const { signing: _signing, signContext: _signContext, alternateHosts: _alternateHosts, ...rest } = value;
-  const out = { ...rest, headers: headersOf(value.headers), subtitles, audioTracks, expiresInSeconds: expires, drm };
+  // Other copies of the video (PluginOutput.alternativesOf): never next to drm or signing; each checked like `url`.
+  const alternatives = drm || (sig && sig.signing) ? [] : alternativesOf(value.alternatives, value.url, (url) => {
+    if (anyHost) return anyPublic(url);
+    try { check(url, "El video"); return true; } catch { return false; }
+  });
+  const { signing: _signing, signContext: _signContext, alternateHosts: _alternateHosts, alternatives: _alternatives, ...rest } = value;
+  const out = { ...rest, headers: headersOf(value.headers), subtitles, audioTracks, expiresInSeconds: expires, drm, ...(alternatives.length ? { alternatives } : {}) };
   return sig ? { ...out, ...sig } : out;
+}
+
+/** A Stream's `alternatives` as the app keeps them: a bad, repeated or surplus entry is dropped, the rest still count. */
+function alternativesOf(list, url, ok) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set([url]);
+  const out = [];
+  for (const a of list) {
+    if (out.length >= o().maxAlternatives) break;
+    if (a === null || typeof a !== "object" || Array.isArray(a)) continue;
+    const au = typeof a.url === "string" ? a.url : "";
+    if (seen.has(au)) continue;
+    seen.add(au);
+    if (!ok(au)) continue;
+    const mime = typeof a.mime === "string" ? a.mime.trim() : "";
+    out.push({ url: au, mime, headers: headersOf(a.headers) });
+  }
+  return out;
 }
 
 /** The stream URL rule (the app's PluginOutput.checkUrl): a typed server, or the scheme rule and a declared host. */
@@ -871,9 +894,42 @@ function liveChannels(value, ctx, drop) {
     seen.add(id);
     const number = Number.isInteger(c.number) && c.number >= 1 && c.number <= live().maxChannelNumber ? c.number : 0;
     const categoryId = typeof c.categoryId === "string" && re(o().itemIdPattern).test(c.categoryId) ? c.categoryId : "";
-    out.push({ id, title, ref, logo: image(c.logo, ctx.servers), number, categoryId, stream: checked, ...(adult ? { adult: true } : {}) });
+    // A liveSearch hit's own `adult: false` says it is plain (markSearchHits); a listing never needs it.
+    const plain = ctx.search && c.adult === false;
+    out.push({ id, title, ref, logo: image(c.logo, ctx.servers), number, categoryId, stream: checked, ...(adult ? { adult: true } : plain ? { adult: false } : {}) });
   });
   return { items: out, next };
+}
+
+/**
+ * Whether a checked liveSearch [hit] counts as 18+ in the app (PluginLiveProvider.searchHitAdult), given the plugin's
+ * checked liveCategories [categories] (null = they can't be read). `adult: true` or the categoryId of an 18+ category:
+ * 18+; the categoryId of a plain category or `adult: false`: plain; neither: 18+ when the plugin has any 18+ category;
+ * categories unreadable: 18+ unless `adult: false`. Below apiVersion 6 nothing is.
+ */
+export function searchHitAdult(hit, categories, manifest) {
+  if (hit.adult === true) return true;
+  if (!(Number.isInteger(manifest.apiVersion) && manifest.apiVersion >= live().adultApiVersion)) return false;
+  if (categories == null) return hit.adult !== false;
+  const known = categories.find((c) => c.id === hit.categoryId);
+  if (known) return known.adult === true;
+  return categories.some((c) => c.adult === true) && hit.adult !== false;
+}
+
+/**
+ * A checked liveSearch answer as the app keeps it: each hit that counts as 18+ ([searchHitAdult]) marked `adult: true`.
+ * `unmarked` names the hits that count as 18+ only for carrying neither `adult` nor a known categoryId (worth a warning);
+ * `unreadable` is true when [categories] is null.
+ */
+export function markSearchHits(value, categories, manifest) {
+  const unmarked = [];
+  const items = value.items.map((h) => {
+    const adult = searchHitAdult(h, categories, manifest);
+    if (adult && h.adult !== true && !(categories || []).some((c) => c.id === h.categoryId && c.adult === true)) unmarked.push(h.title);
+    const { adult: _drop, ...rest } = h;
+    return adult ? { ...rest, adult: true } : rest;
+  });
+  return { value: { ...value, items }, unmarked, unreadable: categories == null };
 }
 
 /**
@@ -1048,6 +1104,12 @@ export function checkOutput(fn, value, manifest, servers = [], { liveChannel = f
     }
     case "liveCategories": return { value: liveCategories(parsed, { manifest, servers, allowAdult: liveAdult }, drop), drops };
     case "liveChannels": return { value: liveChannels(parsed, { manifest, servers, allowDrm: manifest.capabilities.includes("drm"), allowAdult: liveAdult }, drop), drops };
+    // A liveChannels page whose `next` Kino ignores, cut to the search's own cap.
+    case "liveSearch": {
+      const found = liveChannels(parsed, { manifest, servers, allowDrm: manifest.capabilities.includes("drm"), allowAdult: liveAdult, search: true }, drop);
+      if (found.items.length > live().maxSearchChannels) drop(`liveSearch: beyond ${live().maxSearchChannels} dropped`);
+      return { value: { items: found.items.slice(0, live().maxSearchChannels) }, drops };
+    }
     case "guide": return { value: guide(parsed, drop), drops };
     case "migrate": return migrateAnswer(parsed, migrateInput || { kind: "title" });
     default: throw new Error(`unknown function ${fn}`);

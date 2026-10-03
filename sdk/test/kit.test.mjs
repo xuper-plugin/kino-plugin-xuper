@@ -10,16 +10,16 @@ import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkOutput, checkSettingsOutput, contract, requiredExports, validateManifest } from "../contract.mjs";
+import { checkOutput, checkSettingsOutput, contract, markSearchHits, requiredExports, validateManifest } from "../contract.mjs";
 import { createKino, errorReport, shownSentence, signingLane } from "../kino-shim.mjs";
 import { filterRelevant, shortQuery, sortBySimilarity } from "../kino-rank.mjs";
 import { contrast, deltaE, formatRatio, luminance, resolvePalette } from "../palette.mjs";
-import { consentLines, validate } from "../validate.mjs";
+import { consentLines, KEY_PAIRS_OLD_API, validate } from "../validate.mjs";
 import { TABLES } from "../guide-tables.mjs";
 import { scaffold } from "../init.mjs";
 import { adultLines, call, parseArgs } from "../run.mjs";
 import { decodeCipherKey, normalizeBinding, seal, sealTyped } from "../seal.mjs";
-import { ADULT_GROUPS, loadPlaylist, normaliseName, parseM3u, parseXmltv, parseXmltvTime, summarisePlaylist } from "../live-playlist.mjs";
+import { ADULT_GROUPS, OPEN_END_MS, decodeM3u, keepStart, loadPlaylist, normaliseName, parseM3u, parseXmltv, parseXmltvTime, summarisePlaylist, summaryLines } from "../live-playlist.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const archive = join(here, "..", "..", "archive-org");
@@ -216,6 +216,129 @@ test("crypto gives the app's vectors", () => {
   assert.throws(() => c.hash("sha3", "x"), (e) => e.code === "crypto_error" && e.name === "KinoError_crypto_error");
   assert.throws(() => c.pbkdf2("sha1", "p", "s", 100001, 20), (e) => e.code === "crypto_error");
   assert.throws(() => c.randomBytes(1025), (e) => e.code === "crypto_error");
+});
+
+// --- kino.crypto key pairs (apiVersion 6): the same vectors the app's PluginKeysTest checks ---
+// Absent in a published plugin repo (sdk/ and contract.json at its root): the vectors test skips there.
+const asymVectorsFile = join(here, "..", "..", "..", "docs", "plugins", "fixtures", "crypto", "asymmetric-vectors.json");
+const asymVectors = existsSync(asymVectorsFile) ? JSON.parse(readFileSync(asymVectorsFile, "utf8")).vectors : null;
+const kinoV6 = () => createKino(JSON.parse(manifest({ apiVersion: 6 }))).kino;
+const cryptoError = (message) => (e) => e.code === "crypto_error" && (message === undefined || e.message.includes(message));
+
+test("key pairs: the shared vectors import and verify like the app", (t) => {
+  if (!asymVectors) return t.skip("no shared crypto vectors around this kit");
+  const c = kinoV6().crypto;
+  for (const v of asymVectors) {
+    const fromJwk = c.importKey({ format: "jwk", key: v.jwk });
+    assert.equal(fromJwk.spki, v.spki);
+    assert.equal(fromJwk.raw, v.raw);
+    assert.deepEqual(Object.keys(fromJwk.jwk), v.type === "ec" ? ["crv", "kty", "x", "y"] : ["crv", "kty", "x"]);
+    assert.deepEqual({ ...c.importKey({ format: "spki", key: v.spki }).jwk }, v.jwk);
+    assert.equal(c.importKey({ format: "raw", type: v.type, namedCurve: v.namedCurve, key: v.raw }).spki, v.spki);
+    if (v.type === "ec") {
+      for (const format of ["der", "ieee-p1363"]) {
+        const signature = format === "der" ? v.der : v.p1363;
+        assert.equal(c.verify({ key: fromJwk, data: v.data, signature, hash: v.hash, format }), true);
+        assert.equal(c.verify({ key: { jwk: v.jwk }, data: v.data, signature, hash: v.hash, format }), true);
+        assert.equal(c.verify({ key: fromJwk, data: v.data + "!", signature, hash: v.hash, format }), false);
+      }
+    }
+    if (v.type === "ed25519") assert.equal(c.verify({ key: fromJwk, data: v.data, encoding: "hex", signature: v.signature }), true);
+  }
+});
+
+test("key pairs: round trips, P1363 vs DER lengths, ECDH and X25519 agree", () => {
+  const c = kinoV6().crypto;
+  for (const [curve, n, hash] of [["P-256", 32, "SHA-256"], ["P-384", 48, "SHA-384"]]) {
+    const { privateKey, publicKey } = c.generateKeyPair({ type: "ec", namedCurve: curve });
+    assert.deepEqual(Object.keys(privateKey), ["type", "namedCurve", "handle"]);
+    assert.ok(Object.isFrozen(privateKey) && Object.isFrozen(publicKey) && Object.isFrozen(publicKey.jwk));
+    assert.equal(Buffer.from(publicKey.raw, "base64").length, 1 + 2 * n);
+    const p1363 = c.sign({ key: privateKey, data: "reto", hash, format: "ieee-p1363" });
+    assert.equal(Buffer.from(p1363, "base64").length, 2 * n);
+    const der = Buffer.from(c.sign({ key: privateKey.handle, data: "reto", hash }), "base64");
+    assert.equal(der[0], 0x30);
+    assert.ok(der.length > 2 * n && der.length <= 2 * n + 8);
+    assert.equal(c.verify({ key: publicKey, data: "reto", signature: p1363, hash, format: "ieee-p1363" }), true);
+    assert.equal(c.verify({ key: privateKey, data: "reto", signature: der.toString("hex"), signatureEncoding: "hex", hash }), true);
+    const other = c.generateKeyPair({ type: "ec", namedCurve: curve });
+    const ab = c.deriveSharedSecret({ privateKey, publicKey: other.publicKey });
+    assert.equal(ab, c.deriveSharedSecret({ privateKey: other.privateKey, publicKey }));
+    assert.equal(Buffer.from(ab, "base64").length, n);
+  }
+  const ed = c.generateKeyPair({ type: "ed25519" });
+  assert.deepEqual(Object.keys(ed.privateKey), ["type", "handle"]);
+  const sig = c.sign({ key: ed.privateKey, data: "68656c6c6f", encoding: "hex", outputEncoding: "hex" });
+  assert.equal(sig.length, 128);
+  assert.equal(c.verify({ key: ed.publicKey, data: "hello", signature: sig, signatureEncoding: "hex" }), true);
+  const a = c.generateKeyPair({ type: "x25519" }), b = c.generateKeyPair({ type: "x25519" });
+  const s1 = c.deriveSharedSecret({ privateKey: a.privateKey, publicKey: c.importKey({ format: "raw", type: "x25519", key: b.publicKey.raw }) });
+  assert.equal(s1, c.deriveSharedSecret({ privateKey: b.privateKey, publicKey: { jwk: a.publicKey.jwk } }));
+  assert.equal(Buffer.from(s1, "base64").length, 32);
+});
+
+test("key pairs: handles stay in their own kino, no Node alias, the app's errors", () => {
+  const first = kinoV6().crypto, second = kinoV6().crypto;
+  const { privateKey } = first.generateKeyPair({ type: "ed25519" });
+  assert.throws(() => second.sign({ key: privateKey, data: "x" }), cryptoError("clave desconocida"));
+  assert.equal(first.generateKeyPairSync, undefined);
+  assert.equal(first.createSign, undefined);
+  const x = first.generateKeyPair({ type: "x25519" });
+  const p256 = first.generateKeyPair({ type: "ec", namedCurve: "P-256" });
+  assert.throws(() => first.generateKeyPair({ type: "rsa" }), cryptoError("tipo de clave desconocido"));
+  assert.throws(() => first.generateKeyPair(), cryptoError("tipo de clave desconocido"));
+  assert.throws(() => first.generateKeyPair({ type: "ec", namedCurve: "P-521" }), cryptoError("curva desconocida"));
+  assert.throws(() => first.sign({ key: x.privateKey, data: "a" }), cryptoError("x25519 no firma"));
+  assert.throws(() => first.sign({ key: privateKey, data: "a", hash: "SHA-256" }), cryptoError("no lleva hash"));
+  assert.throws(() => first.sign({ key: p256.privateKey, data: "a", hash: "SHA-1" }), cryptoError("hash de firma"));
+  assert.throws(() => first.sign({ key: p256.privateKey, data: "a", format: "raw" }), cryptoError("formato de firma"));
+  assert.throws(() => first.sign({ key: {}, data: "x" }), cryptoError('falta "key"'));
+  assert.throws(() => first.deriveSharedSecret({ privateKey: p256.privateKey, publicKey: x.publicKey }), cryptoError("mismo tipo"));
+  assert.throws(() => first.importKey({ format: "pem", key: "AAAA" }), cryptoError("formato de clave"));
+  assert.throws(() => first.importKey({ format: "jwk", key: "x" }), cryptoError("un objeto JWK"));
+  assert.throws(() => first.importKey({ format: "spki", key: "AAAA" }), cryptoError("spki no reconocido"));
+  const offCurve = Buffer.from(p256.publicKey.raw, "base64");
+  offCurve[64] ^= 1;
+  assert.throws(() => first.importKey({ format: "raw", type: "ec", namedCurve: "P-256", key: offCurve.toString("base64") }), cryptoError("clave pública inválida"));
+  for (const [signature, format] of [["AAAA", "ieee-p1363"], ["AAAA", "der"], ["", "der"]]) {
+    assert.equal(first.verify({ key: p256.publicKey, data: "a", signature, format }), false);
+  }
+  assert.throws(() => first.verify({ data: "a", signature: "AAAA" }), cryptoError('falta "publicKey"'));
+});
+
+test("key pairs: the ring keeps the newest keys only", () => {
+  const c = kinoV6().crypto;
+  const oldest = c.generateKeyPair({ type: "ed25519" });
+  for (let i = 0; i < contract.crypto.keyPairs.maxKeysPerRuntime; i++) c.generateKeyPair({ type: "ed25519" });
+  assert.throws(() => c.sign({ key: oldest.privateKey, data: "x" }), cryptoError("clave desconocida"));
+});
+
+test("key pairs: a sealed marker is refused in every field, like the app", () => {
+  const { kino } = sealedKino({ tok: "s3cr3t-value" });
+  const m = kino.secret("tok");
+  const c = kino.crypto;
+  const ec = c.generateKeyPair({ type: "ec", namedCurve: "P-256" });
+  const refused = (fn) => assert.throws(fn, (e) => e.code === "crypto_error" && e.message === "no se puede usar un dato sellado aquí");
+  refused(() => c.sign({ key: ec.privateKey, data: m }));
+  refused(() => c.sign({ key: ec.privateKey, data: "a" + m }));
+  refused(() => c.verify({ key: ec.publicKey, data: "x", signature: m }));
+  refused(() => c.importKey({ format: "spki", key: m }));
+  refused(() => c.sign({ key: m, data: "x" }));
+  assert.equal(typeof c.sign({ key: ec.privateKey, data: "plain" }), "string");
+});
+
+test("validate() tells a plugin below apiVersion 6 that uses key pairs to declare it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "kino-keypairs-"));
+  try {
+    const code = "export async function search(){ const k = kino.crypto.generateKeyPair({ type: 'ed25519' }); return [] }\nexport async function resolve(){ return { url: 'https://example.com/a' } }";
+    writeFileSync(join(dir, "plugin.js"), code);
+    writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 4 }));
+    assert.ok((await validate(dir)).notes.includes(KEY_PAIRS_OLD_API));
+    writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6 }));
+    assert.ok(!(await validate(dir)).notes.includes(KEY_PAIRS_OLD_API));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("config, storage keys, typed errors and sleep", async () => {
@@ -1036,6 +1159,63 @@ test("run.mjs builds the live arguments the app sends", async () => {
   ]);
 });
 
+test("liveSearch: run.mjs sends the trimmed query, checkOutput reads a page capped at the search's limit, next ignored", async () => {
+  const seen = [];
+  await call({ liveSearch: async (a) => { seen.push(a); return []; } }, "liveSearch", ["  caracol "]);
+  assert.deepEqual(seen, [{ query: "caracol" }]);
+  const m = { apiVersion: 3, capabilities: ["home", "resolve", "channels"], hosts: ["cdn.example.com"] };
+  const many = Array.from({ length: contract.live.maxSearchChannels + 5 }, (_, i) => ({ id: `c${i}`, title: `C${i}`, ref: `r${i}` }));
+  const out = checkOutput("liveSearch", { items: many, next: "more" }, m);
+  assert.equal(out.value.items.length, contract.live.maxSearchChannels);
+  assert.equal(out.value.next, undefined);
+  assert.ok(out.drops.some((d) => d.includes("liveSearch: beyond")));
+  assert.ok(contract.capabilities.optionalExports.channels.includes("liveSearch"));
+});
+
+test("liveSearch hits are 18+ like the app: own mark, category, or unmarked in a plugin with 18+ categories", () => {
+  const m = { apiVersion: 6, capabilities: ["home", "resolve", "channels"], hosts: ["cdn.example.com"] };
+  const hits = checkOutput("liveSearch", [
+    { id: "s1", title: "Rojo uno", ref: "r1" },
+    { id: "s2", title: "Rojo dos", ref: "r2", categoryId: "n" },
+    { id: "s3", title: "Rojo tres", ref: "r3", adult: false },
+    { id: "s4", title: "Rojo cuatro", ref: "r4", categoryId: "zz" },
+    { id: "s5", title: "Rojo cinco", ref: "r5", categoryId: "x" },
+  ], m).value;
+  const adultOf = (r) => r.value.items.map((h) => [h.id, h.adult === true]);
+  const both = [{ id: "x", title: "18+", adult: true }, { id: "n", title: "Noticias" }];
+  const marked = markSearchHits(hits, both, m);
+  assert.deepEqual(adultOf(marked), [["s1", true], ["s2", false], ["s3", false], ["s4", true], ["s5", true]]);
+  assert.deepEqual(marked.unmarked, ["Rojo uno", "Rojo cuatro"]);
+  // No 18+ category: nothing changes.
+  assert.deepEqual(adultOf(markSearchHits(hits, [{ id: "n", title: "Noticias" }], m)).filter(([, a]) => a), []);
+  // Categories unreadable: only adult:false stays plain (locked, Kino fails closed).
+  const unknown = markSearchHits(hits, null, m);
+  assert.deepEqual(adultOf(unknown).filter(([, a]) => !a).map(([id]) => id), ["s3"]);
+  assert.equal(unknown.unreadable, true);
+  // Below apiVersion 6 nothing is 18+.
+  assert.deepEqual(adultOf(markSearchHits(hits, both, { ...m, apiVersion: 5 })).filter(([, a]) => a), []);
+});
+
+test("validate --run liveSearch warns when a plugin with 18+ categories answers unmarked hits", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "kino-live-search-adult-"));
+  try {
+    writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6, hosts: ["cdn.example.com"], capabilities: ["home", "resolve", "channels"] }));
+    const entry = (hits) => "export async function home(){ return [] }\nexport async function resolve(){ return { url: 'https://cdn.example.com/a.m3u8' } }\n"
+      + "export async function liveCategories(){ return [{ id: 'x', title: '18+', adult: true }, { id: 'n', title: 'Noticias' }] }\n"
+      + `export async function liveChannels(){ return [] }\nexport async function liveSearch(){ return ${JSON.stringify(hits)} }`;
+    writeFileSync(join(dir, "plugin.js"), entry([{ id: "s1", title: "Rojo uno", ref: "r1" }, { id: "s2", title: "Rojo dos", ref: "r2", categoryId: "n" }]));
+    const r = await validate(dir, { run: "liveSearch", args: ["rojo"] });
+    assert.deepEqual(r.problems, []);
+    assert.ok(r.notes.some((n) => n.includes("liveSearch") && n.includes("Rojo uno") && n.includes("categoryId")), r.notes.join("\n"));
+    assert.equal(r.output.items.find((h) => h.id === "s1").adult, true);
+    writeFileSync(join(dir, "plugin.js"), entry([{ id: "s1", title: "Rojo uno", ref: "r1", adult: false }, { id: "s2", title: "Rojo dos", ref: "r2", categoryId: "n" }]));
+    const clean = await validate(dir, { run: "liveSearch", args: ["rojo"] });
+    assert.ok(!clean.notes.some((n) => n.includes("liveSearch")), clean.notes.join("\n"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("liveStreamHosts any is read only on v3, and needs channels there", () => {
   const caps = ["home", "resolve", "channels"];
   assert.equal(validateManifest(manifest({ apiVersion: 3, capabilities: caps, liveStreamHosts: "any" })).manifest.liveStreamHostsAny, true);
@@ -1135,7 +1315,7 @@ test("secrets: a consent line, and validate notes it can't check the repo bindin
     const r = await validate(dir);
     assert.equal(r.ok, true);
     assert.deepEqual(r.consent, [{ text: "Usa datos sellados por su autor", danger: false }]);
-    assert.deepEqual(r.notes, ["No se puede comprobar aquí para qué repositorio se sellaron los secretos: Kino lo comprueba al instalar. Además, solo se abren si la persona instala el plugin desde su rama principal, sin @rama."]);
+    assert.deepEqual(r.notes, ["No se puede comprobar aquí para qué repositorio se sellaron los secretos: Kino lo comprueba al instalar. Además, solo se abren si la persona instala el plugin desde su rama principal, sin @rama. Y desde una URL del manifest (kino-plugin.json fuera de GitHub) Kino rechaza el plugin: los sellos son de un repositorio."]);
     const cli = spawnSync(process.execPath, [join(here, "..", "validate.mjs"), dir], { encoding: "utf8" });
     assert.equal(cli.status, 0);
     assert.match(cli.stderr, /No se puede comprobar aquí para qué repositorio se sellaron los secretos/);
@@ -2021,10 +2201,14 @@ const M3U_FIXTURES = ["basic", "bom-crlf", "latin1", "broken", "headers", "unter
 // PluginLivePlaylistTest through PluginLiveProvider.
 const PLAYLIST_FIXTURES = ["any-hosts"];
 
+// The fields a fixture's .expected.json holds, as the app's M3uParserTest writes them.
+const FIXTURE_FIELDS = ["name", "url", "tvgId", "tvgName", "logo", "number", "group", "language", "country", "headers"];
+const asFixture = (r) => ({ total: r.total, skipped: r.skipped, entries: r.entries.map((e) => Object.fromEntries(FIXTURE_FIELDS.map((k) => [k, e[k]]))) });
+
 test("the kit's M3U reader gives the app's exact answer on every shared fixture", (t) => {
   if (!needFixtures(t)) return;
   for (const name of M3U_FIXTURES) {
-    const got = parseM3u(readFileSync(join(fixtures, `${name}.m3u`)));
+    const got = asFixture(parseM3u(readFileSync(join(fixtures, `${name}.m3u`))));
     const want = JSON.parse(readFileSync(join(fixtures, `${name}.expected.json`), "utf8"));
     assert.deepEqual(got, want, name);
   }
@@ -2071,7 +2255,101 @@ test("the kit's M3U reader drops hidden and refused entries during the parse, ne
   const r = parseM3u(text, { maxEntries: 3, hide: (e) => e.group === "XXX", allow: (url) => !url.includes("evil") });
   assert.deepEqual(r.entries.map((e) => e.name), ["C0", "C1", "C2"]);
   assert.deepEqual([r.total, r.hidden, r.refused], [5, 10, 4]);
-  assert.deepEqual(parseM3u(""), { entries: [], total: 0, skipped: 0 });
+  assert.deepEqual(parseM3u(""), { entries: [], total: 0, skipped: 0, epgUrls: [] });
+});
+
+const DRM_NONE = { drmKeyId: "", drmKey: "", drmLicenseUrl: "", drmLicenseHeaders: {} };
+const drmOf = (e) => ({ drmKeyId: e.drmKeyId, drmKey: e.drmKey, drmLicenseUrl: e.drmLicenseUrl, drmLicenseHeaders: e.drmLicenseHeaders });
+const KID = "0123456789abcdef0123456789abcdef";
+const KEY = "fedcba9876543210fedcba9876543210";
+
+test("the kit's M3U reader decodes UTF-16 lists, with a BOM or without one, like their UTF-8 text", () => {
+  const sample = "#EXTM3U\n#EXTINF:-1 group-title=\"Noticias\",Señal Ñ\nhttps://live.example.com/n.m3u8\n";
+  const be = (s) => Buffer.from(s, "utf16le").swap16();
+  const expected = parseM3u(sample);
+  assert.equal(expected.total, 1);
+  for (const [name, bytes] of [
+    ["LE BOM", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(sample, "utf16le")])],
+    ["BE BOM", Buffer.concat([Buffer.from([0xfe, 0xff]), be(sample)])],
+    ["LE", Buffer.from(sample, "utf16le")],
+    ["BE", be(sample)],
+  ]) {
+    assert.equal(decodeM3u(bytes), sample, name);
+    assert.deepEqual(parseM3u(bytes), expected, name);
+  }
+  // UTF-8 and Latin-1 are never mistaken for UTF-16; two bytes are too few to sniff.
+  assert.equal(decodeM3u(Buffer.from(sample, "utf8")), sample);
+  assert.equal(decodeM3u(Buffer.from(sample, "latin1")), sample);
+  assert.equal(decodeM3u(Buffer.from([0x23, 0x45])), "#E");
+});
+
+test("the kit's M3U reader takes single-quoted and bare attribute values, and an apostrophe never swallows the title", () => {
+  const text = "#EXTM3U\n"
+    + "#EXTINF:-1 tvg-id=abc.co tvg-logo='http://logo.example.com/a.png' group-title='Noticias, Deportes',Canal A\n"
+    + "https://live.example.com/a.m3u8\n"
+    + "#EXTINF:-1 tvg-name=O'Brien group-title=\"Uno, Dos\",Canal B\n"
+    + "https://live.example.com/b.m3u8\n";
+  const [a, b] = parseM3u(text).entries;
+  assert.deepEqual([a.tvgId, a.logo, a.group, a.name], ["abc.co", "http://logo.example.com/a.png", "Noticias, Deportes", "Canal A"]);
+  assert.deepEqual([b.tvgName, b.group, b.name], ["O'Brien", "Uno, Dos", "Canal B"]);
+});
+
+test("the kit's M3U reader takes the header's guides: http(s) only, deduplicated, capped, single quotes too, never a late header", () => {
+  const text = "#EXTM3U url-tvg=\"https://epg.example.com/a.xml.gz, https://epg.example.com/b.xml,file:///sdcard/x.xml\" "
+    + "x-tvg-url=\"https://epg.example.com/b.xml,http://epg.example.org/c.xml,https://epg.example.org/d.xml\"\n"
+    + "#EXTINF:-1,Canal\nhttps://live.example.com/1.m3u8\n";
+  assert.deepEqual(parseM3u(text).epgUrls, ["https://epg.example.com/a.xml.gz", "https://epg.example.com/b.xml", "http://epg.example.org/c.xml"]);
+  assert.deepEqual(parseM3u("#EXTM3U url-tvg='https://epg.example.com/g.xml'\n").epgUrls, ["https://epg.example.com/g.xml"]);
+  assert.deepEqual(parseM3u("#EXTM3U\n#EXTINF:-1,A\nhttps://x.example.com/a\n").epgUrls, []);
+  assert.deepEqual(parseM3u("#EXTM3U\n#EXTINF:-1,A\nhttps://x.example.com/a\n#EXTM3U url-tvg=\"https://epg.example.com/late.xml\"\n").epgUrls, []);
+  assert.deepEqual(parseM3u(Buffer.from("\uFEFF#EXTM3U x-tvg-url=\"https://epg.example.com/g.xml\"\n#EXTINF:-1,A\nhttps://x.example.com/a\n")).epgUrls, ["https://epg.example.com/g.xml"]);
+});
+
+test("the kit's M3U reader takes a KODIPROP ClearKey license, hex or JSON, and drops a bad one or another key system", () => {
+  const one = (type, key) => parseM3u(`#EXTM3U\n#EXTINF:-1,C\n#KODIPROP:inputstream.adaptive.license_type=${type}\n#KODIPROP:inputstream.adaptive.license_key=${key}\nhttps://live.example.com/p.mpd\n`).entries[0];
+  assert.deepEqual(drmOf(one("clearkey", `${KID}:${KEY}`)), { ...DRM_NONE, drmKeyId: KID, drmKey: KEY });
+  assert.deepEqual(drmOf(one("org.w3.clearkey", `${KID.toUpperCase()}:${KEY}`)), { ...DRM_NONE, drmKeyId: KID, drmKey: KEY });
+  assert.deepEqual(drmOf(one("clearkey", '{"keys":[{"kty":"oct","kid":"ASNFZ4mrze8BI0VniavN7w","k":"_ty6mHZUMhD-3LqYdlQyEA"}],"type":"temporary"}')), { ...DRM_NONE, drmKeyId: KID, drmKey: KEY });
+  for (const bad of ["zz:yy", "0123:4567", '{"keys":[{"kid":"bad","k":"bad"}]}', '{"keys":']) assert.deepEqual(drmOf(one("clearkey", bad)), DRM_NONE, bad);
+  assert.deepEqual(drmOf(one("com.microsoft.playready", "https://license.example.com/acquire")), DRM_NONE);
+  assert.deepEqual(drmOf(parseM3u("#EXTM3U\n#EXTINF:-1,Libre\nhttps://live.example.com/l.m3u8\n").entries[0]), DRM_NONE);
+});
+
+test("the kit's M3U reader takes a KODIPROP Widevine license: its URL and request headers, by the app's limits", () => {
+  for (const type of ["com.widevine.alpha", "widevine", "WIDEVINE"]) {
+    const text = `#EXTM3U\n#EXTINF:-1,Canal widevine\n#KODIPROP:inputstream.adaptive.license_type=${type}\n`
+      + "#KODIPROP:inputstream.adaptive.license_key=https://license.example.com/acquire?id=1|User-Agent=Mozilla%2F5.0&X-Custom-Data=a+b%3D&Host=evil&bad name=x&Connection=close&X-Ctl=a%0Ab|R{SSM}|\n"
+      + "https://live.example.com/widevine.mpd\n";
+    const e = parseM3u(text).entries[0];
+    assert.deepEqual(drmOf(e), { ...DRM_NONE, drmLicenseUrl: "https://license.example.com/acquire?id=1", drmLicenseHeaders: { "User-Agent": "Mozilla/5.0", "X-Custom-Data": "a+b=" } }, type);
+    // License headers go to the license server only, never the stream.
+    assert.deepEqual(e.headers, {}, type);
+  }
+  const many = Array.from({ length: 20 }, (_, i) => `X-H${i}=${i}`).join("&");
+  const capped = parseM3u(`#EXTM3U\n#EXTINF:-1,C\n#KODIPROP:inputstream.adaptive.license_type=widevine\n#KODIPROP:inputstream.adaptive.license_key=https://l.example.com/|${many}\nhttps://live.example.com/p.mpd\n`).entries[0];
+  assert.equal(Object.keys(capped.drmLicenseHeaders).length, 16);
+  assert.equal(capped.drmLicenseHeaders["X-H15"], "15");
+  for (const key of ["", "ftp://license.example.com/x", `${KID}:${KEY}`, "https://", "https://a b.example.com/"]) {
+    const e = parseM3u(`#EXTM3U\n#EXTINF:-1,C\n#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha\n#KODIPROP:inputstream.adaptive.license_key=${key}\nhttps://live.example.com/p.mpd\n`).entries[0];
+    assert.equal(e.name, "C", key);
+    assert.deepEqual(drmOf(e), DRM_NONE, key);
+  }
+});
+
+test("the kit's M3U reader reads drm_legacy, and one entry's DRM never leaks into the next", () => {
+  const text = "#EXTM3U\n"
+    + "#EXTINF:-1,W\n#KODIPROP:inputstream.adaptive.drm_legacy=com.widevine.alpha|https://license.example.com/w|Referer=https%3A%2F%2Fsite.example.com%2F\nhttps://live.example.com/w.mpd\n"
+    + `#EXTINF:-1,C\n#KODIPROP:inputstream.adaptive.drm_legacy=org.w3.clearkey|${KID}:${KEY}\nhttps://live.example.com/c.mpd\n`
+    + "#EXTINF:-1,Libre\nhttps://live.example.com/l.m3u8\n";
+  const [w, c, libre] = parseM3u(text).entries;
+  assert.deepEqual(drmOf(w), { ...DRM_NONE, drmLicenseUrl: "https://license.example.com/w", drmLicenseHeaders: { Referer: "https://site.example.com/" } });
+  assert.deepEqual(drmOf(c), { ...DRM_NONE, drmKeyId: KID, drmKey: KEY });
+  assert.deepEqual(drmOf(libre), DRM_NONE);
+});
+
+test("the kit's M3U reader reads tvg-shift as the app: hours to minutes, at most a day either way", () => {
+  const shift = (v) => parseM3u(`#EXTM3U\n#EXTINF:-1 tvg-shift="${v}",C\nhttps://live.example.com/c.m3u8\n`).entries[0].tvgShiftMin;
+  assert.deepEqual(["+2", "-5", "2.5", "1,5", "24", "25", "abc", ""].map(shift), [120, -300, 150, 90, 1440, 0, 0, 0]);
 });
 
 test("the kit's XMLTV reader gives the app's answer on every shared guide, plain and gzip, and refuses a DOCTYPE", (t) => {
@@ -2131,6 +2409,64 @@ test("the kit's XMLTV reader: every DOCTYPE refused, caps, times and a broken ta
   assert.equal(parseXmltvTime("202609271230 +0000"), Date.parse("2026-09-27T12:30:00Z"));
   assert.equal(parseXmltvTime("basura"), null);
   assert.equal(parseXmltvTime("20261399000000"), null);
+});
+
+test("the kit's XMLTV reader ends a programme with no stop at the next one of its channel, else after an hour", () => {
+  const from = Date.parse("2026-09-27T00:00:00Z");
+  const to = Date.parse("2026-09-28T00:00:00Z");
+  const at = (hhmm) => Date.parse(`2026-09-27T${hhmm.slice(0, 2)}:${hhmm.slice(2)}:00Z`);
+  const p = (ch, start, title, stop = null) => `<programme start="20260927${start}00 +0000"${stop ? ` stop="20260927${stop}00 +0000"` : ""} channel="${ch}">${title === null ? "" : `<title>${title}</title>`}</programme>`;
+  const ends = (xml, opts = {}) => Object.fromEntries(Object.entries(parseXmltv(Buffer.from(`<tv>${xml}</tv>`), { from, to, ...opts }).programmes)
+    .map(([ch, l]) => [ch, l.map((x) => [x.title, x.start, x.end])]));
+  // In time order: each ends where the next of ITS channel starts; the last one an hour later.
+  assert.deepEqual(ends(p("a", "1000", "A1") + p("b", "1015", "B1") + p("a", "1030", "A2") + p("a", "1100", "A3", "1200") + p("a", "1300", "A4")), {
+    a: [["A1", at("1000"), at("1030")], ["A2", at("1030"), at("1100")], ["A3", at("1100"), at("1200")], ["A4", at("1300"), at("1300") + OPEN_END_MS]],
+    b: [["B1", at("1015"), at("1015") + OPEN_END_MS]],
+  });
+  // An untitled programme is not kept, but still ends the open one before it.
+  assert.deepEqual(ends(p("a", "1000", "A1") + p("a", "1020", null) + p("a", "1100", "A2", "1130")), {
+    a: [["A1", at("1000"), at("1020")], ["A2", at("1100"), at("1130")]],
+  });
+  // Out of order: an earlier one with no stop ends where the open one starts; the open one ends at
+  // the next kept start when that comes sooner than its own next programme.
+  assert.deepEqual(ends(p("a", "1100", "A2") + p("a", "1000", "A1") + p("a", "1130", "A3", "1200")), {
+    a: [["A1", at("1000"), at("1100")], ["A2", at("1100"), at("1130")], ["A3", at("1130"), at("1200")]],
+  });
+  assert.deepEqual(ends(p("a", "1030", "A2", "1045") + p("a", "1000", "A1") + p("a", "1200", "A3")), {
+    a: [["A1", at("1000"), at("1030")], ["A2", at("1030"), at("1045")], ["A3", at("1200"), at("1200") + OPEN_END_MS]],
+  });
+  // The same start twice with no stop: the second is dropped.
+  assert.deepEqual(ends(p("a", "1000", "A1") + p("a", "1000", "Dup") + p("a", "1100", "A2", "1200")), {
+    a: [["A1", at("1000"), at("1100")], ["A2", at("1100"), at("1200")]],
+  });
+  // An unparsable stop is no stop; the window applies to the end it gets; a cut guide closes what is open.
+  assert.deepEqual(ends(`<programme start="20260927100000 +0000" stop="basura" channel="a"><title>A1</title></programme>`), { a: [["A1", at("1000"), at("1100")]] });
+  assert.deepEqual(ends(p("a", "2330", "Late") + p("a", "0000", "Before", "0010"), { from: at("0005"), to: at("2345") }), {
+    a: [["Before", at("0000"), at("0010")], ["Late", at("2330"), at("2330") + OPEN_END_MS]],
+  });
+  const cut = parseXmltv(Buffer.from(`<tv>${p("a", "1000", "A1")}<programme`), { from, to });
+  assert.deepEqual([cut.programmes.a.map((x) => x.end), cut.truncated], [[at("1000") + OPEN_END_MS], true]);
+});
+
+test("a list or guide over its cap keeps its start, cut at the last whole line, as the app does", async () => {
+  assert.deepEqual(keepStart(Buffer.from("ab\ncd\nef"), 20), { bytes: Buffer.from("ab\ncd\nef"), cut: false });
+  assert.deepEqual(keepStart(Buffer.from("ab\ncd\nef"), 7), { bytes: Buffer.from("ab\ncd\n"), cut: true });
+  assert.deepEqual(keepStart(Buffer.from("abcdef"), 4), { bytes: Buffer.from("abcd"), cut: true });
+  // A declared playlist over contract.live.maxPlaylistBytes gives the channels of its start, and says so.
+  const entry = (i) => `#EXTINF:-1 group-title="G",C${i}\nhttps://live.example.com/${i}.m3u8\n`;
+  let text = "#EXTM3U\n";
+  for (let i = 0; text.length <= contract.live.maxPlaylistBytes + 100; i++) text += entry(i);
+  const body = Buffer.from(text);
+  const m = validateManifest(manifest({ apiVersion: 3, hosts: ["cdn.example.com", "live.example.com"], capabilities: ["home", "resolve", "channels"] })).manifest;
+  const fetchImpl = async () => new Response(body, { status: 200 });
+  const s = await loadPlaylist({ url: "https://cdn.example.com/big.m3u" }, { manifest: m, fetchImpl });
+  const kept = summarisePlaylist(keepStart(body, contract.live.maxPlaylistBytes).bytes);
+  assert.equal(s.cut, true);
+  assert.equal(s.total, kept.total);
+  assert.ok(s.total > 0 && s.skipped === kept.skipped);
+  assert.ok(summaryLines(s).some((l) => /Kino lee solo su comienzo/.test(l)));
+  const small = await loadPlaylist({ url: "https://cdn.example.com/s.m3u" }, { manifest: m, fetchImpl: async () => new Response(entry(1), { status: 200 }) });
+  assert.equal(small.cut, undefined);
 });
 
 test("run.mjs live playlist reports channels, groups and skipped entries", (t) => {
@@ -3215,4 +3551,21 @@ test("run.mjs --within sends the browse ref as the app's scoped search does", as
   assert.equal(q.type, "any");
   assert.equal((await call(plugin, "search", ["matrix"], {})).within, undefined);
   assert.throws(() => parseArgs(["--within"]), /--within needs/);
+});
+
+// --- alternatives (Stream.alternatives, from main): checked like `url`, never next to drm or signing, as PluginOutput.alternativesOf ---
+
+test("a stream's alternatives are checked like its url: bad, repeated or surplus ones dropped, none with signing", () => {
+  const url = "https://cdn.example/a.mp4";
+  const list = [{ url: "https://cdn2.example/b.mp4", mime: "video/mp4", headers: { Referer: "https://cdn.example/" } }, { url },
+    { url: "https://evil.example/c.mp4" }, { url: "https://cdn2.example/b.mp4" }, "nope",
+    ...[3, 4, 5, 6, 7, 8].map((n) => ({ url: `https://cdn${n}.example/x.mp4` })), { url: "https://cdn2.example/last.mp4" }, { url: "https://cdn2.example/over.mp4" }];
+  const { value } = checkOutput("resolve", { url, alternatives: list }, cdns());
+  assert.equal(contract.output.maxAlternatives, 8);
+  assert.equal(value.alternatives.length, 8);
+  assert.deepEqual(value.alternatives[0], { url: "https://cdn2.example/b.mp4", mime: "video/mp4", headers: { Referer: "https://cdn.example/" } });
+  assert.ok(!value.alternatives.some((a) => a.url === url || a.url.includes("evil")));
+  assert.equal(checkOutput("resolve", { url }, cdns()).value.alternatives, undefined);
+  const signed = checkOutput("resolve", { ...signedWith([]), alternatives: [{ url: "https://cdn2.example/b.m3u8" }] }, cdns()).value;
+  assert.equal(signed.alternatives, undefined);
 });

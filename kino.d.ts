@@ -200,6 +200,13 @@ interface KinoStream {
    * after the sixth is dropped. Not an array of strings: the stream is refused. Ignored without `signing`.
    */
   alternateHosts?: string[];
+  /**
+   * Other copies of the same video, best first, at most 8: when `url` cannot play on the device (a codec it lacks, a broken
+   * file) or is gone, Kino moves on to the next one by itself, at the same spot, before showing any error. Each is checked
+   * exactly like `url`, `mime` and `headers`; a bad entry is dropped. They share this stream's subtitles and audio tracks.
+   * Ignored next to `drm`, with `signing` (use `alternateHosts`) and for a live channel.
+   */
+  alternatives?: { url: string; mime?: string; headers?: Record<string, string> }[];
 }
 
 /** apiVersion 3, capability "channels": a section of the En vivo tab. */
@@ -257,13 +264,21 @@ interface KinoLiveChannel {
   title: string;
   ref?: string;
   stream?: KinoStream;
-  /** Informational: the channel is listed under the category it was asked for. Not a valid id = empty. */
+  /**
+   * In liveChannels, informational: the channel is listed under the category it was asked for. Not a valid id = empty.
+   * In a liveSearch hit (apiVersion 6), the category it belongs to: one of your 18+ categories makes it 18+, a plain one
+   * makes it plain. A hit with neither `categoryId` nor `adult` counts as 18+ when you have any 18+ category.
+   */
   categoryId?: string;
   /** https image, like a poster. */
   logo?: string;
   /** 1..9999. */
   number?: number;
-  /** apiVersion 6: true = an 18+ entry, shown only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos). Below apiVersion 6 it is dropped. */
+  /**
+   * apiVersion 6: true = an 18+ entry, shown only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos).
+   * Below apiVersion 6 it is dropped. On a liveSearch hit, `false` says it is plain (needed when your categories can't be
+   * read and it carries no `categoryId`): mark every hit with `adult` or `categoryId`.
+   */
   adult?: boolean;
 }
 
@@ -343,8 +358,17 @@ interface KinoPlugin {
   sign?(request: { url: string; kind: "playlist" | "segment"; ref: string; context: string }): Promise<{ headers: Record<string, string> }>;
   /** apiVersion 3, capability "channels" (required with it). At most 200 categories. */
   liveCategories?(): Promise<Array<KinoLiveCategory | KinoPlaylist> | KinoPlaylist>;
-  /** apiVersion 3, capability "channels" (required with it). At most 500 per page. */
+  /**
+   * apiVersion 3, capability "channels" (required with it). At most 500 per page. Kino asks 10
+   * pages at first and 5 more each time the person scrolls near the end, up to 10,000 channels.
+   */
   liveChannels?(arg: { categoryId: string; cursor: string | null }): Promise<KinoLiveChannelPage | KinoLiveChannel[]>;
+  /**
+   * apiVersion 3, optional with "channels": channels whose name matches `query`, listed or not (the
+   * En vivo search, while some of your channels were never listed). At most 100 kept; `next` ignored.
+   * apiVersion 6 with an 18+ category: give every hit `adult` or `categoryId`; an unmarked hit counts as 18+.
+   */
+  liveSearch?(arg: { query: string }): Promise<KinoLiveChannelPage | KinoLiveChannel[]>;
   /** apiVersion 3, optional with "channels". At most 50 channels and a 24 h window per call. */
   guide?(arg: { channelIds: string[]; from: number; to: number }): Promise<KinoGuideEntry[]>;
   /** apiVersion 6: required when a setting has `type: "status"`. One text per status setting key, shown as-is (at most 200 characters; a missing key or a non-text reads "Sin información"). 10 s. */
@@ -365,6 +389,13 @@ interface KinoPlugin {
 type KinoErrorCode = "auth_required" | "not_found" | "geo_blocked" | "rate_limited" | "unavailable";
 type KinoFetchErrorCode = "host_not_allowed" | "timeout" | "network" | "too_large" | "invalid_request";
 type KinoEncoding = "utf8" | "hex" | "base64";
+type KinoKeyType = "ec" | "ed25519" | "x25519";
+/** A public key as a JWK, in WebCrypto's key order: EC `{ crv, kty: "EC", x, y }`, OKP `{ crv: "Ed25519" | "X25519", kty: "OKP", x }` (base64url, no padding). */
+interface KinoJwk { readonly crv: string; readonly kty: "EC" | "OKP"; readonly x: string; readonly y?: string }
+/** apiVersion 6: a handle to a private key that lives only inside Kino, in this runtime. */
+interface KinoPrivateKey { readonly type: KinoKeyType; readonly namedCurve?: "P-256" | "P-384"; readonly handle: string }
+/** apiVersion 6: `spki` is DER as base64; `raw` is base64 (an uncompressed point 04||x||y for ec, 32 bytes otherwise). */
+interface KinoPublicKey { readonly type: KinoKeyType; readonly namedCurve?: "P-256" | "P-384"; readonly jwk: KinoJwk; readonly spki: string; readonly raw: string }
 
 interface KinoError extends Error {
   /** `KinoError_<code>` (e.g. `KinoError_not_found`). */
@@ -526,6 +557,24 @@ declare namespace kino {
     function randomBytes(n: number, outputEncoding?: KinoEncoding): string;
     /** A random (v4) UUID. */
     function uuid(): string;
+    /**
+     * apiVersion 6: a new key pair. The private key stays inside Kino: you get a handle that works only in this
+     * runtime (not in sign()'s signing lane, not after the plugin restarts) and is gone when it closes; at most 64
+     * live at once (a new one drops the oldest). Node's generateKeyPairSync / WebCrypto's generateKey map here.
+     */
+    function generateKeyPair(options: { type: "ec"; namedCurve: "P-256" | "P-384" } | { type: "ed25519" } | { type: "x25519" }): { readonly privateKey: KinoPrivateKey; readonly publicKey: KinoPublicKey };
+    /** apiVersion 6: a peer's public key (jwk object, spki base64, or raw base64 with `type` and, for ec, `namedCurve`). Private keys cannot be imported. */
+    function importKey(options: { format: "jwk"; key: KinoJwk } | { format: "spki"; key: string } | { format: "raw"; key: string; type: KinoKeyType; namedCurve?: "P-256" | "P-384" }): KinoPublicKey;
+    /**
+     * apiVersion 6: signs `data` (read with `encoding`, default utf8) with your private key; base64 by default.
+     * ec: `hash` "SHA-256" (default) or "SHA-384"; `format` "der" (default, Node's crypto.sign) or "ieee-p1363"
+     * (r||s, 64 bytes on P-256, 96 on P-384: WebCrypto's). ed25519: 64 bytes, no `hash`. x25519 does not sign.
+     */
+    function sign(options: { key: KinoPrivateKey | string; data: string; encoding?: KinoEncoding; hash?: "SHA-256" | "SHA-384"; format?: "der" | "ieee-p1363"; outputEncoding?: "base64" | "hex" }): string;
+    /** apiVersion 6: true when `signature` (base64 by default) is valid for `data`; a malformed signature is false. `key`: a public key, a `{ jwk }`, or your own private key. */
+    function verify(options: { key: KinoPublicKey | { jwk: KinoJwk } | KinoPrivateKey | string; data: string; encoding?: KinoEncoding; signature: string; signatureEncoding?: KinoEncoding; hash?: "SHA-256" | "SHA-384"; format?: "der" | "ieee-p1363" }): boolean;
+    /** apiVersion 6: ECDH (ec, same curve) or X25519: the shared secret, base64 by default (32 bytes; 48 on P-384). */
+    function deriveSharedSecret(options: { privateKey: KinoPrivateKey | string; publicKey: KinoPublicKey | { jwk: KinoJwk }; outputEncoding?: "base64" | "hex" }): string;
   }
 
   namespace rank {

@@ -19,6 +19,7 @@
 //   node sdk/run.mjs <plugin dir> live categories        (and downloads + groups each declared playlist)
 //   node sdk/run.mjs <plugin dir> live channels <categoryId> [cursor]
 //   node sdk/run.mjs <plugin dir> live guide <id,id>
+//   node sdk/run.mjs <plugin dir> live search <query>     (the optional liveSearch export)
 //   node sdk/run.mjs live playlist <url|file> [--epg <url|file>]   (any M3U list, no plugin needed)
 // Your own section, categories and colors (apiVersion 6; no capability, the manifest decides):
 //   node sdk/run.mjs <plugin dir> section [tab]     needs "section" in the manifest
@@ -41,20 +42,20 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { checkOutput, checkSettingsOutput, contract, validateManifest } from "./contract.mjs";
+import { checkOutput, checkSettingsOutput, contract, markSearchHits, validateManifest } from "./contract.mjs";
 import { contrast, formatRatio, resolvePalette } from "./palette.mjs";
 import { createKino, errorReport, signingLane } from "./kino-shim.mjs";
-import { channelLines, download, guideFor, loadPlaylist, summarisePlaylist, summaryLines } from "./live-playlist.mjs";
+import { channelLines, download, guideFor, keepStart, loadPlaylist, summarisePlaylist, summaryLines } from "./live-playlist.mjs";
 
 const FUNCTIONS = ["search", "home", "browse", "episodes", "resolve", "migrate", "section", "categories"];
 // apiVersion 6's settings form: not capabilities, so no capability check; the app runs them even before a required setting is typed.
 const SETTINGS_FUNCTIONS = ["settingsStatus", "action", "validateSettings"];
 // `live <sub>` names one of the channels capability's exports.
-const LIVE = { categories: "liveCategories", channels: "liveChannels", guide: "guide" };
+const LIVE = { categories: "liveCategories", channels: "liveChannels", guide: "guide", search: "liveSearch" };
 const USAGE = "usage: node sdk/run.mjs [--config k=v] [--record f | --replay f] [--raw] <plugin.js | plugin folder> <search|home|browse|episodes|resolve|migrate|sign> [argument] [cursor]\n"
   + "       node sdk/run.mjs [--config k=v] [--raw] <plugin folder> <section [tab] | categories | theme>\n"
   + "       node sdk/run.mjs [--config k=v] [--raw] <plugin folder> <settingsStatus | action <key> | validateSettings '<json>'>\n"
-  + "       node sdk/run.mjs [--config k=v] <plugin folder> live <categories | channels <categoryId> [cursor] | guide <id,id>>\n"
+  + "       node sdk/run.mjs [--config k=v] <plugin folder> live <categories | channels <categoryId> [cursor] | guide <id,id> | search <query>>\n"
   + "       node sdk/run.mjs live playlist <url|file> [--epg <url|file>]";
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -82,6 +83,28 @@ export function adultLines(value) {
   };
   walk(value);
   return out;
+}
+
+/**
+ * A checked liveSearch [value] marked 18+ the way the app does (contract.mjs markSearchHits): it reads the plugin's
+ * liveCategories (null when that fails or is not exported) only when the apiVersion has 18+ entries.
+ */
+export async function markLiveSearch(plugin, value, manifest, servers) {
+  if (!(manifest.apiVersion >= contract.live.adultApiVersion)) return { value, unmarked: [], unreadable: false };
+  let categories = null;
+  try {
+    if (typeof plugin.liveCategories === "function") categories = checkOutput("liveCategories", await plugin.liveCategories(null), manifest, servers).value.categories;
+  } catch { categories = null; }
+  return markSearchHits(value, categories, manifest);
+}
+
+/** The warning for [marked] (markLiveSearch's answer), or null when every hit is marked. */
+export function unmarkedSearchNote(marked) {
+  if (!marked.unmarked.length) return null;
+  const names = marked.unmarked.slice(0, 5).join(", ") + (marked.unmarked.length > 5 ? "…" : "");
+  return marked.unreadable
+    ? `liveSearch: no se pudieron leer tus categorías (liveCategories falló): Kino trata como 18+ todo resultado sin "adult": false (${names})`
+    : `liveSearch: ${marked.unmarked.length} resultado(s) sin "adult" ni un "categoryId" de tus categorías, en un plugin con categorías 18+: Kino los trata como 18+ (${names}). Márcalos con "adult" o "categoryId"`;
 }
 
 function fail(message) {
@@ -230,14 +253,21 @@ async function main() {
       }
       throw e;
     }
-    const { value, drops } = checked;
+    let { value, drops } = checked;
     drops.forEach((d) => stderr(`[dropped by Kino] ${d}`));
+    // A search hit names no listing: Kino decides its 18+ mark from its own marks and your categories.
+    if (fn === "liveSearch") {
+      const marked = await markLiveSearch(plugin, value, manifest, servers);
+      value = marked.value;
+      const note = unmarkedSearchNote(marked);
+      if (note) stderr(`aviso: ${note}`);
+    }
     adultLines(value).forEach((l) => stderr(l));
     const noSign = fn === "resolve" ? signExportProblem(value, plugin) : null;
     if (noSign) { stderr(`✗ ${noSign}`); return 1; }
     process.stdout.write(JSON.stringify(value, null, 2) + "\n");
     // Playing a listed channel: its ref goes to resolve() as a live channel's.
-    if (fn === "liveChannels") {
+    if (fn === "liveChannels" || fn === "liveSearch") {
       const r = await resolveFirstLiveRef(plugin, value, manifest, servers);
       if (r) stderr(r.error ? `resolve(${r.ref}) ✗ ${r.error}` : `resolve(${r.ref}) → ${r.url}`);
       if (r && r.error) return 1;
@@ -281,17 +311,20 @@ export async function resolveFirstLiveRef(plugin, page, manifest, servers) {
   }
 }
 
-/** Reads a local file, or downloads an http(s) URL under `maxBytes`. */
+/** Reads a local file, or downloads an http(s) URL; past `maxBytes` only the start is kept, as the app does. `{ bytes, cut }`. */
 async function readSource(src, maxBytes) {
-  if (/^https?:\/\//i.test(src)) return download(src, { maxBytes });
-  return readFileSync(src);
+  if (!/^https?:\/\//i.test(src)) return keepStart(readFileSync(src), maxBytes);
+  let cut = false;
+  const bytes = await download(src, { maxBytes, cut: true, onCut: () => { cut = true; } });
+  return { bytes, cut };
 }
 
 /** `live playlist`: any M3U list (and, with --epg, its guide) read exactly as Kino would. */
 async function livePlaylist(src, epg) {
   try {
-    const s = summarisePlaylist(await readSource(src, contract.live.maxPlaylistBytes));
-    const guide = epg ? guideFor(s, await readSource(epg, contract.live.maxEpgBytes)) : null;
+    const list = await readSource(src, contract.live.maxPlaylistBytes);
+    const s = { ...summarisePlaylist(list.bytes), cut: list.cut };
+    const guide = epg ? guideFor(s, (await readSource(epg, contract.live.maxEpgBytes)).bytes) : null;
     if (guide && guide.truncated) stderr("[guide] cut short (byte cap, a cut download or a broken tail): what was read is kept");
     const refusal = guide && guide.refused ? ["La guía declara un DOCTYPE; Kino la rechaza por seguridad"] : [];
     process.stdout.write([...summaryLines(s), ...refusal, ...s.categories.map((c) => `categoría ${c.title} (${c.count})`), "", ...channelLines(s, { guide })].join("\n") + "\n");
@@ -313,6 +346,7 @@ export async function call(plugin, fn, rest, opts = {}) {
   // apiVersion 3's channels: the same arguments the app's PluginLiveProvider sends.
   if (fn === "liveCategories") return plugin.liveCategories(null);
   if (fn === "liveChannels") return plugin.liveChannels({ categoryId: arg, cursor: rest[1] === undefined ? null : rest[1] });
+  if (fn === "liveSearch") return plugin.liveSearch({ query: arg.trim() });
   if (fn === "guide") {
     const from = Date.now() - 2 * 3600 * 1000;
     return plugin.guide({ channelIds: arg ? arg.split(",") : [], from, to: from + contract.live.maxGuideWindowMs });
