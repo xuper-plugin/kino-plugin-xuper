@@ -52,6 +52,41 @@
       "confirm": "¿Cerrar sesión de tu cuenta Xuper?"
     },
     {
+      "key": "createAccount",
+      "label": "Crear cuenta",
+      "type": "section",
+      "hint": "Usa el correo y la contraseña de arriba; el código llega por correo."
+    },
+    {
+      "key": "verifyCode",
+      "label": "Código de verificación",
+      "type": "text",
+      "hint": "El código que llega a tu correo"
+    },
+    {
+      "key": "sendCode",
+      "label": "Enviar código",
+      "type": "action"
+    },
+    {
+      "key": "register",
+      "label": "Crear cuenta",
+      "type": "action"
+    },
+    {
+      "key": "seeds",
+      "label": "Semillas",
+      "type": "section",
+      "hint": "Sesiones de respaldo para cuando tu zona está bloqueada."
+    },
+    {
+      "key": "autoRefreshSeeds",
+      "label": "Actualizar semillas automáticamente",
+      "type": "toggle",
+      "default": true,
+      "hint": "Solo sin cuenta y con la zona bloqueada"
+    },
+    {
       "key": "switchSeed",
       "label": "Cambiar semilla",
       "type": "action",

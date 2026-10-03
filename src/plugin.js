@@ -2,6 +2,7 @@ import { guarded, clock, getDeps } from "./wiring.js";
 import { signRequest } from "./liveSign.js";
 import { makeMigrate } from "./migrate.js";
 import { makeSettings } from "./settings.js";
+import { makeRegistration } from "./registration.js";
 import { isKinoError } from "./util.js";
 
 
@@ -37,7 +38,10 @@ export async function migrate(input) {
 
 // The settings form runs even with no account saved: it needs the session, never the catalog.
 let settingsInstance = null;
-const settings = () => (settingsInstance ??= makeSettings({ kino, session: getDeps().session, clock }));
+const settings = () => (settingsInstance ??= (() => {
+  const { session, portal } = getDeps();
+  return makeSettings({ kino, session, clock, registration: makeRegistration({ kino, portal, session }) });
+})());
 export async function settingsStatus() {
   await null;
   try { return await settings().settingsStatus(); } catch (_) { return { status: "No se pudo consultar el estado" }; }

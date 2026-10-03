@@ -1,7 +1,8 @@
 // Session lifecycle against the Magis portal: mint/reactivate a device, login, reauth, seed pool
 // rescue. Port of the native MagisSession (native-magis.md §2.2-§2.8).
 import { PortalError, mapPortalError } from "./portal.js";
-import { SNTOKEN_SALT, PASSWORD_SALT, FIXED_MAC, FINGERPRINT_FIXED } from "./config.js";
+import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
+import { activateBean, makeFingerprint, snFrom } from "./device.js";
 
 export const DEFAULT_SEEDS_URL =
   "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/main/seeds.json";
@@ -77,18 +78,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const surface = (e) => (e instanceof PortalError ? mapPortalError(e.code, e.message, kino) : e);
 
   // ---- portal exchanges (callers hold `lock`) ----
-  const activateBean = (snToken) => ({
-    snToken, authVersion: "", authCode: "", preCode: "", macAddr: FIXED_MAC, reserve1: "",
-    openNum: 4, channel: "default", matadata: "", signdata: "",
-  });
-
-  const randomHex = (bytes) => kino.crypto.randomBytes(bytes, "hex");
-  const randomMac = () => randomHex(6).match(/../g).join(":");
-  const fingerprint = () => ({
-    ...FINGERPRINT_FIXED,
-    androidId: randomHex(8), cpuId: randomHex(8), serialNumber: randomHex(8),
-    etheMac: randomMac(), gatewayMac: randomMac(), wifiMac: randomMac(),
-  });
+  const fingerprint = makeFingerprint(kino);
 
   // The device belongs to the DEVICE: login and reactivation keep the stored sn.
   function saveFromResponse(j) {
@@ -105,7 +95,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const j = await portal.call("v3/snToken", fingerprint(), { baseFields: false });
     if (blank(j && j.snToken)) throw new PortalError("snToken_failed", "el portal no devolvió snToken");
     const snToken = str(j.snToken);
-    const sn = (blank(j.sn) ? kino.crypto.hash("md5", snToken + SNTOKEN_SALT) : str(j.sn)).toLowerCase();
+    const sn = snFrom(kino, j, snToken);
     // Saved BEFORE activating: that same call's device dict must carry it.
     writeSession({ userId: "", userToken: "", jwtToken: "", sn });
     await activate(snToken, sn);
@@ -337,6 +327,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     });
   }
 
+  /** Makes `s` the stored session (registration: the temporary device that just logged in). */
+  const adoptSession = (s) => lock(async () => writeSession(s));
+
   function kind() {
     if (account()) return "account";
     const s = readSession();
@@ -346,6 +339,6 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   return {
     ensure, withValidSession, current: readSession, kind, login, logout, regionBlocked,
-    seedsExhausted: () => exhausted, switchSeed, refreshSeeds, seedPool,
+    seedsExhausted: () => exhausted, switchSeed, refreshSeeds, seedPool, adoptSession,
   };
 }

@@ -336,6 +336,33 @@ test("action switchSeed and refreshSeeds: probe a pool seed, then re-download th
   assert.equal(await s.plugin.action("unknown"), null);
 });
 
+test("registration: sendCode then register through src/plugin.js over the scripted portal, kit clean", async () => {
+  const email = "persona@ejemplo.test", pw = "stand-in-pw", code = "482913";
+  const PEND_TOKEN = "p".repeat(32), NEW_TOKEN = "n".repeat(32);
+  const s = await start({ config: { email, password: pw, verifyCode: code }, routes: {
+    "v3/snToken": { data: { snToken: "SNTOKEN-PEND" } },
+    "v8/active": () => ({ data: { userId: "u-pend", userToken: PEND_TOKEN, jwtToken: "" } }),
+    "v2/sendEmailVerifyCode": (bean) => { assert.equal(bean.email, email); assert.equal(bean.userToken, PEND_TOKEN); return { data: {} }; },
+    "v2/validateVerifyCode": (bean) => { assert.equal(bean.verifyCode, code); assert.equal(bean.userToken, PEND_TOKEN); return { data: {} }; },
+    "v2/bindEmail": (bean) => { assert.notEqual(bean.pwd, pw, "the password never travels as typed"); return { data: {} }; },
+    "v8/login": () => ({ data: { userId: "u-new", userToken: NEW_TOKEN, jwtToken: "jwt" } }),
+  } });
+  const sent = await s.plugin.action("sendCode");
+  assert.equal(sent.message, "Te enviamos un código a " + email);
+  checkSettingsOutput("action", sent, manifest);
+  const done = await s.plugin.action("register");
+  assert.deepEqual(s.paths(), ["v3/snToken", "v8/active", "v2/sendEmailVerifyCode", "v2/validateVerifyCode", "v2/bindEmail", "v8/login"]);
+  const drops = [];
+  const kept = checkSettingsOutput("action", done, manifest, (t) => t, (d) => drops.push(d));
+  assert.deepEqual(drops, []);
+  assert.deepEqual(kept.clearSettings, ["verifyCode"]);
+  assert.equal(kept.refresh, true);
+  const stored = JSON.parse(s.kino.storage.get("session"));
+  assert.equal(stored.userToken, NEW_TOKEN);
+  assert.notEqual(stored.sn, "");
+  assert.equal(s.kino.storage.get("pendingRegistration"), null);
+});
+
 test("validateSettings: a good login accepts, refused credentials are a field error, blanks are anonymous", async () => {
   const s = await start({ routes: { "v8/login": (bean) => (bean.userName === "ana@x.test"
     ? { data: { userId: USER, userToken: TOKEN, jwtToken: "j" } } : { returnCode: "aaa100001", errorMessage: "bad" }) } });

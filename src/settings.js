@@ -15,6 +15,10 @@ const LOGIN_TOTAL_MS = 25_000; // cap 30 s
 const SEED_PROBE_MS = 5_000; // one "Cambiar semilla" probe
 const SEED_SWITCH_TOTAL_MS = 22_000; // no probe starts after this (cap 30 s)
 const SEED_DOWNLOAD_MS = 10_000;
+const SEND_CODE_REQUEST_MS = 10_000; // three portal calls: mint, activate, send
+const SEND_CODE_TOTAL_MS = 25_000; // cap 30 s
+const REGISTER_REQUEST_MS = 10_000; // three portal calls: validate, bind, login
+const REGISTER_TOTAL_MS = 25_000;
 
 const SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
 
@@ -23,7 +27,7 @@ const clip = (text, max) => (text.length <= max ? text : text.slice(0, max - 1) 
 // The session already turns a refused credential into this; a raw PortalError counts as one too.
 const refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
 
-export function makeSettings({ kino, session, clock }) {
+export function makeSettings({ kino, session, clock, registration }) {
   // Kino errors (already Spanish, already free of secrets) pass; anything else is a fixed text, so
   // an underlying message that might echo the password never reaches the person.
   const surface = (e) => {
@@ -89,7 +93,38 @@ export function makeSettings({ kino, session, clock }) {
     return { message: ok ? `${session.seedPool().length} semillas cargadas` : "Sin conexión, reintenta", refresh: true };
   }
 
-  const ACTIONS = { login, logout, switchSeed, refreshSeeds };
+  // The registration steps need the saved email (and password) as typed: nothing is read from the
+  // portal or logged. Blank fields are the person's to fill, so they never cost a portal call.
+  function typedEmail() {
+    const { email } = savedAccount();
+    if (email === "") throw kino.error("auth_required", "Escribe tu correo en Ajustes");
+    if (!email.includes("@")) throw kino.error("auth_required", "Escribe un correo válido");
+    return email;
+  }
+
+  async function sendCode() {
+    const email = typedEmail();
+    const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock.now() + SEND_CODE_TOTAL_MS };
+    try { await registration.sendRegistrationCode(email, bounds); }
+    catch (e) { throw surface(e); }
+    return { message: `Te enviamos un código a ${email}` };
+  }
+
+  async function register() {
+    const email = typedEmail();
+    const code = str(kino.config.get("verifyCode")).trim();
+    if (code === "") throw kino.error("auth_required", "Escribe el código de verificación");
+    const { password } = savedAccount();
+    if (password === "") throw kino.error("auth_required", "Escribe tu contraseña en Ajustes");
+    const pending = registration.pendingFor(email);
+    if (!pending) throw kino.error("unavailable", "Pide el código otra vez");
+    const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock.now() + REGISTER_TOTAL_MS };
+    try { await registration.confirmRegistration(pending, code, password, bounds); }
+    catch (e) { throw surface(e); }
+    return { message: "Cuenta creada y sesión iniciada", refresh: true, clearSettings: ["verifyCode"] };
+  }
+
+  const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };
 
   /** Runs the button `key`; an unknown key is `null` (the app shows "Listo"). */
   async function action(key) {

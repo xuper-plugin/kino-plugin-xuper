@@ -363,8 +363,31 @@ test("manifest: the account form has the actions and no leftover portalUrl", () 
     if (s.hint) assert.ok(s.hint.length <= 80, s.key);
   }
   const valueless = manifest.settings.filter((s) => ["section", "status", "action"].includes(s.type));
-  assert.ok(valueless.length <= 8);
-  assert.ok(manifest.settings.length - valueless.length <= 12);
+  const caps = JSON.parse(readFileSync(new URL("../contract.json", import.meta.url), "utf8")).settings;
+  assert.equal(valueless.length, 10);
+  assert.ok(valueless.length <= caps.ui.maxItems && caps.ui.maxItems >= 16);
+  assert.ok(manifest.settings.length - valueless.length <= caps.max);
+  assert.equal(manifest.settings.length - valueless.length, 4);
+});
+
+test("manifest: three sections in order, each with its own settings; nothing outside the plugin tab", () => {
+  const keys = manifest.settings.map((s) => s.key);
+  const sections = manifest.settings.filter((s) => s.type === "section");
+  assert.deepEqual(sections.map((s) => s.label), ["Cuenta", "Crear cuenta", "Semillas"]);
+  const at = (k) => keys.indexOf(k);
+  const [a, c, d] = sections.map((s) => at(s.key));
+  assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout"]);
+  assert.deepEqual(keys.slice(c + 1, d), ["verifyCode", "sendCode", "register"]);
+  assert.deepEqual(keys.slice(d + 1), ["autoRefreshSeeds", "switchSeed", "refreshSeeds"]);
+  const by = Object.fromEntries(manifest.settings.map((s) => [s.key, s]));
+  assert.equal(by.verifyCode.type, "text");
+  assert.equal(by.verifyCode.label, "Código de verificación");
+  assert.ok(!by.verifyCode.required);
+  assert.equal(by.sendCode.label, "Enviar código");
+  assert.equal(by.register.label, "Crear cuenta");
+  assert.equal(by.autoRefreshSeeds.type, "toggle");
+  assert.equal(by.autoRefreshSeeds.label, "Actualizar semillas automáticamente");
+  assert.equal(by.autoRefreshSeeds.default, true);
 });
 
 // ---- a slow or hung portal: the plugin answers inside the app's caps -------------------------
@@ -446,4 +469,13 @@ test("refreshSeeds downloads with a 10 s timeout and a failure reads 'Sin conexi
   assert.equal(w.fetches.length, 1);
   assert.equal(w.fetches[0].timeoutMs, 10_000);
   assert.ok(w.elapsed() <= 10_000);
+});
+
+test("validate: the registration code and the toggle never reach the portal and never fail the check", async () => {
+  for (const extra of [{ verifyCode: "" }, { verifyCode: "482913" }, { verifyCode: "abc " + "9".repeat(400) }, { autoRefreshSeeds: false }]) {
+    const { settings, sess } = setup();
+    assert.equal(await settings.validateSettings({ ...extra }), null, JSON.stringify(Object.keys(extra)));
+    assert.equal(await settings.validateSettings({ email: "ana@x.test", password: PW, ...extra }), null);
+    assert.deepEqual(sess.calls, [["login", "ana@x.test", PW]], "only the credentials are checked");
+  }
 });
