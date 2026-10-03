@@ -172,7 +172,7 @@
     "types": ["movie", "series", "any"],
     "maxAltTitles": 5,
     "maxAltTitleChars": 200,
-    "scoped": { "capability": "scopedSearch", "apiVersion": 6, "field": "within", "debounceMs": 400, "local": { "minMatches": 24, "maxExtraPages": 10, "maxExtraItems": 300 } }
+    "scoped": { "capability": "scopedSearch", "apiVersion": 6, "field": "within", "debounceMs": 400, "softTimeoutMs": 6000, "local": { "minMatches": 24, "maxExtraPages": 10, "maxExtraItems": 300 } }
   },
   "timeoutsMs": {
     "load": 10000,
