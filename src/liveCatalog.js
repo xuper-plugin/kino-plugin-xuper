@@ -123,5 +123,14 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     }
   }
 
-  return { liveCategories, liveChannels };
+  // For the Home country row (countryRow.js), inside the CALLER's deadline (home's), errors as they come.
+  /** Every category as `{ id, name, adult }` (ids not yet checked against the SDK pattern). */
+  const categoriesWithin = (deadline) => readCategories(deadline);
+  /** The first channels page of category `id`, projected and marked like liveChannels'. */
+  async function channelsWithin(id, deadline) {
+    const adult = await isAdultCategory(id, deadline);
+    return project(await fetchPage(id, 1, deadline), id, adult);
+  }
+
+  return { liveCategories, liveChannels, categoriesWithin, channelsWithin };
 }

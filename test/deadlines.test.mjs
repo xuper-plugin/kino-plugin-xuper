@@ -155,3 +155,32 @@ test("portal.call with a deadline splits the time left between the hosts still t
   await w.portal.call("v3/searchByName", {}, { deadline: w.clock.now() + 18_000 });
   assert.deepEqual(w.requests.map((r) => [r.host, r.timeoutMs]), [["a.test", 9_000], ["b.test", 9_000]]);
 });
+
+// ---- Task 18: the Home country row rides inside home's own cap ------------------------------------
+
+const countryRoutes = {
+  getNextColumns: (bean) => (bean.columnCode === "masnew_live"
+    ? { recommendList: [{ columnId: 7, name: "Noticias" }, { columnId: 41, name: "Colombia" }] }
+    : ANSWERS.getNextColumns(bean)),
+};
+
+test("home with a country row: a dead first host fails over and the row is there, inside the cap", async () => {
+  const w = portalWorld({ dead: ["a.test"], config: { homeCountry: "CO" }, routes: countryRoutes });
+  const rows = await w.catalog.home();
+  assert.equal(rows.at(-1).id, "live-country");
+  within(w, CAP.other, "home + country row");
+});
+
+test("home with a country row: every host dead is still the plugin's own unavailable inside the cap", async () => {
+  const w = portalWorld({ dead: ["a.test", "b.test"], config: { homeCountry: "CO" }, routes: countryRoutes });
+  await assert.rejects(w.catalog.home(), kinoErr("unavailable"));
+  within(w, CAP.other, "home + country row");
+  for (const r of w.requests) assert.ok(r.at - START + r.timeoutMs <= CAP.other - 2_000, `${r.path} at ${r.at - START} for ${r.timeoutMs}`);
+});
+
+test("home with a country row on a slow portal (4 s an answer): the VOD rows come inside the cap", async () => {
+  const w = portalWorld({ aliveMs: 4_000, config: { homeCountry: "CO" }, routes: countryRoutes });
+  const rows = await w.catalog.home();
+  assert.ok(rows.some((r) => r.id !== "live-country"), "the VOD rows are served");
+  within(w, CAP.other, "home + country row");
+});

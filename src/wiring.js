@@ -10,6 +10,7 @@ import { makeLiveCatalog } from "./liveCatalog.js";
 import { makeLive } from "./live.js";
 import { makeSection } from "./section.js";
 import { makeCategories } from "./categories.js";
+import { makeCountryRow } from "./countryRow.js";
 import * as constants from "./config.js";
 import { isKinoError } from "./util.js";
 
@@ -27,8 +28,8 @@ export function getDeps() {
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
   session = makeSession({ kino, portal, clock, shared: { email: constants.SHARED_EMAIL, password: constants.SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino, clock });
-  const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
   const live = makeLiveCatalog({ kino, portal, session, clock });
+  const catalog = makeCatalog({ kino, portal, session, clock, tmdb, countryRow: makeCountryRow({ kino, live }) });
   // A bare channel code resolves through liveStream; the rest stays VOD.
   const liveStream = makeLive({ kino, portal, session, clock, config });
   // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).

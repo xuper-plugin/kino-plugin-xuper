@@ -82,7 +82,11 @@ function offsetOf(cursor) {
   return n > 0 && n <= 2147483647 ? n : 0;
 }
 
-export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
+/**
+ * `countryRow`: optional `async (deadline) => row | null` (countryRow.js), the Home "Canales en vivo"
+ * row appended after the VOD rows; it never throws.
+ */
+export function makeCatalog({ kino, portal, session, clock, tmdb = null, countryRow = null }) {
   const key = (root) => `tree:${root}`;
 
   function readTree(root) {
@@ -171,7 +175,11 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
   }
 
   async function home() {
-    return projectRows(await buildRows(), clock.now());
+    // Asked alongside the VOD rows, inside home's own deadline; its failure is no row (never a throw).
+    const live = countryRow ? countryRow(callDeadline(clock, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
+    const rows = projectRows(await buildRows(), clock.now());
+    const row = await live;
+    return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
 
   async function browse(ref, cursor) {

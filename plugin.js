@@ -1868,7 +1868,7 @@ function offsetOf(cursor) {
   const n = Number(cursor);
   return n > 0 && n <= 2147483647 ? n : 0;
 }
-function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null }) {
+function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null, countryRow = null }) {
   const key = (root) => `tree:${root}`;
   function readTree(root) {
     try {
@@ -1951,7 +1951,10 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
     return classify(roots);
   }
   async function home2() {
-    return projectRows(await buildRows(), clock2.now());
+    const live2 = countryRow ? countryRow(callDeadline(clock2, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
+    const rows2 = projectRows(await buildRows(), clock2.now());
+    const row2 = await live2;
+    return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
   }
   async function browse2(ref, cursor) {
     const row2 = typeof ref === "string" ? (await buildRows()).find((r) => r.id === ref) : void 0;
@@ -2357,7 +2360,12 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
       throw surface(e);
     }
   }
-  return { liveCategories: liveCategories2, liveChannels: liveChannels2 };
+  const categoriesWithin = (deadline) => readCategories(deadline);
+  async function channelsWithin(id, deadline) {
+    const adult = await isAdultCategory(id, deadline);
+    return project(await fetchPage(id, 1, deadline), id, adult);
+  }
+  return { liveCategories: liveCategories2, liveChannels: liveChannels2, categoriesWithin, channelsWithin };
 }
 
 // src/tweakedMd5.js
@@ -3036,6 +3044,80 @@ function makeCategories({ catalog }) {
   return { categories: async () => tilesOf(await catalog.rows(CALL_BUDGET_MS.categories)) };
 }
 
+// src/countryRow.js
+var CATEGORIES_BY_COUNTRY = Object.freeze({
+  CO: "Colombia",
+  VE: "Venezuela",
+  EC: "Ecuador",
+  CL: "Chile",
+  MX: "M\xE9xico",
+  PE: "Per\xFA",
+  BO: "Bolivia",
+  UY: "Uruguay",
+  PY: "Paraguay",
+  PA: "Panam\xE1",
+  PR: "Puerto Rico",
+  ES: "Espa\xF1a",
+  CR: "Costa Rica",
+  US: "Estados Unidos",
+  HN: "Honduras",
+  SV: "El Salvador",
+  DO: "Rep\xFAblica Dominicana",
+  GT: "Centroam\xE9rica",
+  NI: "Centroam\xE9rica",
+  BZ: "Centroam\xE9rica"
+});
+var COUNTRY_OPTIONS = Object.freeze([
+  { value: "none", label: "Ninguno" },
+  { value: "BO", label: "Bolivia" },
+  { value: "CL", label: "Chile" },
+  { value: "CO", label: "Colombia" },
+  { value: "CR", label: "Costa Rica" },
+  { value: "EC", label: "Ecuador" },
+  { value: "SV", label: "El Salvador" },
+  { value: "ES", label: "Espa\xF1a" },
+  { value: "US", label: "Estados Unidos" },
+  { value: "GT", label: "Guatemala, Nicaragua o Belice" },
+  { value: "HN", label: "Honduras" },
+  { value: "MX", label: "M\xE9xico" },
+  { value: "PA", label: "Panam\xE1" },
+  { value: "PY", label: "Paraguay" },
+  { value: "PE", label: "Per\xFA" },
+  { value: "PR", label: "Puerto Rico" },
+  { value: "DO", label: "Rep\xFAblica Dominicana" },
+  { value: "UY", label: "Uruguay" },
+  { value: "VE", label: "Venezuela" }
+]);
+var HOME_COUNTRY_SETTING = "homeCountry";
+var COUNTRY_ROW_ID = "live-country";
+var COUNTRY_ROW_TITLE = "Canales en vivo";
+var COUNTRY_ROW_LIMIT = 20;
+function makeCountryRow({ kino: kino2, live: live2 }) {
+  return async function countryRow(deadline) {
+    try {
+      const iso = kino2.config.get(HOME_COUNTRY_SETTING);
+      if (typeof iso !== "string" || !Object.hasOwn(CATEGORIES_BY_COUNTRY, iso)) return null;
+      const name = CATEGORIES_BY_COUNTRY[iso];
+      const category = (await live2.categoriesWithin(deadline)).find((c) => c.name === name);
+      if (!category) return null;
+      const channels = await live2.channelsWithin(category.id, deadline);
+      const items = channels.slice(0, COUNTRY_ROW_LIMIT).map((c) => {
+        const item = { kind: "live", id: c.id, title: c.title, ref: c.ref };
+        if (c.logo) item.poster = c.logo;
+        if (c.adult === true) item.adult = true;
+        return item;
+      });
+      return items.length > 0 ? { id: COUNTRY_ROW_ID, title: COUNTRY_ROW_TITLE, items } : null;
+    } catch (e) {
+      try {
+        kino2.log(`xuper home live row: ${e && (e.code || e.name) || "error"}`);
+      } catch (_) {
+      }
+      return null;
+    }
+  };
+}
+
 // src/wiring.js
 var deps = null;
 var clock = { now: () => Date.now() };
@@ -3047,8 +3129,8 @@ function getDeps() {
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
   session = makeSession({ kino, portal, clock, shared: { email: SHARED_EMAIL, password: SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino, clock });
-  const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
   const live2 = makeLiveCatalog({ kino, portal, session, clock });
+  const catalog = makeCatalog({ kino, portal, session, clock, tmdb, countryRow: makeCountryRow({ kino, live: live2 }) });
   const liveStream = makeLive({ kino, portal, session, clock, config });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
   const section2 = makeSection({ kino, catalog, clock });

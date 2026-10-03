@@ -12,6 +12,7 @@ import { makeResolve } from "../../src/resolve.js";
 import { makeLiveCatalog } from "../../src/liveCatalog.js";
 import { makeLive } from "../../src/live.js";
 import { makeTmdb } from "../../src/tmdb.js";
+import { makeCountryRow } from "../../src/countryRow.js";
 
 export const START = 1_000_000;
 export const STORED = { userId: "u-dev", userToken: "tok-dev", jwtToken: "", sn: "sn-dev", acct: "" };
@@ -96,10 +97,10 @@ export function portalWorld({
   let sess = null;
   const portal = makePortal({ kino, crypto, config: portalConfig, clock, snProvider: () => sess.current().sn });
   sess = makeSession({ kino, portal, clock, random: () => 0, shared });
-  const catalog = makeCatalog({ kino, portal, session: sess, clock, tmdb: withTmdb ? makeTmdb({ kino, clock }) : null });
+  const live = makeLiveCatalog({ kino, portal, session: sess, clock });
+  const catalog = makeCatalog({ kino, portal, session: sess, clock, tmdb: withTmdb ? makeTmdb({ kino, clock }) : null, countryRow: makeCountryRow({ kino, live }) });
   const liveStream = makeLive({ kino, portal, session: sess, clock, config: portalConfig, random: () => 0 });
   const resolve = makeResolve({ kino, portal, session: sess, clock, config: portalConfig, portalChapters: catalog.portalChapters, live: liveStream });
-  const live = makeLiveCatalog({ kino, portal, session: sess, clock });
   return {
     kino, clock, requests, seedDownloads, tmdbRequests, logs, portal, session: sess, catalog, resolve, live,
     elapsed: () => clock.t - START,

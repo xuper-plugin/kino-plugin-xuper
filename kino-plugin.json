@@ -106,6 +106,40 @@
       "type": "action",
       "hint": "Vuelve a descargar las sesiones de respaldo"
     }
+,
+    {
+      "key": "home",
+      "label": "Inicio",
+      "type": "section",
+      "hint": "Una fila con los canales en vivo de tu país al final de Inicio."
+    },
+    {
+      "key": "homeCountry",
+      "label": "Canales en vivo de tu país",
+      "type": "select",
+      "default": "none",
+      "options": [
+        { "value": "none", "label": "Ninguno" },
+        { "value": "BO", "label": "Bolivia" },
+        { "value": "CL", "label": "Chile" },
+        { "value": "CO", "label": "Colombia" },
+        { "value": "CR", "label": "Costa Rica" },
+        { "value": "EC", "label": "Ecuador" },
+        { "value": "SV", "label": "El Salvador" },
+        { "value": "ES", "label": "España" },
+        { "value": "US", "label": "Estados Unidos" },
+        { "value": "GT", "label": "Guatemala, Nicaragua o Belice" },
+        { "value": "HN", "label": "Honduras" },
+        { "value": "MX", "label": "México" },
+        { "value": "PA", "label": "Panamá" },
+        { "value": "PY", "label": "Paraguay" },
+        { "value": "PE", "label": "Perú" },
+        { "value": "PR", "label": "Puerto Rico" },
+        { "value": "DO", "label": "República Dominicana" },
+        { "value": "UY", "label": "Uruguay" },
+        { "value": "VE", "label": "Venezuela" }
+      ]
+    }
   ],
   "section": { "label": "Xuper" },
   "streamHosts": "any",
