@@ -40,7 +40,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkOutput, checkSettingsOutput, contract, validateManifest } from "./contract.mjs";
 import { contrast, formatRatio, resolvePalette } from "./palette.mjs";
-import { createKino, signingLane } from "./kino-shim.mjs";
+import { createKino, errorReport, signingLane } from "./kino-shim.mjs";
 import { channelLines, download, guideFor, loadPlaylist, summarisePlaylist, summaryLines } from "./live-playlist.mjs";
 
 const FUNCTIONS = ["search", "home", "browse", "episodes", "resolve", "migrate", "section", "categories"];
@@ -224,7 +224,7 @@ async function main() {
     return failed ? 1 : 0;
   } catch (e) {
     saveTape();
-    stderr(e && e.code ? `[${e.code}] ${e.message}` : e && e.stack ? e.stack : String(e));
+    stderr(e && e.code ? errorReport(e, manifest.name) : e && e.stack ? e.stack : String(e));
     return 1;
   } finally {
     rmSync(scratch, { recursive: true, force: true });

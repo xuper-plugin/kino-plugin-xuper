@@ -24,12 +24,120 @@ import { filterRelevant, shortQuery, sortBySimilarity } from "./kino-rank.mjs";
 // must not be routed through that replacement (it would print two prefixes).
 const writeErr = console.error.bind(console);
 
-export function kinoError(code, message) {
+export function kinoError(code, message, options) {
   const c = typeof code === "string" && /^[a-z_]{1,32}$/.test(code) ? code : "unknown";
   const e = new Error(String(message ?? "").slice(0, contract.errors.maxMessageChars));
   Object.defineProperty(e, "name", { value: `KinoError_${c}` });
   Object.defineProperty(e, "code", { value: c, enumerable: true });
+  // `{ userMessage }`: the plugin's own sentence for the person. Like the app: an own data property
+  // (a getter never runs), a string only, cut one character over the limit (then it is not shown).
+  let s = null;
+  try {
+    const d = options !== null && typeof options === "object" ? Object.getOwnPropertyDescriptor(options, "userMessage") : undefined;
+    if (d && typeof d.value === "string") s = d.value.slice(0, contract.errors.maxUserMessageChars + 1);
+  } catch { s = null; }
+  if (s !== null) Object.defineProperty(e, "userMessage", { value: s, enumerable: true });
   return e;
+}
+
+// The app's PluginErrors.shownSentence / PluginErrorText.reason rule, approximated (the app is
+// authoritative; it also hides a sentence that holds one of the person's passwords).
+const URL_RE = /\b(?:https?|wss?|ftp):\/\/\S+/i;
+const PREFIX_RE = /^(?:Uncaught\b\s*|(?:[A-Za-z_$][\w$.]*)?(?:Error|Exception)\s*:\s*|\[[^\]\n]{0,40}\]\s*)/;
+const CODE_CHARS_RE = /[{}()[\]<>=;$_`"|\\/]/;
+const CODE_WORDS_RE = /\b(?:undefined|null|NaN|function|prototype|is not defined|unexpected token)\b/;
+const PROSE_ASIDE_RE = /(?<=\s)\((?=[^)]*\p{L}{2,})[\p{L}\p{N} ,.¿?¡!'%-]{1,60}\)(?=[\s.,:!?]|$)/gu;
+
+const PUNCTUATION = " .,:;¿?¡!'’‘“”«»()%-–—▸";
+const MAX_DIGITS = 6;
+// Basic Latin and Latin-1 letters (what Spanish, Portuguese and English write), 0-9, the plain space and PUNCTUATION.
+// Latin-1's × ÷ and the letters NFD keeps whole (ø æ ð þ ß) are refused: no Spanish word needs them.
+const NOT_LETTERS_HERE = "×÷ØøÆæÐðÞþß";
+const allowedChar = (ch) => /[a-zA-Z0-9]/.test(ch) || PUNCTUATION.includes(ch) || (ch >= "À" && ch <= "ÿ" && !NOT_LETTERS_HERE.includes(ch));
+const GLUED_DIGIT_RE = /\p{L}[0-9]|[0-9]\p{L}/u;
+// What a text spells: lowercase, no accents, a-z only; `one` is what a 1 reads as, 0 reads as o.
+const letters = (text, one) => [...text.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase()]
+  .map((c) => (c === "1" ? one : c === "0" ? "o" : c)).filter((c) => c >= "a" && c <= "z").join("");
+const kinoSkeleton = (text) => letters([...text].map((c) => ("lL!¡|".includes(c) ? "i" : c)).join(""), "i");
+const DOMAIN_RES = [/[\p{L}\p{N}][.]\p{L}/u, /\s[.]/u, /[.]\s+[a-z]{2,6}(?!\p{L})/u];
+const LONG_STEMS = ["contrasen", "passw", "passc", "credencial", "daviplata", "whatsapp", "telegram", "transfer", "consign", "tarjeta", "deposit", "verificat"];
+const WORD_STEMS = ["abon", "recarg", "clave", "token", "cedula"];
+const WORDS = new Set(["pin", "pins", "cvv", "cvc", "otp", "www", "dot", "arroba"]);
+const TLDS = "com|net|org|co|app|dev|io|tv|me|xyz|info|site|online|click|link|lat|la|es|mx|ar|cl|pe|us|biz|club|live|shop|store|top|vip|cc|gg|to|ws|ly";
+const SPELLED_DOMAIN_RE = new RegExp(`(?:punto|dot)(?:${TLDS})$`);
+// Runs of 3+ one-letter words read as one word ("N e q u i").
+const collapseSpelled = (words) => {
+  const out = [];
+  for (let i = 0; i < words.length;) {
+    let j = i;
+    while (j < words.length && words[j].length === 1) j++;
+    if (j - i >= 3) { out.push(words.slice(i, j).join("")); i = j; } else { out.push(words[i]); i++; }
+  }
+  return out;
+};
+// Runs of 2+ neighbouring words of up to 3 letters, joined from each of their words on ("Ne qui", "pa go").
+const shortRuns = (words) => {
+  const out = [];
+  for (let i = 0; i < words.length;) {
+    let j = i;
+    while (j < words.length && words[j].length <= 3) j++;
+    for (let k = i; k < j - 1; k++) out.push(words.slice(k, j).join(""));
+    i = Math.max(j, i + 1);
+  }
+  return out;
+};
+// Spaces kept between ordinary words, a split word read whole; 1 read as i and as l, 0 as o (the app's PluginErrors.asks).
+const asks = (s) => ["i", "l"].some((one) => {
+  const words = collapseSpelled(s.split(/\s+/).map((w) => letters(w, one)).filter((w) => w));
+  const windows = [];
+  for (let n = 1; n <= 4; n++) for (let i = 0; i + n <= words.length; i++) windows.push(words.slice(i, i + n).join(""));
+  const shorts = [...words, ...shortRuns(words)];
+  return LONG_STEMS.some((st) => windows.some((w) => w.includes(st))) || windows.some((w) => SPELLED_DOMAIN_RE.test(w)) ||
+    /codigo.*(?:sms|verific|llego)/.test(words.join(" ")) ||
+    shorts.some((w) => w.includes("nequi") || WORDS.has(w) || WORD_STEMS.some((st) => w.startsWith(st)) || (w.startsWith("pag") && !w.startsWith("pagin")));
+});
+
+/** Whether the app lets [name] introduce a plugin's sentence ("Mensaje de <name>: …"). */
+export function safeName(name) {
+  return typeof name === "string" && name.length > 0 && name.trim() === name && [...name].every(allowedChar) && !name.includes(":") && !GLUED_DIGIT_RE.test(name) && !kinoSkeleton(name).includes("kino");
+}
+
+/** Why the app would NOT show [err]'s userMessage, or null when it would (the app also checks the person's passwords). */
+function sentenceRefusal(err) {
+  if (!err || typeof err.userMessage !== "string") return "no userMessage";
+  if (!contract.errors.codes.includes(err.code)) return `the code ${err.code} is always worded by Kino`;
+  const s = err.userMessage.normalize("NFC").trim();
+  if (s.length === 0) return "empty";
+  if (s.length > contract.errors.maxUserMessageChars) return `longer than ${contract.errors.maxUserMessageChars} characters`;
+  if (![...s].every(allowedChar)) return "a character other than Latin-1 letters, 0-9, a plain space and .,:;¿?¡!'’‘“”«»()%-–—▸";
+  if (/;(?! )/.test(s)) return "a ; not followed by a space";
+  const prose = s.replace(/; /g, ", ");
+  if (URL_RE.test(s)) return "a URL";
+  if (PREFIX_RE.test(s)) return 'an error prefix ("TypeError:", "[Tag]")';
+  if (/[:,;\-–]$/.test(s)) return "it ends in : , ; or -";
+  if (CODE_CHARS_RE.test(prose.replace(PROSE_ASIDE_RE, " ")) || CODE_WORDS_RE.test(s)) return "it reads as code";
+  if ((s.match(/\p{L}{2,}/gu) || []).length < 2) return "fewer than two words";
+  if ((s.match(/[0-9]/g) || []).length >= MAX_DIGITS) return `${MAX_DIGITS} digits or more in all`;
+  if (GLUED_DIGIT_RE.test(s)) return "a digit glued to a letter";
+  if (DOMAIN_RES.some((re) => re.test(s))) return "a domain (site.app, site .app, site. app)";
+  if (kinoSkeleton(s).includes("kino")) return "it spells Kino";
+  if (asks(s)) return "it asks for credentials, money or contact outside Kino (or spells a domain)";
+  return null;
+}
+
+/** The sentence the app shows for [err] in place of its own line for the code, or null (Kino's line stays). */
+export function shownSentence(err) {
+  return sentenceRefusal(err) === null ? err.userMessage.normalize("NFC").trim() : null;
+}
+
+/** How run.mjs reports a typed error: `[code] message`, plus what the person reads ("Mensaje de <plugin>: …") when it carries a userMessage. */
+export function errorReport(err, pluginName = "Plugin") {
+  const head = `[${err.code}] ${err.message}`;
+  if (typeof err.userMessage !== "string") return head;
+  const why = safeName(pluginName) ? sentenceRefusal(err) : `the plugin's name "${pluginName}" can't introduce a sentence (a colon, Kino, a digit glued to a letter, or a character outside the alphabet)`;
+  return why === null
+    ? `${head}\n  la persona lee: "Mensaje de ${pluginName}: ${shownSentence(err)}"`
+    : `${head}\n  userMessage no se muestra (${why}): la persona lee la línea de Kino para ${err.code}`;
 }
 
 export { hostMatches as hostAllowed };
@@ -766,7 +874,7 @@ export function createKino(manifest, { appVersion = "sdk", lang = "es-CO", stora
       if (!m) throw new Error("este plugin no declara el secreto " + s.slice(0, 40));
       return m;
     },
-    error: (code, message) => kinoError(code, message),
+    error: (code, message, options) => kinoError(code, message, options),
     log: (...args) => writeErr("[kino.log]", ...args.map((a) => (typeof a === "string" ? redact(a) : a))),
   });
 

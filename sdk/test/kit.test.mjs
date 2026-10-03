@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkOutput, checkSettingsOutput, contract, requiredExports, validateManifest } from "../contract.mjs";
-import { createKino, signingLane } from "../kino-shim.mjs";
+import { createKino, errorReport, shownSentence, signingLane } from "../kino-shim.mjs";
 import { filterRelevant, shortQuery, sortBySimilarity } from "../kino-rank.mjs";
 import { contrast, deltaE, formatRatio, luminance, resolvePalette } from "../palette.mjs";
 import { consentLines, validate } from "../validate.mjs";
@@ -234,6 +234,76 @@ test("config, storage keys, typed errors and sleep", async () => {
   assert.equal(e.message.length, 200);
   assert.equal(kino.error("NOPE", "m").code, "unknown");
   await assert.rejects(kino.sleep(6000), (err) => err.code === "invalid_request");
+});
+
+test("kino.error's userMessage: carried as the app carries it, shown only when the app would show it", () => {
+  const { kino } = createKino(JSON.parse(manifest()));
+  const gone = "Este capítulo ya no está disponible.";
+  const e = kino.error("not_found", "portal100006", { userMessage: gone });
+  assert.equal(e.userMessage, gone);
+  assert.equal(shownSentence(e), gone);
+  assert.equal(kino.error("not_found", "x").userMessage, undefined);
+  assert.equal(kino.error("not_found", "x", { userMessage: 7 }).userMessage, undefined);
+  let ran = false;
+  assert.equal(kino.error("not_found", "x", { get userMessage() { ran = true; return gone; } }).userMessage, undefined);
+  assert.equal(ran, false);
+  assert.equal(kino.error("not_found", "x", { userMessage: "z".repeat(5000) }).userMessage.length, contract.errors.maxUserMessageChars + 1);
+  // The app's rule: one of the five codes, one short plain line, no URL or code.
+  assert.equal(shownSentence(kino.error("network", "x", { userMessage: gone })), null);
+  for (const bad of ["Hola", "Mira https://x.example/y ahora.", "Primera.\nSegunda línea.", "Usa {code} aquí mismo.", "TypeError: no se pudo leer", "y ".repeat(100)]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: bad })), null, bad);
+  }
+  // The app's tightened rule (review C1): domains, addresses, numbers, hidden text, homoglyphs, Kino's name, credentials and money.
+  for (const bad of [
+    "Descarga la nueva version en kino-app.net ahora.", "Visita www mipagina ahora mismo.", "Entra a mipagina .app ahora mismo.",
+    "Entra a mipagina. app ahora mismo.", "Entra a mipagina punto com ahora mismo.", "Escribe a soporte@ejemplo ya mismo.",
+    "Llama al 300 123 4567 para seguir viendo.", "Linea uno.\u2028Linea dos bonita.", "Hola\u3164mundo bonito.", "Hola\u00A0mundo bonito.",
+    "Tu cuenta fue susp\u0435ndida hoy.", "Kino: tu cuenta fue suspendida.", "\u041Aino: tu cuenta fue suspendida.", "K i n o informa un cambio.",
+    "Ingresa tu contraseña para seguir.", "Escribe tu PIN para seguir.", "Paga la suscripción para seguir.", "Envía por Nequi para seguir.",
+    "Escribe el código de verificación que te llegó.",
+  ]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: bad })), null, bad);
+  }
+  assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: "Esta serie ya no está disponible. Vuelve luego." })), "Esta serie ya no está disponible. Vuelve luego.");
+  // Fix round 2 (structural): Latin-1 letters only, 6 digits in all, Kino's skeleton, stems, spelled domains.
+  for (const bad of [
+    "Descarga desde mipagina\uA78Fapp ya mismo.", "Entra a mipagina punto dev ahora.", "Entra a mipaginapuntocom ahora.", "Entra a p u n t o com ahora.",
+    "Llama al 300, 123, 4567 ya mismo.", "Marca 3001 y 234 y 567 ahora.", "\u1D0B\u026A\u0274\u1D0F informa un cambio.", "\u043A\u0456\u043F\u043E informa un cambio.",
+    "K1NO informa un cambio.", "Kin0 informa un cambio.", "K¡no informa un cambio.", "Ki no informa un cambio.", "SoporteKino informa un cambio.",
+    "No es necesario que pagues nada.", "Abona el saldo hoy mismo.", "Recarga tu saldo hoy mismo.", "Escribe tu contra seña aquí.", "Escribe tu passw0rd aquí.",
+    "Revisa tus credenciales hoy.", "Pega aquí el token nuevo.", "Escribe el código que te llegó por SMS.", "Escríbenos por WhatsApp hoy mismo.",
+  ]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: bad })), null, bad);
+  }
+  assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: "Não há mais episódios, señor, ça va." })), "Não há mais episódios, señor, ça va.");
+  // Fix round 3: letters NFD keeps whole, digits glued to letters, "; " is prose, stems word by word.
+  for (const bad of ["KINØ informa un cambio.", "Escribe tu cøntraseña aquí.", "Envía por N3qui para seguir.", "Haz el p4go hoy.", "Faltan 5minutos para volver.",
+    "Envía por N e q u i para seguir.", "Escribe tu contra seña aquí.", "Entra a p u n t o com ahora.", "Tu cuenta;vincúlala de nuevo.", "Recarga la lista para ver los capítulos."]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: bad })), null, bad);
+  }
+  for (const ok of ["Tu cuenta se abrió en otro dispositivo; vincúlala de nuevo en Ajustes ▸ Plugins ▸ Xuper.", "Este título no tiene quien lo suba.",
+    "El servidor está a punto de volver.", "Vuelve a intentarlo en 5 minutos, por favor."]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: ok })), ok, ok);
+  }
+  // Fix round 4: a stem split across neighbouring words.
+  for (const bad of ["Envía por Ne qui para seguir.", "Envía por N e qui para seguir.", "Escribe tu con tra seña aquí.", "Escribe tu co n tra seña aquí.",
+    "Agrega tu tar je ta hoy.", "Haz una trans fe rencia hoy.", "Escríbenos por What s app hoy.", "Escríbenos por Wh ats app hoy.", "Envía por Davi pla ta hoy.",
+    "Haz un de pó sito hoy.", "Entra a mipagina pun to com ahora.", "Haz el pa go hoy mismo.", "Escribe tu cla ve aquí.", "Pega el to ken nuevo aquí."]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: bad })), null, bad);
+  }
+  for (const ok of ["Este capítulo ya no está disponible.", "El servidor no respondió, intenta en unos minutos."]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: ok })), ok, ok);
+  }
+  for (const name of ["KINØ", "Cuevana3", "M3U"]) assert.match(errorReport(e, name), /userMessage no se muestra/, name);
+  assert.match(errorReport(e, "Cuevana 3"), /Mensaje de Cuevana 3: /);
+  for (const name of ["Kino", "Soporte Kino", "Kino: Aviso", "\u041A1NO", "Xu:per", "Xu\u2028per", "Xu\u00A0per", ""]) {
+    assert.match(errorReport(e, name), /userMessage no se muestra/, name);
+  }
+  // run.mjs prints what the person would read: always attributed to the plugin.
+  assert.match(errorReport(e), /\[not_found\] portal100006/);
+  assert.match(errorReport(e, "Demo"), /la persona lee: "Mensaje de Demo: Este capítulo ya no está disponible\."/);
+  assert.match(errorReport(kino.error("not_found", "x", { userMessage: "Hola" })), /userMessage no se muestra/);
+  assert.equal(errorReport(kino.error("not_found", "x")), "[not_found] x");
 });
 
 test("kino.storage entries with a ttlMs expire, are purged, and old data keeps working", () => {

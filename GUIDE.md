@@ -304,6 +304,33 @@ Try them with the kit (it prints what the app would keep): `node sdk/run.mjs . s
 `node sdk/run.mjs . action logout`, `node sdk/run.mjs . validateSettings '{"email":"ana@x.co"}'`
 (`--raw` prints your answer untouched). The kit does not apply the app's secret scrubbing, and `validateSettings` receives exactly the JSON you type: the app sends only valued settings, trimmed. A working example is `plugins/sdk/test/settings-demo`.
 
+#### On the person's other devices
+
+When the person pairs two of their devices (phone and TV), Kino keeps their plugins in step. What
+crosses, and what does not:
+
+- **Crosses:** install, updates, on/off, uninstall, and the host approvals. Each device fetches your
+  code itself; only the address and the approval travel. The other device installs **silently** when
+  what it fetched asks for nothing beyond what the person approved on the first one; if you now ask
+  for more (a new host, permission or capability), it waits in "Plugins de tus otros aparatos" for
+  the normal consent sheet.
+- **Crosses:** the values of `text`, `select`, `toggle`, `url` and `list` settings (a `list` that has
+  a `password` field does not travel), and `password` settings, sealed end to end with the key the
+  devices agreed when they paired, never readable on the way.
+- **Crosses:** clears. A field the person empties, or an action's `clearSettings`, empties it on their
+  other devices too (passwords included). A `required` setting is never cleared remotely. A device
+  running an older Kino build ignores clears and keeps its value.
+- **Never crosses:** `kino.storage`, cookies, the cached Home rows.
+
+A value that arrives this way is applied **without** your `validateSettings`, and, like any saved
+change, closes your sandbox. So write the plugin as if a setting can change under it at any time:
+key any session you keep in `kino.storage` by the account it belongs to, and never put a device
+identity in a setting, because it would be copied to the other device.
+
+```js
+const sessionKey = `session:${kino.config.get("email") ?? ""}`;   // not just "session"
+```
+
 ### The person's own servers
 
 A `url` setting is how a plugin talks to a server that is not on the internet: a media server at
@@ -588,6 +615,17 @@ Kino plays the stream through a local proxy. Before every playlist and segment r
   **every** host rejected the signature, and as `"conflict"` only when the last one answered 409; a
   host answering 404 or not at all just moves Kino on. A host the playlist names that is not one of
   these is never swapped. Ignored without `signing`.
+- **Chromecast and DLNA.** A signed stream can be sent to a TV like any other HLS. The TV never
+  signs anything: it pulls the stream through Kino on the phone, which calls `sign()` for every
+  playlist and segment the TV asks for, exactly as for its own player (the same 1.5 s limit, the same
+  "three failed signatures stop the video"). So the phone must stay on the same Wi-Fi as the TV with
+  Kino running for the whole cast. If the origin refuses the stream while the TV plays it (the
+  **Reopening** rule above) while the player is open on the phone, Kino calls `resolve(ref, { retry })`
+  again and the TV reloads it from the same point (a live channel from its edge). Once the person
+  leaves the player, a Chromecast keeps playing until it is stopped or sent something else, but a
+  refusal is no longer re-resolved: the TV's playback just ends. Leaving the player stops a DLNA TV,
+  as for any title. A signed stream with `drm` is never cast. Kino plays one signed stream at a time:
+  opening another one on the phone ends the cast of the first.
 
   ```js
   return { url: "http://cdn1.example/live/ch.m3u8", signing: "request",
@@ -1234,6 +1272,66 @@ if (r.status === 401) throw kino.error("auth_required", "la sesión venció");
 Your message is a detail for the log (cut at 200 characters); the person reads Kino's sentence. An
 unknown code becomes a plain error.
 
+When Kino's sentence says too little (a chapter that was taken down, an account to link again), pass
+your own sentence for the person as a third argument:
+
+```js
+throw kino.error("not_found", "portal100006", { userMessage: "Este capítulo ya no está disponible." });
+throw kino.error("auth_required", "aaa100083", {
+  userMessage: "Tu cuenta se abrió en otro dispositivo. Vuelve a intentarlo, o vincúlala de nuevo.",
+});
+```
+
+Kino shows it **instead of** its own line, always as "Mensaje de <your plugin's name>: <your
+sentence>" ("Mensaje de Xuper: Este capítulo ya no está disponible."), only when all of this holds;
+otherwise the person reads Kino's line and your sentence goes nowhere (it is not logged either; the
+detail is):
+
+- your plugin's name can introduce it: only the characters below, no `:`, no digit glued to a letter,
+  nothing that spells Kino (so a plugin named `M3U` or `Cuevana3` always shows Kino's line; `Cuevana 3`
+  is fine);
+- the code is one of the five above (Kino always words `timeout`, `network`, `host_not_allowed`,
+  `crypto_error` and the rest itself);
+- it is 1 to 160 characters once trimmed, made only of the letters of Basic Latin and Latin-1 (what
+  Spanish, Portuguese and English write: á é í ó ú ü ñ ç ã õ â ê ô à è…, but not ø æ ð þ ß), the
+  digits 0-9, the plain space and `` . , : ; ¿ ? ¡ ! ' ’ ‘ “ ” « » ( ) % - – — ▸ `` (a `;` only before
+  a space): so no other script, look-alike letter, small capital, line break, tab, other kind of
+  space, invisible character, emoji or `@`;
+- it reads as plain words: at least two words, no URL, no error prefix (`TypeError:`, `[Tag]`), no
+  `undefined`/`null`/`NaN`, and it doesn't end in `:` `,` `;` or `-`;
+- fewer than 6 digits in all, whatever separates them (no phone or account number, and so no full
+  date with its year), and no digit glued to a letter (`en 5 minutos` is fine, `5minutos` is not);
+- no domain: a dot glued to a letter (`site.app`), a dot after a space (`site .app`), a dot followed
+  by a lowercase word of 2 to 6 letters (`site. app`), `www`, or `punto`/`dot` glued to or followed
+  by a domain ending (`punto com`, `puntodev`; "a punto de volver" is fine);
+- it never spells Kino: read with `1`, `l`, `!`, `¡` as `i`, `0` as `o` and every non-letter dropped,
+  it holds no `kino` anywhere (so avoid a word like "Kinoshita");
+- it asks for no credentials, money or contact outside Kino, read word by word (a word split on
+  purpose is read whole: `N e q u i`, `Ne qui`, `con tra seña`, `What s app`, `pun to com`): no `pag…` (pago,
+  pagues, págalo; "página" is fine),
+  `abon…`, `recarg…`, `transfer…`, `consign…`, `deposit…`, `contraseñ…`, `passw…`, `clave…`,
+  `credencial…`, `token…`, `tarjeta`, `PIN`, Nequi, Daviplata, WhatsApp, Telegram, a `código` that
+  came by SMS or is a verification code: your own settings are the only place for those (`recarg…`
+  also refuses "Recarga la lista": say "Vuelve a cargar");
+- it holds none of the passwords the person typed in your settings (checked against your plugin's
+  stored values; while they can't be read, the sentence is not shown), nor any sealed secret's value.
+  Never echo what the person typed, in any form.
+
+A plugin that uses `userMessage` to ask people for money, credentials or contact outside Kino is
+removed from the plugin catalog.
+
+Write it for the person, in their language; Kino doesn't translate it. It takes the very place Kino's
+own line takes, so it never changes what the screen does: `auth_required` keeps the button to your
+Configurar screen; `geo_blocked` shows the player's "No se puede reproducir" dialog; the other codes
+show Kino's error line (on a live channel the person keeps zapping). It is also the reason under your
+plugin's Home row and in the search notices. Your settings form and your section pages show it for
+`not_found`, `unavailable` and `rate_limited`, and keep their own generic text for `auth_required`
+and `geo_blocked`. One thing still wins over it, whatever the code: a host the person
+refused for this call (they can act on that). The sentence counts only for the call that built the
+error: build it where you throw it, not once at the top of your module. The Node kit (`run.mjs`)
+prints what the person would read, or why the sentence is not shown. Kino builds older than this
+ignore the third argument and show their own line, so it is always safe to pass.
+
 ## 5. The `kino` API
 
 `kino` is a global object, frozen, always there. Nothing else from the outside world is.
@@ -1386,11 +1484,12 @@ kino.crypto.uuid()
 | encodings | `utf8`, `hex`, `base64` |
 <!-- contract:crypto:end -->
 
-### `kino.sleep(ms)` and `kino.error(code, message?)`
+### `kino.sleep(ms)` and `kino.error(code, message?, { userMessage }?)`
 
 `await kino.sleep(1500)` waits 0 to 5000 ms (for a site that rate-limits you); the time counts
 inside the call's own limit. `kino.error` builds the typed errors of
-[section 4](#errors-people-understand).
+[section 4](#errors-people-understand); its optional `{ userMessage }` is your own sentence for the
+person, shown under the rules there.
 
 ### `kino.config`
 
@@ -1449,6 +1548,17 @@ export async function home() {
 Also `console.log`, `console.info`, `console.warn` and `console.error`: they all go to the log
 (tag `KinoPlugin` in `adb logcat`), objects are written as JSON, and a message is cut at 2000
 characters. Under the Node kit they go to stderr.
+
+When a call of a plugin that comes from Kino's recommended catalog **fails** (it throws, times out,
+returns something unusable), the lines it logged during that call — the last 30, each cut at 300
+characters — travel with the failure report to the maintainers' error tracker as `plugin_log`, so a
+`kino.log("home: status", r.status)` before the throw is how you see why it failed on someone else's
+phone. Nothing is sent for a call that succeeds, and nothing for any other plugin (one installed from
+a repo that is not in the catalog, your own, a converted Nuvio scraper). Before it leaves the device
+every line has URLs, hostnames, IPs, e-mails, long ids, long hex/base64 runs, credential-shaped text,
+the person's setting values and the text of their search or title removed, and the whole is capped at
+2 KB (the newest lines win). Still: log what happened (a status, a step, a count), never what the
+person typed or a secret, and never a setting's value. Works on every `apiVersion`.
 
 ### `kino.rank`
 
@@ -1523,17 +1633,17 @@ does anything with season numbers or ordering: how a backend spells "season 2" i
 | Loading the module (its top level) | 10 s |
 | Idle sandbox | closed after 5 minutes without calls |
 | Consecutive timeouts | 3 in a row and Kino disables the plugin ("No responde") |
-| `kino.fetch` | https only (or the person's own server as typed, or `http` on a host declared `insecureHttp`); 15 s default, 30 s maximum; response body at most 5 MB; the request (URL, headers and body) at most 1,048,576 characters; at most 60 requests per call, every hop counted, refused ones included (250 for a plugin converted from a Nuvio scraper); at most 6 fetches in flight at once; at most 3 host questions per call; at most 10 redirects per request |
+| `kino.fetch` | https only (or the person's own server as typed, or `http` on a host declared `insecureHttp`); 15 s default, 30 s maximum; response body at most 5 MB; the request (URL, headers and body) at most 1,048,576 characters; at most 60 requests per call; at most 10 redirects per request |
 | Cookies | 50 per domain, 64 KB in total per plugin |
 | `kino.storage` | 256 KB per plugin; an entry's optional `ttlMs` is 1..2,592,000,000 ms (30 days) |
 | `kino.sleep` | 0 to 5,000 ms per call |
 | `kino.crypto` | data at most 5 MB per call; PBKDF2 at most 100,000 iterations and 64-byte keys; `randomBytes` at most 1,024 |
-| `kino.log` / `console.*` | 2,000 characters per message |
+| `kino.log` / `console.*` | 2,000 characters per message; when a call of a recommended-catalog plugin fails, its last 30 lines (each cut at 300 characters, scrubbed, 2,048 characters in all) go with the failure report |
 | What a function returns | at most 2,000,000 characters once turned into JSON |
 | Results | `search` 100 items; `home` 20 rows of 60; `browse` 100 per page; `episodes` 5,000 (and 50 `seasons`); `ref` 4,096 characters; `next` 2,048 characters; `id` matches `^[A-Za-z0-9._~-]{1,128}$` |
 | Live channels (apiVersion 3) | `liveCategories` 200; `liveChannels` 500 per page and 10 pages per category; `guide` 50 channels and 24 h per call, 100 entries per channel; `number` 1..9999 |
 | Settings | at most 12 with a value, plus at most 16 `section`/`status`/`action` (apiVersion 6); `text` 500, `url` 2,048, `password` 500 characters |
-| Error messages | your `kino.error` message is shown as a detail, cut at 200 characters |
+| Error messages | your `kino.error` message is a detail for the log, cut at 200 characters; a `userMessage` for the person is at most 160 |
 | `hosts` | at least 1 entry, no upper limit from Kino 0.9.45 (only the manifest's 16 KB; Kino 0.9.44 and older refuse more than 20); from apiVersion 2, none (`[]`) when a `url` setting exists |
 | `secrets` (apiVersion 4) | at most 16; names match `^[A-Za-z][A-Za-z0-9_]{0,31}$`; a value is 1..4,096 bytes (1..8,192 from apiVersion 6); from apiVersion 6 a cipher key may be typed: `{ seal, use: "cipher-key", encoding: "hex" | "base64" }`, 16/24/32 bytes |
 <!-- contract:limits:end -->
@@ -1896,7 +2006,12 @@ To stay out of the search while keeping the topic, set `"discoverable": false`;
   `color`), next to the app's own sources; your `home` rows appear on Home after the app's own; your
   titles play in Kino's player and appear in "Continuar viendo" and the library. Titles of a plugin
   that declares `download` can be saved for offline viewing ([section 3](#downloads-apiversion-2));
-  Chromecast and DLNA are not available for plugin titles in this version. A `live` item's card
+  a plugin's stream can also be sent to a Chromecast or a DLNA TV. Kino picks the lightest route: a
+  file (mp4, webm) with no `headers` goes straight to the TV (relayed through the phone if the TV fails
+  it); one with `headers`, and every HLS stream (a Chromecast needs CORS on it), is relayed through the
+  phone; a request-signed one too, from Kino 0.9.47 (see
+  [Signing every request](#signing-every-request-signing-apiversion-6)). DRM (`drm`), DASH, a
+  progressive MPEG-TS or an unknown format is not offered. A `live` item's card
   says "EN VIVO" and plays on tap, with no info page; a channel never enters "Continuar viendo" or
   the library ([Live channels](#live-channels-apiversion-2)). A plugin found through the `kino-plugin`
   topic carries the label "De la comunidad" on its card.
@@ -2331,7 +2446,7 @@ What Kino does with it, and what it does not:
   person reads "No se pudo abrir este video protegido" (after one more `resolve` if `expiresInSeconds`
   had passed, like any stream). A protected live channel reads the same at once on a device with no
   L3; its other license failures are cuts, re-resolved like any other (see Live channels). A protected title is **never downloadable** ("Este video no se puede
-  descargar"), even with `download` declared, and cannot be sent to a Chromecast (no plugin title can).
+  descargar"), even with `download` declared, and is never offered for Chromecast or DLNA.
 - The consent sheet adds "Reproduce video protegido (DRM)" when `drm` is declared, and an update that
   newly declares it waits for the person's approval ([section 8](#8-publishing-your-plugin)).
 

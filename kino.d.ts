@@ -352,6 +352,28 @@ interface KinoError extends Error {
   /** `KinoError_<code>` (e.g. `KinoError_not_found`). */
   readonly name: string;
   readonly code: KinoErrorCode | KinoFetchErrorCode | "crypto_error" | "unknown";
+  /** The sentence you passed as `{ userMessage }`, cut at 161 characters; absent when you passed none. */
+  readonly userMessage?: string;
+}
+
+interface KinoErrorOptions {
+  /**
+   * Your own sentence for the person, shown INSTEAD of Kino's line for the code as "Mensaje de <plugin>: <sentence>",
+   * only when: your plugin's name has no ":", no digit glued to a letter, spells no Kino and uses only the characters
+   * below; the code is one of
+   * the five `KinoErrorCode`s; it is 1..160 characters once trimmed, made only of Basic Latin and Latin-1 letters
+   * (á é í ó ú ü ñ ç ã õ…, not ø æ ð þ ß), digits 0-9, the plain space and . , : ; ¿ ? ¡ ! ' ’ ‘ “ ” « » ( ) % - – — ▸
+   * (; only before a space); it reads as
+   * plain words (two or more, no URL, no "TypeError:" prefix, no undefined/null/NaN, not ending in : , ; -); fewer than
+   * 6 digits in all and none glued to a letter; no domain (site.app, site .app, site. app, www, punto/dot + com, app…);
+   * no "kino" once 1 l ! ¡ read as
+   * i, 0 as o and non-letters dropped; no credential, money or contact stem (pag…, abon…, recarg…, transfer…,
+   * contraseñ…, passw…, clave…, token…, tarjeta, PIN, Nequi, Daviplata, WhatsApp, Telegram, SMS/verification code);
+   * and none of the person's passwords or a sealed value. Otherwise Kino's line stays. A host the person refused still
+   * wins, whatever the code. It counts only for the call that built the error. Older Kino builds ignore it. Plugins
+   * that use it to ask for money, credentials or contact outside Kino are removed from the catalog.
+   */
+  userMessage?: string;
 }
 
 interface KinoFetchOptions {
@@ -417,8 +439,12 @@ declare namespace kino {
   /** Only to the manifest's hosts over https (http only on a host declared `insecureHttp`), or to the person's own server as typed. Never throws for a non-2xx status. */
   function fetch(url: string, options?: KinoFetchOptions): Promise<KinoResponse>;
 
-  /** `throw kino.error("not_found", "…")`: the app words the message; yours is a detail of at most 200 characters. */
-  function error(code: KinoErrorCode, message?: string): KinoError;
+  /**
+   * `throw kino.error("not_found", "…")`: the app words the message; yours is a detail of at most 200 characters.
+   * `throw kino.error("not_found", "…", { userMessage: "Este capítulo ya no está disponible." })`: your own sentence
+   * for the person, shown instead of Kino's line when it is safe (see `KinoErrorOptions`).
+   */
+  function error(code: KinoErrorCode, message?: string, options?: KinoErrorOptions): KinoError;
 
   /** 0..5000 ms, counts inside the call's own timeout. */
   function sleep(ms: number): Promise<void>;
@@ -426,7 +452,7 @@ declare namespace kino {
   /** apiVersion 4: a marker for a secret the manifest's `secrets` declares (throws for any other name). Kino swaps it for the value in `kino.fetch`, toward the manifest's own hosts only; your code never sees the value. apiVersion 6: a secret declared `{ seal, use: "cipher-key", encoding }` is accepted as the whole `key` of any `kino.crypto.encrypt`/`decrypt` (des-ede3 included), read with the manifest's encoding; it is refused everywhere else, including `kino.fetch`. */
   function secret(name: string): string;
 
-  /** Writes to Kino's log (and console.* does the same); lines are cut at 2000 characters. */
+  /** Writes to Kino's log (and console.* does the same); lines are cut at 2000 characters. When a call of a recommended-catalog plugin fails, the last 30 lines it logged (cut at 300 characters, scrubbed of URLs, hosts, ids, secrets and the person's text, 2 KB in all) go with the failure report; never for a call that succeeds. Log what happened, never what the person typed. */
   function log(...args: unknown[]): void;
 
   namespace html {
