@@ -5,7 +5,7 @@ import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog, parseShelveTime, projectRows } from "../src/catalog.js";
 import { classify } from "../src/homeClassifier.js";
-import { parseTree, encodeTree, utf8Length } from "../src/homeTree.js";
+import { parseTree, encodeTree, storedLength } from "../src/homeTree.js";
 import { makeCrypto } from "../src/crypto.js";
 import { makePortal } from "../src/portal.js";
 
@@ -346,14 +346,15 @@ test("bytes stored for the four roots stay under the storage budget with a reali
   const rows = await catalog.home();
   assert.equal(rows.length, 20);
   const keys = kino.storage.keys().filter((k) => k.startsWith("tree:")).sort();
-  const sizes = keys.map((k) => Buffer.byteLength(kino.storage.get(k)));
+  // Measured as the app stores them: escaped by Android's org.json, in UTF-8.
+  const sizes = keys.map((k) => storedLength(kino.storage.get(k)));
   assert.ok(sizes.every((n) => n <= 20_000));
   assert.ok(sizes.reduce((a, b) => a + b, 0) <= 80_000);
   // EVERY root that can fit is cached, and only those: the smallest form the catalog ever tries
   // (everything shed, 50 items per section) decides, measured here independently of the catalog.
   const smallest = { descMax: 0, genres: false, backdrop: false, perSection: 50 };
   const expected = Object.entries({ masnew_movies: "peliculas", masnew_series: "series", masnew_anime: "anime", masnew_kids: "infantil" })
-    .filter(([code]) => utf8Length(encodeTree(parseTree(roots[code]), smallest)) <= 20_000)
+    .filter(([code]) => storedLength(encodeTree(parseTree(roots[code]), smallest)) <= 20_000)
     .map(([, root]) => `tree:${root}`).sort();
   assert.deepEqual(keys, expected);
   assert.deepEqual(keys, ["tree:anime", "tree:infantil"], "with these synthetic sizes the two smaller roots fit, the two large ones cannot");

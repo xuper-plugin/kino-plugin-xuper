@@ -1,7 +1,7 @@
 // Home and browse over the Magis catalog (native-magis.md §4.1, §4.2); `search` lives in search.js
 // (§4.4) and `episodes` in episodes.js (§4.3); both are composed in. Each public function is self-contained.
 import { classify, KINDS } from "./homeClassifier.js";
-import { parseTree, encodeTree, decodeTree, utf8Length, refOf, parseShelveTime } from "./homeTree.js";
+import { parseTree, encodeTree, decodeTree, storedLength, refOf, parseShelveTime } from "./homeTree.js";
 import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
@@ -94,7 +94,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
   function writeTree(root, sections) {
     for (const shed of SHED_STEPS) {
       const text = encodeTree(sections, shed);
-      if (utf8Length(text) > TREE_BUDGET_BYTES) continue;
+      if (storedLength(text) > TREE_BUDGET_BYTES) continue; // as the app stores it: escaped
       try { kino.storage.set(key(root), text, { ttlMs: TREE_TTL_MS }); } catch (_) { /* storage full: serve uncached */ }
       return;
     }

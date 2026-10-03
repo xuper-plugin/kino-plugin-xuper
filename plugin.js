@@ -1201,6 +1201,15 @@ function parseTree(response) {
   return sections;
 }
 var refOf = (item) => encode({ contentId: item.id, programType: item.type, episode: 0 });
+function storedLength(s) {
+  let n = utf8Length(s);
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 34 || c === 92 || c === 47 || c === 9 || c === 8 || c === 10 || c === 13 || c === 12) n += 1;
+    else if (c < 32) n += 5;
+  }
+  return n;
+}
 function utf8Length(s) {
   let n = 0;
   for (let i = 0; i < s.length; i++) {
@@ -1329,12 +1338,12 @@ function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, va
       }
       for (const a of added) {
         const entry = { k: a.k, s: now, i: a.i };
-        if (utf8Length(encode2([entry])) > budgetBytes) continue;
+        if (storedLength(encode2([entry])) > budgetBytes) continue;
         entries = entries.filter((e) => e.k !== a.k);
         entries.push(entry);
       }
       let text2 = encode2(entries);
-      while (utf8Length(text2) > budgetBytes && entries.length > 0) {
+      while (storedLength(text2) > budgetBytes && entries.length > 0) {
         entries.shift();
         text2 = encode2(entries);
       }
@@ -1817,7 +1826,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null 
   function writeTree(root, sections) {
     for (const shed of SHED_STEPS) {
       const text2 = encodeTree(sections, shed);
-      if (utf8Length(text2) > TREE_BUDGET_BYTES) continue;
+      if (storedLength(text2) > TREE_BUDGET_BYTES) continue;
       try {
         kino2.storage.set(key(root), text2, { ttlMs: TREE_TTL_MS });
       } catch (_) {

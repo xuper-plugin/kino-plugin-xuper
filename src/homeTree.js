@@ -82,6 +82,21 @@ export const refOf = (item) => encode({ contentId: item.id, programType: item.ty
 //   s: [[name,[index into i...]]...] }. Items are deduplicated (an item shows in several sections), the
 // url prefix is kept once, and descriptions can be cut to fit the storage budget.
 
+/**
+ * The bytes `s` takes in the app's storage file: Android's org.json writes every stored value
+ * escaped (`"`, `\` and `/` get a backslash, \t \b \n \r \f two characters, other control
+ * characters \uXXXX) and the file is measured in UTF-8. Byte budgets are measured with this.
+ */
+export function storedLength(s) {
+  let n = utf8Length(s);
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x22 || c === 0x5c || c === 0x2f || c === 0x09 || c === 0x08 || c === 0x0a || c === 0x0d || c === 0x0c) n += 1;
+    else if (c < 0x20) n += 5;
+  }
+  return n;
+}
+
 export function utf8Length(s) {
   let n = 0;
   for (let i = 0; i < s.length; i++) {

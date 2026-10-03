@@ -1,10 +1,11 @@
 // A one-key, byte-budgeted cache over kino.storage, shared by the search results and the chapter
 // lists. kino.storage is 256 KB for the whole plugin and a set over the cap throws, so each cache
 // owns ONE key that never grows past its budget: entries are kept oldest first and the oldest are
-// evicted until the encoded text fits. Stored form: { v: 1, e: [{ k, s: stored-at ms, i: payload }] }.
+// evicted until the encoded text fits, measured as the app stores it (escaped, `storedLength`).
+// Stored form: { v: 1, e: [{ k, s: stored-at ms, i: payload }] }.
 // Nothing here ever fails the caller: a read that cannot be had or decoded is a miss and a write that
 // cannot be done is dropped (the caller just serves uncached).
-import { utf8Length } from "./homeTree.js";
+import { storedLength } from "./homeTree.js";
 import { isObject } from "./util.js";
 
 
@@ -55,12 +56,12 @@ export function makeByteCache({ kino, key, budgetBytes, clock, ttlMs, valid = ()
       }
       for (const a of added) {
         const entry = { k: a.k, s: now, i: a.i };
-        if (utf8Length(encode([entry])) > budgetBytes) continue;
+        if (storedLength(encode([entry])) > budgetBytes) continue;
         entries = entries.filter((e) => e.k !== a.k);
         entries.push(entry);
       }
       let text = encode(entries);
-      while (utf8Length(text) > budgetBytes && entries.length > 0) {
+      while (storedLength(text) > budgetBytes && entries.length > 0) {
         entries.shift();
         text = encode(entries);
       }
