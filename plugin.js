@@ -2998,7 +2998,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   async function refreshSeeds() {
     let ok;
     try {
-      ok = await session.refreshSeeds({ timeoutMs: SEED_DOWNLOAD_MS });
+      ok = await session.refreshSeeds({ timeoutMs: SEED_DOWNLOAD_MS, manual: true });
     } catch (e) {
       throw surface(e);
     }

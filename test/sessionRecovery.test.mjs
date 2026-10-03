@@ -149,3 +149,14 @@ test("inside the per-call seed loop a programming error propagates; only portal/
   await assert.rejects(w.session.withValidSession(flaky, { seedFallback: true, deadline: w.clock.now() + 18_000 }), kinoErr("geo_blocked"));
   assert.equal(kinoTries, 2, "both seeds of the pool were tried");
 });
+
+test("the 'Actualizar semillas' button is never held back by the cooldown after a failed automatic download", async () => {
+  const { makeSettings } = await import("../src/settings.js");
+  const w = portalWorld({ hosts: ["a.test"], seedsText: "404: Not Found", routes: { "v3/searchByName": GEO } });
+  await assert.rejects(w.catalog.search(query), kinoErr("geo_blocked"));
+  assert.equal(w.seedDownloads.length, 1, "the automatic download failed");
+  const settings = makeSettings({ kino: w.kino, session: w.session, clock: w.clock });
+  const out = await settings.action("refreshSeeds");
+  assert.equal(w.seedDownloads.length, 2, "the button downloads again at once");
+  assert.equal(out.message, "Sin conexión, reintenta");
+});

@@ -103,7 +103,7 @@ export function makeSettings({ kino, session, clock, registration }) {
 
   async function refreshSeeds() {
     let ok;
-    try { ok = await session.refreshSeeds({ timeoutMs: SEED_DOWNLOAD_MS }); }
+    try { ok = await session.refreshSeeds({ timeoutMs: SEED_DOWNLOAD_MS, manual: true }); }
     catch (e) { throw surface(e); }
     return { message: ok ? `${session.seedPool().length} semillas cargadas` : "Sin conexión, reintenta", refresh: true };
   }
