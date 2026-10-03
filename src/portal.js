@@ -32,6 +32,23 @@ export function mapPortalError(code, message, kino) {
   return kino.error("unavailable", "Xuper no está disponible ahora");
 }
 
+// The app's time cap per call (guide: 20 s for resolve/home/browse/episodes, 15 s for search), minus
+// a margin for the rate-limit wait and the work after the last answer.
+export const CALL_BUDGET_MS = { home: 20_000, episodes: 20_000, resolve: 20_000, search: 15_000 };
+const BUDGET_MARGIN_MS = 2_000;
+/** The absolute instant (injected clock) by which a call that starts now must stop asking the portal. */
+export const callDeadline = (clock, budgetMs) => clock.now() + budgetMs - BUDGET_MARGIN_MS;
+
+/**
+ * portal.call opts for a session view from `withValidSession`: the stored session's view has
+ * `sn: null` (the device's own sn) and no deadline; a per-call seed view carries the seed's sn and
+ * the call's deadline. Only present fields are added, so a stored-session call is the same as before.
+ */
+export const viewOpts = ({ userId, userToken, sn, deadline }) => ({
+  baseFields: true, userId, userToken,
+  ...(typeof sn === "string" && sn !== "" ? { sn } : {}),
+  ...(typeof deadline === "number" ? { deadline } : {}),
+});
 
 export function makePortal({ kino, crypto, config, clock, snProvider }) {
   let preferredHost = null;

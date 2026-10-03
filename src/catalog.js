@@ -5,6 +5,7 @@ import { parseTree, encodeTree, decodeTree, utf8Length, refOf, parseShelveTime }
 import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
+import { viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 
 export { parseShelveTime };
 
@@ -100,13 +101,13 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
   }
 
   // A failing root is an empty root (native: failure is indistinguishable from empty).
-  async function fetchRoot(root) {
+  async function fetchRoot(root, deadline) {
     try {
-      const response = await session.withValidSession(({ userId, userToken }) => portal.call(
+      const response = await session.withValidSession((v) => portal.call(
         "getNextColumns",
         { columnCode: ROOT_CODES[root], pageNum: 1, pageSize: TREE_PAGE_SIZE, version: "" },
-        { baseFields: true, userId, userToken },
-      ));
+        viewOpts(v),
+      ), { seedFallback: true, deadline });
       const sections = parseTree(response);
       if (!hasItems(sections)) return [];
       writeTree(root, sections);
@@ -119,6 +120,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
 
   // The classified rows over the four roots: stored trees first, the rest from the portal in parallel.
   async function buildRows() {
+    const deadline = callDeadline(clock, CALL_BUDGET_MS.home); // home and browse share the 20 s cap
     const roots = {};
     const missing = [];
     for (const { root } of KINDS) {
@@ -128,7 +130,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null }) {
     if (missing.length > 0) {
       // The session is not created by withValidSession: ensure it first; a failure here is the error.
       await session.ensure();
-      const fetched = await Promise.all(missing.map(fetchRoot));
+      const fetched = await Promise.all(missing.map((root) => fetchRoot(root, deadline)));
       missing.forEach((root, i) => { roots[root] = fetched[i]; });
     }
     return classify(roots);

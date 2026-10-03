@@ -3,7 +3,7 @@
 // enrichment and the sibling-season chips. Composed into the catalog by makeCatalog.
 // `makePortalChapters` is shared with resolve (a chapter is looked up by its seriesNumber), which is
 // why the chapter list is cached here, once, for both.
-import { PortalError, mapPortalError } from "./portal.js";
+import { PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { FIXED_MAC } from "./config.js";
 import { decode, encode, encodeChapter } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
@@ -88,15 +88,15 @@ const unpack = (p) => ({
 export function makePortalChapters({ kino, portal, session, clock }) {
   const cache = makeByteCache({ kino, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, valid: validPayload });
 
-  async function fetchDetail(seriesId) {
+  async function fetchDetail(seriesId, deadline) {
     let response;
     try {
       await session.ensure();
-      response = await session.withValidSession(({ userId, userToken }) => portal.call(
+      response = await session.withValidSession((v) => portal.call(
         "v4/getItemData",
         { contentId: seriesId, type: "0", sortType: "0", language: "en", macAddr: FIXED_MAC },
-        { baseFields: true, userId, userToken },
-      ));
+        viewOpts(v),
+      ), { seedFallback: true, deadline });
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino);
       if (isKinoError(e)) throw e;
@@ -107,10 +107,11 @@ export function makePortalChapters({ kino, portal, session, clock }) {
     return data;
   }
 
-  return async function portalChapters(seriesId) {
+  // `deadline`: the calling export's (resolve passes its own); by default the episodes budget from now.
+  return async function portalChapters(seriesId, deadline = callDeadline(clock, CALL_BUDGET_MS.episodes)) {
     const cached = cache.get(seriesId);
     if (cached !== undefined) return unpack(cached);
-    const data = await fetchDetail(seriesId);
+    const data = await fetchDetail(seriesId, deadline);
     const items = (Array.isArray(data.simpleProgramList) ? data.simpleProgramList : []).filter(isObject).map((it) => {
       const seriesNumber = typeof it.seriesNumber === "string" ? it.seriesNumber : typeof it.seriesNumber === "number" ? String(it.seriesNumber) : null;
       const item = { seriesNumber, contentId: optStringStrict(it.contentId), name: optStringStrict(it.name), duration: undefined };

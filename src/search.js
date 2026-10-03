@@ -2,7 +2,7 @@
 // Composed into the catalog by makeCatalog. The rank/filter rule is the SDK's `kino.rank` (proved
 // equivalent to the native one by test/search.test.mjs); the portal call, merge, fallback, season
 // filter, season order, item output and the compact result cache live here.
-import { PortalError, mapPortalError } from "./portal.js";
+import { PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { encode, isSeries } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
 import { isObject, isKinoError } from "./util.js";
@@ -164,6 +164,8 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
   }
 
   async function search(query) {
+    // Taken first: the app's 15 s run from the call's start (per-call seed retries stop by it).
+    const deadline = callDeadline(clock, CALL_BUDGET_MS.search);
     const ctx = contextOf(query);
     if (ctx.q === "") return [];
     const forms = await titleForms(ctx);
@@ -181,11 +183,11 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
     async function portalItems(q) {
       ensuring ??= session.ensure(); // once; a failure fails every portal query the same way
       await ensuring;
-      const response = await session.withValidSession(({ userId, userToken }) => portal.call(
+      const response = await session.withValidSession((v) => portal.call(
         "v3/searchByName",
         { value: q, type: "0", columnId: "", filter: "", pageNum: 1, pageSize: PAGE_SIZE },
-        { baseFields: true, userId, userToken },
-      ));
+        viewOpts(v),
+      ), { seedFallback: true, deadline });
       return flatten(response).map(slim).filter((x) => x !== null);
     }
 

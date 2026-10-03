@@ -17,6 +17,11 @@ const POOL_REFRESH_COOLDOWN_MS = 10_000;
 const PERIODIC_REFRESH_MS = 3 * 3600_000;
 const PERIODIC_TIMEOUT_MS = 5_000;
 const MAX_SEEDS = 200; // keeps the stored pool far below the 256 KB storage limit
+// Per-call seed fallback on the shared account (Ruling R33).
+const SEED_FALLBACK_TRIES = 3;
+const SEED_FALLBACK_MIN_MS = 1_000; // less time left than this: no new attempt
+const SEED_FALLBACK_REFRESH_MS = 15_000;
+const SEED_FALLBACK_DEFAULT_MS = 10_000; // a caller that gave no deadline
 
 const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
 const blank = (v) => str(v).trim() === "";
@@ -56,7 +61,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const writeSession = (s) => writeJson("session", {
     userId: str(s.userId), userToken: str(s.userToken), jwtToken: str(s.jwtToken), sn: str(s.sn), acct: str(s.acct),
   });
-  const view = () => { const s = readSession(); return { userId: s.userId, userToken: s.userToken }; };
+  // `sn: null` = the device's own (stored) sn; a per-call seed view carries the seed's.
+  const view = () => { const s = readSession(); return { userId: s.userId, userToken: s.userToken, sn: null }; };
   const hasToken = () => !blank(readSession().userToken);
   // A fast device-local fingerprint of values the portal already receives (email + the portal's own
   // password hash), only to tell accounts apart. NOT a password KDF: do not rely on it against offline guessing.
@@ -356,14 +362,63 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     } catch (e) { throw surface(e); }
   }
 
+  const blockedOrDead = (e) => e.code === GEO_BLOCKED || SESSION_DEAD.has(e.code);
+
   /**
-   * Runs `block({userId, userToken})` (token read from storage on EVERY attempt, so a retry sees
-   * the renewed one). It does NOT call `ensure()` first: callers (catalog, resolve, live...) do,
-   * because only they know whether a missing session is an error or just "not minted yet". Geo-block, dead token and dead seed rescue as native withValidSession;
-   * never loops: at most 1 + geo 1 + reauth 1 + 3 rescue runs.
+   * Ruling R33: the shared account is accepted but THIS call is still geo-blocked or dead. Up to 3
+   * distinct pool seeds run the block as a per-call override ({userId, userToken, sn, deadline});
+   * nothing is written: the stored session, `acct`, the region flag and `exhausted` stay as they are.
+   * Returns { value } / { err } (the first seed that is not geo/dead wins, even with another portal
+   * error), or null when no seed answered (the caller keeps its original error).
    */
-  async function withValidSession(block) {
+  async function seedFallback(block, deadline) {
+    const left = () => deadline - clock.now();
+    let pool = seedPool();
+    let refreshed = false;
+    if (pool.length === 0 && left() >= SEED_FALLBACK_MIN_MS) {
+      refreshed = true;
+      try { await refreshSeeds({ timeoutMs: Math.min(SEED_FALLBACK_REFRESH_MS, Math.floor(left())) }); } catch (_) { /* ignored */ }
+      pool = seedPool();
+    }
+    const seen = new Set();
+    const candidates = pool.filter((e) => !seen.has(e.sn) && seen.add(e.sn));
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.min(i, Math.floor(rand() * (i + 1)));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    // Counts only: never a token or an sn.
+    const note = (tries, outcome) => {
+      try { kino.log(`xuper seed fallback: ${outcome} after ${tries} of ${candidates.length} seeds${refreshed ? " (pool refreshed)" : ""}`); }
+      catch (_) { /* never fails a call */ }
+    };
+    let tries = 0;
+    for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
+      if (left() < SEED_FALLBACK_MIN_MS) break;
+      tries++;
+      try {
+        const value = await block({ userId: c.userId, userToken: c.userToken, sn: c.sn, deadline });
+        note(tries, "answered");
+        return { value };
+      } catch (e) {
+        if (e instanceof PortalError && !blockedOrDead(e)) { note(tries, "answered"); return { err: e }; }
+        // Geo, dead, or no answer at all (network, deadline): the next seed.
+      }
+    }
+    note(tries, left() < SEED_FALLBACK_MIN_MS ? "out of time" : "no seed answered");
+    return null;
+  }
+
+  /**
+   * Runs `block({userId, userToken, sn})` (token read from storage on EVERY attempt, so a retry sees
+   * the renewed one; `sn` is null for the stored session). It does NOT call `ensure()` first: callers (catalog, resolve, live...) do,
+   * because only they know whether a missing session is an error or just "not minted yet". Geo-block, dead token and dead seed rescue as native withValidSession;
+   * never loops: at most 1 + geo 1 + reauth 1 + 3 rescue runs (+ 3 per-call seeds, below).
+   * `seedFallback` (non-live callers only): on the SHARED account, a call still geo-blocked or dead
+   * after reauth is retried with pool seeds as a per-call override, bounded by `deadline` (injected clock).
+   */
+  async function withValidSession(block, { seedFallback: allowSeeds = false, deadline } = {}) {
     await null;
+    const startedAt = clock.now();
     const settle = (r) => {
       if (r.err) throw mapPortalError(r.err.code, r.err.message, kino);
       exhausted = false;
@@ -404,6 +459,14 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
         }
       }
       exhausted = true;
+    }
+    if (allowSeeds && blockedOrDead(result.err) && usingShared()) {
+      const rescued = await seedFallback(block, typeof deadline === "number" ? deadline : startedAt + SEED_FALLBACK_DEFAULT_MS);
+      // Not `settle`: a per-call seed says nothing about the stored session, so `exhausted` stays.
+      if (rescued) {
+        if (rescued.err) throw mapPortalError(rescued.err.code, rescued.err.message, kino);
+        return rescued.value;
+      }
     }
     return settle(result);
   }

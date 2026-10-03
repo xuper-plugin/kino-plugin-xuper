@@ -3,7 +3,7 @@
 // its license, by title) and `v14/getSlbInfo` (the CDN and the free tier's Content-Auth, by SESSION:
 // the same for every title, so it is cached in memory for as long as it keeps working).
 // Unlike the native bridge, which kept the headers aside, the plugin RETURNS them in `Stream.headers`.
-import { PortalError, mapPortalError } from "./portal.js";
+import { PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { UA_CDN, FIXED_MAC } from "./config.js";
 import { decode, isChannelRef } from "./refs.js";
 import { findChapter } from "./episodes.js";
@@ -111,39 +111,49 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
 
   // This session's getSlbInfo, asked once while it keeps working. The token is read inside the block, as
   // the portal calls are, so a retry after a re-authentication looks the cache up with the renewed one.
-  const sessionSlb = () => session.withValidSession(async ({ userId, userToken }) => {
-    if (slbCache && slbCache.token === userToken && clock.now() < slbCache.expiresMs) return slbCache.slb;
-    const answer = await portal.call("v14/getSlbInfo", slbBean(config.apkVersion), { baseFields: true, userId, userToken });
+  // The cache is keyed by userToken: a seed's SLB never serves the account's calls, nor the reverse.
+  const slbFor = async (v) => {
+    if (slbCache && slbCache.token === v.userToken && clock.now() < slbCache.expiresMs) return slbCache.slb;
+    const answer = await portal.call("v14/getSlbInfo", slbBean(config.apkVersion), viewOpts(v));
     const fresh = isObject(answer) ? answer : {};
     const ttl = slbLifetime(fresh, clock.now());
     // An slb that is no longer good is not saved (it would leave the session broken and silent): served anyway.
-    slbCache = ttl > 0 ? { slb: fresh, token: userToken, expiresMs: clock.now() + ttl * 1000 } : null;
+    slbCache = ttl > 0 ? { slb: fresh, token: v.userToken, expiresMs: clock.now() + ttl * 1000 } : null;
     return fresh;
-  });
+  };
+  // `seed`: the per-call seed view that played the title (its CDN auth must be its own: asked with
+  // its credentials directly); null = the stored session, through withValidSession as before. The
+  // stored session gets no seed fallback here: a license from one session with a CDN auth from another
+  // would not play.
+  const sessionSlb = (seed) => (seed ? slbFor(seed) : session.withValidSession(slbFor));
 
   // MagisPluginBridge.chapterFrom: the requested chapter, raw as the portal gives it.
-  async function chapterFrom(magis) {
-    const { items } = await portalChapters(magis.contentId);
+  async function chapterFrom(magis, deadline) {
+    const { items } = await portalChapters(magis.contentId, deadline);
     if (items.length === 0) throw unavailable(`la serie ${magis.contentId} vino sin capítulos`);
     const chapter = findChapter(items, magis.episode);
     if (!chapter) throw unavailable(`la serie no tiene el capítulo ${magis.episode}`);
     return chapter;
   }
 
-  async function resolveVod(magis, chapter) {
+  async function resolveVod(magis, chapter, deadline) {
     await session.ensure();
     const contentId = chapter && notBlank(chapter.contentId) ? chapter.contentId : magis.contentId;
-    const play = await session.withValidSession(({ userId, userToken }) => portal.call(
-      "v10/startPlayVOD",
-      { contentId, seriesContentId: chapter ? magis.contentId : "", startTime: 0, type: "1", columnId: 0, authType: "" },
-      { baseFields: true, userId, userToken },
-    ));
+    let played = null; // the view whose startPlayVOD answered: the SLB must be that same session's
+    const play = await session.withValidSession((v) => {
+      played = v;
+      return portal.call(
+        "v10/startPlayVOD",
+        { contentId, seriesContentId: chapter ? magis.contentId : "", startTime: 0, type: "1", columnId: 0, authType: "" },
+        viewOpts(v),
+      );
+    }, { seedFallback: true, deadline });
     const best = bestMedia(play);
     if (!best) throw unavailable("Xuper devolvió sin media reproducible");
     const license = optStringStrict(objects(best.licenseList)[0]?.license);
     if (!notBlank(license)) throw unavailable("Xuper devolvió sin licenseList");
 
-    const cdn = vodCdn(await sessionSlb());
+    const cdn = vodCdn(await sessionSlb(played && played.sn ? played : null));
     if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
 
     // `ts` iff the portal says so; asking for `.mp4` otherwise is all that can be done.
@@ -167,12 +177,13 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
   async function resolve(ref, options) {
     // A live channel's ref is its bare code (liveCatalog.js): routed before the VOD path, untouched.
     if (live && isChannelRef(ref)) return live.resolveLive(ref, options);
+    const deadline = callDeadline(clock, CALL_BUDGET_MS.resolve);
     try {
       const magis = decode(ref);
       if (!magis) throw unavailable("ese ref no es de Xuper: no se puede reproducir");
       // A series' contentId is not playable: its chapters are listed and one is played.
-      const chapter = magis.isSeries ? await chapterFrom(magis) : null;
-      return await resolveVod(magis, chapter);
+      const chapter = magis.isSeries ? await chapterFrom(magis, deadline) : null;
+      return await resolveVod(magis, chapter, deadline);
     } catch (e) {
       if (e instanceof PortalError) throw mapPortalError(e.code, e.message, kino);
       if (isKinoError(e)) throw e;
