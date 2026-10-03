@@ -441,8 +441,13 @@ test("a surviving non-dead error is mapped to a Spanish kino error", async () =>
   const { session, portal } = setup({ stored: sess("T1") });
   portal.queue("v8/active", act("T2"));
   await assert.rejects(
-    session.withValidSession(async () => { throw new PortalError("portal100006", "剧集不存在"); }),
+    session.withValidSession(async () => { throw new PortalError("portal100004", "内容不存在"); }),
     (e) => e.code === "not_found" && e.message === "No se encontró en Xuper");
+  // portal100006 (a gone series) says so, as the native bridge (main 2d285106).
+  portal.queue("v8/active", act("T3"));
+  await assert.rejects(
+    session.withValidSession(async () => { throw new PortalError("portal100006", "剧集不存在"); }),
+    (e) => e.code === "not_found" && e.message === "Este capítulo ya no está disponible.");
 });
 
 // ---- region flag -----------------------------------------------------------------------------

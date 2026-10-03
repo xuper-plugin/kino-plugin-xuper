@@ -128,10 +128,13 @@ function accountProblemMessage(code) {
   if (code === ACCOUNT_IN_USE_ELSEWHERE) return ACCOUNT_IN_USE_ELSEWHERE_TEXT;
   return null;
 }
-function mapPortalError(code, message, kino2, { accountLinked = false } = {}) {
+var EPISODE_GONE = "Este cap\xEDtulo ya no est\xE1 disponible.";
+var SERIES_GONE = "Esta serie ya no est\xE1 disponible.";
+function mapPortalError(code, message, kino2, { accountLinked = false, goneMessage = EPISODE_GONE } = {}) {
   const msg = typeof message === "string" ? message : "";
   const accountText = accountLinked ? accountProblemMessage(code) : null;
   if (accountText) return kino2.error("auth_required", accountText);
+  if (code === "portal100006") return kino2.error("not_found", goneMessage);
   if (code === "portal100004" || msg.includes("\u4E0D\u5B58\u5728")) {
     return kino2.error("not_found", "No se encontr\xF3 en Xuper");
   }
@@ -1751,7 +1754,13 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
     const magis = decode(ref);
     if (!magis) throw kino2.error("unavailable", "ese ref no es de Xuper: no se pueden listar cap\xEDtulos");
     const deadline = clock2 ? callDeadline(clock2, CALL_BUDGET_MS.episodes) : void 0;
-    const raw = await portalChapters(magis.contentId, deadline);
+    let raw;
+    try {
+      raw = await portalChapters(magis.contentId, deadline);
+    } catch (e) {
+      if (isKinoError(e) && e.message === EPISODE_GONE) throw kino2.error("not_found", SERIES_GONE);
+      throw e;
+    }
     const { extra, series } = await enrich(raw, { deadline });
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull2(it.seriesNumber) ?? 0;

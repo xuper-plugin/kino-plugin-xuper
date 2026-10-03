@@ -38,14 +38,22 @@ export function accountProblemMessage(code) {
   return null;
 }
 
+// `portal100006` ("剧集不存在"): the series behind a chapter is gone (native 0.9.45, ERRORES-AO3, a
+// "Seguir viendo" card). Word for word the native XuperErrorMapping sentences.
+export const EPISODE_GONE = "Este capítulo ya no está disponible.";
+/** [EPISODE_GONE] when what was asked is the series' chapter list rather than one chapter. */
+export const SERIES_GONE = "Esta serie ya no está disponible.";
+
 /**
+ * `goneMessage`: what a `portal100006` says ([EPISODE_GONE] for a playback, [SERIES_GONE] for a listing).
  * `accountLinked`: a linked account's session code (still dead after the re-logins, or open on
  * another device) gets the account sentence instead of the portal's text.
  */
-export function mapPortalError(code, message, kino, { accountLinked = false } = {}) {
+export function mapPortalError(code, message, kino, { accountLinked = false, goneMessage = EPISODE_GONE } = {}) {
   const msg = typeof message === "string" ? message : "";
   const accountText = accountLinked ? accountProblemMessage(code) : null;
   if (accountText) return kino.error("auth_required", accountText);
+  if (code === "portal100006") return kino.error("not_found", goneMessage);
   if (code === "portal100004" || msg.includes("不存在")) {
     return kino.error("not_found", "No se encontró en Xuper");
   }

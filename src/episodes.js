@@ -3,7 +3,9 @@
 // enrichment and the sibling-season chips. Composed into the catalog by makeCatalog.
 // `makePortalChapters` is shared with resolve (a chapter is looked up by its seriesNumber), which is
 // why the chapter list is cached here, once, for both.
-import { PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
+import {
+  PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS, EPISODE_GONE, SERIES_GONE,
+} from "./portal.js";
 import { FIXED_MAC } from "./config.js";
 import { decode, encode, encodeChapter } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
@@ -168,7 +170,14 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }
     if (!magis) throw kino.error("unavailable", "ese ref no es de Xuper: no se pueden listar capítulos");
     // One deadline for the whole export (the app's 20 s): the chapter list, then TMDB's enrichment.
     const deadline = clock ? callDeadline(clock, CALL_BUDGET_MS.episodes) : undefined;
-    const raw = await portalChapters(magis.contentId, deadline);
+    let raw;
+    try {
+      raw = await portalChapters(magis.contentId, deadline);
+    } catch (e) {
+      // The chapter list of a gone series is the series being gone, not one chapter (native goneMessage).
+      if (isKinoError(e) && e.message === EPISODE_GONE) throw kino.error("not_found", SERIES_GONE);
+      throw e;
+    }
     const { extra, series } = await enrich(raw, { deadline });
 
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
