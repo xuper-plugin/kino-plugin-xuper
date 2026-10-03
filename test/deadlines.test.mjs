@@ -34,6 +34,7 @@ const EXPORTS = {
   resolveChapter: { cap: CAP.other, run: (w) => w.resolve.resolve("magis1:teleplay:1:SERIE"), ok: (out) => assert.match(out.url, /vod\.cdn\.test/) },
   liveCategories: { cap: CAP.other, run: (w) => w.live.liveCategories(), ok: (out) => assert.equal(out[0].title, "Noticias") },
   liveChannels: { cap: CAP.other, run: (w) => w.live.liveChannels({ categoryId: "7" }), ok: (out) => assert.equal(out.items[0].id, "CH1") },
+  liveSearch: { cap: CAP.search, run: (w) => w.live.liveSearch({ query: "canal" }), ok: (out) => assert.deepEqual(out.items.map((c) => [c.id, c.adult]), [["CH1", false]]) },
   resolveLive: { cap: CAP.other, run: (w) => w.resolve.resolve("CH1"), ok: (out) => assert.equal(out.signing, "request") },
 };
 

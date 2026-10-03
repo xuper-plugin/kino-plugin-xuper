@@ -81,7 +81,7 @@ export function mapPortalError(code, message, kino, { accountLinked = false, sha
 // The app's time cap per call (guide: 20 s for resolve/home/browse/episodes, 15 s for search), minus
 // a margin for the rate-limit wait and the work after the last answer.
 export const CALL_BUDGET_MS = {
-  home: 20_000, browse: 20_000, episodes: 20_000, resolve: 20_000, search: 15_000, liveCategories: 20_000, liveChannels: 20_000,
+  home: 20_000, browse: 20_000, episodes: 20_000, resolve: 20_000, search: 15_000, liveCategories: 20_000, liveChannels: 20_000, liveSearch: 15_000,
   section: 20_000, categories: 20_000,
 };
 const BUDGET_MARGIN_MS = 2_000;

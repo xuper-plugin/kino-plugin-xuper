@@ -30,11 +30,11 @@ function fromHex(h) {
 function makeCrypto(kino2) {
   const fail = (what) => kino2.error("unavailable", "el portal no se pudo " + what);
   return {
-    encryptBody(plain2) {
+    encryptBody(plain3) {
       try {
         const b64 = kino2.crypto.encrypt("des-ede3-ecb", {
           key: kino2.secret("magisKey"),
-          data: plain2,
+          data: plain3,
           padding: "pkcs7"
         });
         if (typeof b64 !== "string" || b64 === "") throw new Error("empty");
@@ -276,6 +276,7 @@ var CALL_BUDGET_MS = {
   search: 15e3,
   liveCategories: 2e4,
   liveChannels: 2e4,
+  liveSearch: 15e3,
   section: 2e4,
   categories: 2e4
 };
@@ -424,9 +425,9 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
           answer = { portalFailure: new PortalError(code, typeof em === "string" && em.trim() ? em : "") };
         } else if (typeof answer.data === "string" && answer.data !== "") {
           stage = "data";
-          const plain2 = crypto.decryptBlob(answer.data);
+          const plain3 = crypto.decryptBlob(answer.data);
           stage = "inner";
-          const inner = JSON.parse(plain2);
+          const inner = JSON.parse(plain3);
           if (!isObject(inner)) throw new Error("datos del portal no son un objeto");
           answer = { ok: inner };
         } else if (isObject(answer.data)) {
@@ -2651,7 +2652,12 @@ var MAX_PAGES = 10;
 var MAX_CATEGORIES = 200;
 var ID = /^[A-Za-z0-9._~-]{1,128}$/;
 var POSITIVE = /^\d{1,9}$/;
-var NAMES = { ChannelList: "Todos" };
+var SEARCH_INDEX_TTL_MS = 60 * 6e4;
+var MAX_SEARCH_HITS = 100;
+var MIN_SEARCH_CHARS = 2;
+var plain2 = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
+var ALL_CHANNELS = "ChannelList";
+var NAMES = { [ALL_CHANNELS]: "Todos" };
 var ADULT_NAMES = /* @__PURE__ */ new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
 function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   let adultIds = null;
@@ -2681,7 +2687,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
       const raw = asText(c.name);
       const name = Object.hasOwn(NAMES, raw) ? NAMES[raw] : raw;
       if (isBlank(name)) continue;
-      out.push({ id: String(id), name, adult: ADULT_NAMES.has(name.trim().toLowerCase()) });
+      out.push({ id: String(id), name, adult: ADULT_NAMES.has(name.trim().toLowerCase()), ...raw === ALL_CHANNELS ? { all: true } : {} });
     }
     if (out.length > 0) adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
     return out;
@@ -2747,7 +2753,69 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     const adult = await isAdultCategory(id, deadline);
     return project(await fetchPage(id, 1, deadline), id, adult);
   }
-  return { liveCategories: liveCategories2, liveChannels: liveChannels2, categoriesWithin, channelsWithin };
+  let index = null;
+  let sweeping = null;
+  async function sweepCategory(category, into, deadline, read = { pages: 0 }) {
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const list = await fetchPage(category.id, page, deadline);
+      read.pages++;
+      for (const item of project(list, category.id, category.adult)) {
+        if (!into.has(item.id)) into.set(item.id, { ...item, adult: category.adult });
+      }
+      if (list.length < CHANNELS_PAGE_SIZE) return;
+    }
+  }
+  async function sweep(deadline) {
+    const channels = /* @__PURE__ */ new Map();
+    let complete = true;
+    try {
+      const all = (await readCategories(deadline)).filter((c) => ID.test(c.id) && POSITIVE.test(c.id));
+      if (all.length === 0) throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
+      for (const c of all.filter((c2) => c2.adult)) await sweepCategory(c, channels, deadline);
+      const everything = all.find((c) => c.all && !c.adult);
+      const plainOnes = everything ? [everything] : all.filter((c) => !c.adult);
+      const read = { pages: 0 };
+      for (const c of plainOnes) {
+        try {
+          await sweepCategory(c, channels, deadline, read);
+        } catch (e) {
+          if (read.pages === 0) throw e;
+          complete = false;
+          trace(kino2, "live", "search_partial", { code: errCode(e), pages: read.pages });
+          break;
+        }
+      }
+    } catch (e) {
+      throw surface(e);
+    }
+    return { complete, channels };
+  }
+  async function channelIndex(deadline) {
+    if (index && clock2.now() - index.atMs < SEARCH_INDEX_TTL_MS) return index.channels;
+    sweeping ?? (sweeping = sweep(deadline).finally(() => {
+      sweeping = null;
+    }));
+    const { complete, channels } = await sweeping;
+    if (complete) index = { atMs: clock2.now(), channels };
+    return channels;
+  }
+  async function liveSearch2(arg) {
+    const raw = isObject(arg) && typeof arg.query === "string" ? arg.query : "";
+    const q = plain2(raw);
+    if (q.length < MIN_SEARCH_CHARS) return { items: [] };
+    const deadline = callDeadline(clock2, CALL_BUDGET_MS.liveSearch);
+    const channels = await channelIndex(deadline);
+    const n = POSITIVE.test(q) ? Number(q) : null;
+    const hits = [];
+    for (const c of channels.values()) {
+      const title2 = plain2(c.title);
+      const rank = n !== null && c.number === n ? 0 : title2.startsWith(q) ? 1 : title2.includes(" " + q) ? 2 : title2.includes(q) ? 3 : -1;
+      if (rank >= 0) hits.push({ c, rank, i: hits.length });
+    }
+    hits.sort((a, b) => a.rank - b.rank || a.i - b.i);
+    return { items: hits.slice(0, MAX_SEARCH_HITS).map((h) => ({ ...h.c })) };
+  }
+  return { liveCategories: liveCategories2, liveChannels: liveChannels2, categoriesWithin, channelsWithin, liveSearch: liveSearch2 };
 }
 
 // src/tweakedMd5.js
@@ -3955,6 +4023,10 @@ async function liveChannels(args) {
   await null;
   return traced(kino, clock, "liveChannels", () => guarded(({ live: live2 }) => live2.liveChannels(args)));
 }
+async function liveSearch(args) {
+  await null;
+  return traced(kino, clock, "liveSearch", () => guarded(({ live: live2 }) => live2.liveSearch(args)));
+}
 var migrator = makeMigrate();
 async function migrate(input) {
   await null;
@@ -4006,6 +4078,7 @@ export {
   home,
   liveCategories,
   liveChannels,
+  liveSearch,
   migrate,
   resolve,
   search,

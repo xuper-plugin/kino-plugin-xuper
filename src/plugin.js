@@ -51,6 +51,8 @@ export async function sign(request) {
 }
 export async function liveCategories() { await null; return traced(kino, clock, "liveCategories", () => guarded(({ live }) => live.liveCategories())); }
 export async function liveChannels(args) { await null; return traced(kino, clock, "liveChannels", () => guarded(({ live }) => live.liveChannels(args))); }
+// En vivo's search (optional with "channels"): over the whole list, swept once an hour into memory; never the query in a line.
+export async function liveSearch(args) { await null; return traced(kino, clock, "liveSearch", () => guarded(({ live }) => live.liveSearch(args))); }
 // Pure like sign: it never builds the other deps. An unreadable value is `null`; only a bug becomes `unavailable`.
 const migrator = makeMigrate();
 export async function migrate(input) {

@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { build } from "esbuild";
 import { fakeKino } from "./helpers/fakeKino.mjs";
-import { checkOutput, checkSettingsOutput, migrateAnswer, validateManifest } from "../sdk/contract.mjs";
+import { checkOutput, checkSettingsOutput, markSearchHits, migrateAnswer, validateManifest } from "../sdk/contract.mjs";
 import { signingLane } from "../sdk/kino-shim.mjs";
 import { SHARED_EMAIL, SHARED_PASSWORD, APK_VER_HEADER, SPKG_VER, USER_AGENT, CONTENT_TYPE, RATE_LIMIT_MS, PORTAL_CODE, LIVE_APP, LIVE_APP_VERSION } from "../src/config.js";
 
@@ -276,6 +276,7 @@ test("resolve (live channel code) then sign: a request-signed stream whose signC
   assert.equal(out.url, "http://live1.test/live/pc-one.m3u8");
   assert.equal(out.signing, "request");
   assert.deepEqual(out.alternateHosts, ["live2.test:8080"]);
+  assert.equal("alternatives" in out, false, "a signed live stream never carries alternatives");
   clean(checkOutput("resolve", out, manifest, [], { liveChannel: true }));
   const signed = await s.plugin.sign({ url: "http://live2.test:8080/live/pc-one/seg1.ts", context: out.signContext });
   const kept = clean(checkOutput("sign", signed, manifest));
@@ -283,6 +284,27 @@ test("resolve (live channel code) then sign: a request-signed stream whose signC
   assert.equal(kept.headers.App, LIVE_APP);
   assert.equal(kept.headers["App-Version"], LIVE_APP_VERSION);
   assert.ok(kept.headers["Content-Auth"].startsWith(cflUrl(TOKEN_B) + "&sign2_method=sign_o3"), "the second CDN's own token signs its host");
+});
+
+test("liveSearch: through the real stack the 18+ list and Todos are swept once, every hit is marked, and the kit and the app's 18+ rule agree", async () => {
+  const routes = liveRoutes();
+  routes["v6/getLiveData"] = (bean) => {
+    withSession(bean);
+    if (bean.columnId === 13) return { data: { channelList: [{ channelCode: "AD1", name: "Canal Adulto", channelNumber: 90 }] } };
+    assert.equal(bean.columnId, 12, "only the 18+ list and ChannelList are swept");
+    return { data: { channelList: [{ channelCode: "CH1", name: "Canal Uno", channelNumber: 1 }, { channelCode: "AD1", name: "Canal Adulto", channelNumber: 90 }] } };
+  };
+  const s = await start({ routes });
+  const out = await s.plugin.liveSearch({ query: "canal" });
+  assert.deepEqual(out.items.map((c) => [c.id, c.categoryId, c.adult]), [["AD1", "13", true], ["CH1", "12", false]]);
+  const kept = clean(checkOutput("liveSearch", out, manifest));
+  const cats = clean(checkOutput("liveCategories", await s.plugin.liveCategories(), manifest)).categories;
+  const marked = markSearchHits(kept, cats, manifest);
+  assert.deepEqual(marked.unmarked, []);
+  assert.deepEqual(marked.value.items.map((c) => c.adult === true), [true, false]);
+  const sweeps = s.log.requests.filter((r) => r.path === "v6/getLiveData").length;
+  assert.deepEqual((await s.plugin.liveSearch({ query: "uno" })).items.map((c) => c.id), ["CH1"]);
+  assert.equal(s.log.requests.filter((r) => r.path === "v6/getLiveData").length, sweeps, "the second search is served from memory");
 });
 
 test("liveCategories and liveChannels: the adult category and its channels are marked adult (D3), all pass the kit", async () => {
@@ -507,7 +529,7 @@ test("every export returns a promise even when its argument blows up on first to
   const s = await start();
   const bomb = new Proxy({}, { get() { throw new Error("bomb"); }, has() { throw new Error("bomb"); }, ownKeys() { throw new Error("bomb"); } });
   const garbage = [undefined, null, 42, "x", bomb];
-  for (const name of ["search", "home", "browse", "episodes", "resolve", "sign", "liveCategories", "liveChannels", "migrate", "settingsStatus", "action", "validateSettings"]) {
+  for (const name of ["search", "home", "browse", "episodes", "resolve", "sign", "liveCategories", "liveChannels", "liveSearch", "migrate", "settingsStatus", "action", "validateSettings"]) {
     assert.equal(typeof s.plugin[name], "function", name);
     for (const g of garbage) {
       let p;
@@ -537,7 +559,7 @@ test("garbage arguments that cannot work reject (with a kino error), they never 
 test("each export's body starts with `await null` (checked in the source text)", () => {
   const text = readFileSync(new URL("src/plugin.js", ROOT), "utf8");
   const exportsList = [...text.matchAll(/export async function (\w+)\(([^)]*)\)\s*\{\s*(await null;)?/g)];
-  assert.equal(exportsList.length, 14); // + section, categories (apiVersion 6)
+  assert.equal(exportsList.length, 15); // + section, categories, liveSearch (apiVersion 6)
   for (const m of exportsList) assert.ok(m[3], m[1] + " must start with await null");
 });
 
