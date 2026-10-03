@@ -224,7 +224,7 @@ test("manifest: useShared action after logout, valid for the kit, hint and confi
   assert.equal(a.label, "Usar cuenta compartida");
   assert.equal(a.hint, "Sin crear cuenta: usa la cuenta que Kino comparte con todos.");
   assert.ok(a.hint.length <= 80);
-  assert.equal(a.confirm, "Esta cuenta la usan muchas personas. ¿Continuar?");
+  assert.equal(a.confirm, "Esta cuenta la usan muchas personas y puede cerrar la sesión de otra. ¿Continuar?");
   assert.ok(a.confirm.length <= 120);
 });
 
@@ -250,4 +250,118 @@ test("the REAL shared pair never shows in messages, errors, logs or stored value
   assert.ok(SHARED_EMAIL !== "" && SHARED_PASSWORD !== "", "the owner filled the pair");
   assert.ok(!all.includes(SHARED_EMAIL), "email leaked");
   assert.ok(!all.includes(SHARED_PASSWORD), "password leaked");
+});
+
+// ---- fix round 1 -----------------------------------------------------------------------------
+
+// A session over the same storage whose settings the test can change after the fact.
+function live({ flag = true, shared = SH } = {}) {
+  const t = setup({ flag, shared });
+  const cfg = {};
+  const kino = Object.freeze({ ...t.kino, config: Object.freeze({ get: (k) => cfg[k], all: () => ({ ...cfg }) }) });
+  const session = makeSession({ kino, portal: t.portal, clock: { now: () => 1 }, random: () => 0, shared });
+  const settings = makeSettings({ kino, session, clock: { now: () => 1 } });
+  return { ...t, cfg, session, settings, kino: t.kino };
+}
+
+test("I1: own credentials appearing clear the flag; blanking them later does not bring the shared pair back", async () => {
+  const t = live();
+  assert.equal(t.session.kind(), "account");
+  assert.equal(t.session.usingShared(), true);
+  t.cfg.email = OWN.email; t.cfg.password = OWN.password;
+  assert.equal(t.session.kind(), "account");
+  assert.equal(t.session.usingShared(), false);
+  assert.notEqual(t.flag(), "true");
+  t.cfg.email = ""; t.cfg.password = "";
+  assert.equal(t.session.kind(), "own");
+  assert.equal((await t.settings.settingsStatus()).status, "Sin cuenta: sesión anónima");
+});
+
+test("I1: the relogin path also clears it when own credentials show up", async () => {
+  const t = live();
+  t.cfg.email = OWN.email; t.cfg.password = OWN.password;
+  t.portal.queue("v8/login", ok("T1"));
+  await t.session.withValidSession(async ({ userToken }) => { if (userToken === "T0") throw dead(); return userToken; });
+  assert.equal(t.portal.calls[0].bean.userName, OWN.email);
+  assert.notEqual(t.flag(), "true");
+});
+
+test("I2: a REFUSED relogin with the shared pair clears the flag and falls to anonymous", async () => {
+  const t = live();
+  t.portal.queue("v8/login", new PortalError("aaa100011", "bad"));
+  t.portal.queue("v8/active", ok("TA"));
+  await t.session.withValidSession(async ({ userToken }) => { if (userToken === "T0") throw dead(); return userToken; });
+  assert.notEqual(t.flag(), "true");
+  assert.equal(t.session.kind(), "own");
+  assert.equal((await t.settings.settingsStatus()).status, "Sin cuenta: sesión anónima");
+});
+
+test("I2: ensure with a refused shared pair clears the flag; a network failure leaves it", async () => {
+  const t = live();
+  t.kino.storage.set("session", JSON.stringify(stored("")));
+  t.portal.queue("v8/login", new PortalError("aaa100011", "bad"));
+  t.portal.queue("v8/active", ok("TA"));
+  await t.session.ensure();
+  assert.notEqual(t.flag(), "true");
+
+  const n = live();
+  n.kino.storage.set("session", JSON.stringify(stored("")));
+  n.portal.queue("v8/login", n.kino.error("unavailable", "red"));
+  n.portal.queue("v8/active", ok("TA"));
+  await n.session.ensure();
+  assert.equal(n.flag(), "true");
+
+  const r = live();
+  r.portal.queue("v8/login", r.kino.error("unavailable", "red"));
+  r.portal.queue("v8/active", ok("TA"));
+  await r.session.withValidSession(async ({ userToken }) => { if (userToken === "T0") throw dead(); return userToken; }).catch(() => {});
+  assert.equal(r.flag(), "true", "a network failure on reauth keeps the choice");
+});
+
+test("M-a: a failed flag write rolls the shared token back (sn kept) and answers the plugin failure", async () => {
+  const t = setup();
+  const real = t.kino.storage;
+  const kino2 = { ...t.kino, storage: { ...real, get: (k) => real.get(k), set: (k, v) => { if (k === "sharedAccount") throw new Error("quota"); real.set(k, v); } } };
+  const session = makeSession({ kino: kino2, portal: t.portal, clock: { now: () => 1 }, random: () => 0, shared: SH });
+  t.portal.queue("v8/login", ok("TSHARED"));
+  await rejects(session.useShared(), "unavailable", "No se pudo activar la cuenta compartida");
+  const s = JSON.parse(real.get("session"));
+  assert.equal(s.userToken, "");
+  assert.equal(s.sn, "sn-own");
+});
+
+test("M-b: useShared while the shared account is already active is idempotent", async () => {
+  const t = setup({ flag: true });
+  t.portal.queue("v8/login", ok("T9"));
+  assert.deepEqual(await t.settings.action("useShared"), { message: "Cuenta compartida activada", refresh: true });
+  assert.equal(t.flag(), "true");
+  assert.equal(t.portal.paths().filter((p) => p === "v8/login").length, 1);
+});
+
+// ---- the seed pool file (dedicated `seeds` branch) --------------------------------------------
+
+test("seeds: default URL is the seeds branch; a 600-entry answer stores 200 newest-first, three fields, < 30000 bytes", async () => {
+  const { DEFAULT_SEEDS_URL } = await import("../src/session.js");
+  assert.equal(DEFAULT_SEEDS_URL, "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json");
+  const hex = (n, w) => n.toString(16).padStart(w, "0");
+  const list = [];
+  for (let i = 0; i < 600; i++) {
+    if (i === 3) list.push({ sn: "", userId: "x", userToken: "t", mintedAt: 1 });
+    if (i === 5) list.push({ sn: "nosession" + i, userId: "x", userToken: "  ", mintedAt: 1 });
+    list.push({ sn: hex(i, 32), userId: "9000" + hex(i, 6), userToken: hex(i * 7919, 32), mintedAt: 1_700_000_000_000 + i, extra: "x".repeat(10) });
+  }
+  const fetchedUrls = [];
+  const kino = fakeKino({ fetch: async (url) => { fetchedUrls.push(url); return { text: () => JSON.stringify(list) }; } });
+  const session = makeSession({ kino, portal: fakePortal(), clock: { now: () => 1_000_000 }, random: () => 0 });
+  assert.equal(await session.refreshSeeds(), true);
+  assert.deepEqual(fetchedUrls, [DEFAULT_SEEDS_URL]);
+  const raw = kino.storage.get("seeds");
+  const pool = JSON.parse(raw);
+  assert.equal(pool.length, 200);
+  const valid = list.filter((e) => e.sn && e.userToken.trim());
+  assert.deepEqual(pool, valid.slice(0, 200).map((e) => ({ sn: e.sn, userId: e.userId, userToken: e.userToken })));
+  for (const e of pool) assert.deepEqual(Object.keys(e), ["sn", "userId", "userToken"]);
+  const bytes = Buffer.byteLength(raw, "utf8");
+  assert.equal(bytes, 22201, "exact stored size");
+  assert.ok(bytes < 30_000);
 });

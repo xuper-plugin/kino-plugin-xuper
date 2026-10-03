@@ -58,7 +58,7 @@
       "label": "Usar cuenta compartida",
       "type": "action",
       "hint": "Sin crear cuenta: usa la cuenta que Kino comparte con todos.",
-      "confirm": "Esta cuenta la usan muchas personas. ¿Continuar?"
+      "confirm": "Esta cuenta la usan muchas personas y puede cerrar la sesión de otra. ¿Continuar?"
     },
     {
       "key": "createAccount",

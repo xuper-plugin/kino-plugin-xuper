@@ -5,7 +5,7 @@ import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom } from "./device.js";
 
 export const DEFAULT_SEEDS_URL =
-  "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/main/seeds.json";
+  "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
 
 // "This sn cannot activate anonymously": the only reasons to mint another device.
 const INVALID_SN = new Set(["aaa100080", "aaa100082"]);
@@ -71,7 +71,15 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   };
   // The account in use: the person's own (plugin settings, read each time, never copied), else the
   // shared pair when the person chose it. The native treats a linked fallback as an own account.
-  const account = () => ownAccount() || (sharedPair && sharedChosen() ? sharedPair : null);
+  // Seeing an own account retires the choice for good: blanking the fields later must not quietly
+  // bring the shared pair back.
+  const account = () => {
+    const own = ownAccount();
+    if (own) { if (sharedChosen()) clearShared(); return own; }
+    return sharedPair && sharedChosen() ? sharedPair : null;
+  };
+  // A portal refusal of the shared pair (not a network failure) means it no longer works: drop the choice.
+  const dropDeadShared = (acc, e) => { if (acc === sharedPair && e instanceof PortalError) clearShared(); };
 
   // The "Actualizar semillas automáticamente" toggle; unset (never saved) counts as on, like native.
   const autoRefresh = () => kino.config.get("autoRefreshSeeds") !== false;
@@ -155,7 +163,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const acc = account();
     if (acc) {
       // A rejected credential or a portal down: anonymous is served before serving nothing.
-      try { await loginUnlocked(acc.email, acc.password); return; } catch (_) { /* fall through */ }
+      try { await loginUnlocked(acc.email, acc.password); return; } catch (e) { dropDeadShared(acc, e); }
     }
     await ensureAnonymousUnlocked();
   }
@@ -175,7 +183,14 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     forgetToken();
     try {
       const acc = account();
-      if (acc) await loginUnlocked(acc.email, acc.password); else await ensureAnonymousUnlocked();
+      if (acc) {
+        try { await loginUnlocked(acc.email, acc.password); }
+        catch (e) {
+          if (!(acc === sharedPair && e instanceof PortalError)) throw e;
+          clearShared(); // refused: the session falls to the anonymous path, as `ensure` does
+          await ensureAnonymousUnlocked();
+        }
+      } else await ensureAnonymousUnlocked();
       return true;
     } catch (_) { return false; }
   });
@@ -252,7 +267,11 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       await lock(async () => {
         await loginUnlocked(sharedPair.email, sharedPair.password, bounds);
         try { kino.storage.set("sharedAccount", JSON.stringify(true)); }
-        catch (_) { throw kino.error("unavailable", "No se pudo activar la cuenta compartida"); }
+        catch (_) {
+          // Half-done activation: drop the shared token (the device stays), like logout does.
+          forgetToken();
+          throw kino.error("unavailable", "No se pudo activar la cuenta compartida");
+        }
       });
     } catch (e) {
       if (e instanceof PortalError) throw kino.error("auth_required", "No se pudo activar la cuenta compartida");
@@ -369,7 +388,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const adoptSession = (s) => lock(async () => { writeSession(s); clearShared(); setRegion(false); exhausted = false; });
 
   /** True when the shared account (not the person's own) is the one in use. */
-  const usingShared = () => !ownAccount() && !!sharedPair && sharedChosen();
+  const usingShared = () => { const a = account(); return a !== null && a === sharedPair; };
 
   function kind() {
     if (account()) return "account";

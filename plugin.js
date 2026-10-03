@@ -261,7 +261,7 @@ function makeFingerprint(kino2) {
 var snFrom = (kino2, j, snToken) => (blank(j.sn) ? kino2.crypto.hash("md5", snToken + SNTOKEN_SALT) : str(j.sn)).toLowerCase();
 
 // src/session.js
-var DEFAULT_SEEDS_URL = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/main/seeds.json";
+var DEFAULT_SEEDS_URL = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
 var INVALID_SN = /* @__PURE__ */ new Set(["aaa100080", "aaa100082"]);
 var SESSION_DEAD = /* @__PURE__ */ new Set(["aaa100027", "aaa100028"]);
 var GEO_BLOCKED = "portal100024";
@@ -326,7 +326,17 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const email = kino2.config.get("email"), password = kino2.config.get("password");
     return blank2(email) || blank2(password) ? null : { email: str2(email), password: str2(password) };
   };
-  const account = () => ownAccount() || (sharedPair && sharedChosen() ? sharedPair : null);
+  const account = () => {
+    const own = ownAccount();
+    if (own) {
+      if (sharedChosen()) clearShared();
+      return own;
+    }
+    return sharedPair && sharedChosen() ? sharedPair : null;
+  };
+  const dropDeadShared = (acc, e) => {
+    if (acc === sharedPair && e instanceof PortalError) clearShared();
+  };
   const autoRefresh = () => kino2.config.get("autoRefreshSeeds") !== false;
   const regionBlocked = () => {
     const r = readJson("region");
@@ -413,7 +423,8 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       try {
         await loginUnlocked(acc.email, acc.password);
         return;
-      } catch (_) {
+      } catch (e) {
+        dropDeadShared(acc, e);
       }
     }
     await ensureAnonymousUnlocked();
@@ -429,8 +440,15 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     forgetToken();
     try {
       const acc = account();
-      if (acc) await loginUnlocked(acc.email, acc.password);
-      else await ensureAnonymousUnlocked();
+      if (acc) {
+        try {
+          await loginUnlocked(acc.email, acc.password);
+        } catch (e) {
+          if (!(acc === sharedPair && e instanceof PortalError)) throw e;
+          clearShared();
+          await ensureAnonymousUnlocked();
+        }
+      } else await ensureAnonymousUnlocked();
       return true;
     } catch (_) {
       return false;
@@ -514,6 +532,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         try {
           kino2.storage.set("sharedAccount", JSON.stringify(true));
         } catch (_) {
+          forgetToken();
           throw kino2.error("unavailable", "No se pudo activar la cuenta compartida");
         }
       });
@@ -625,7 +644,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     setRegion(false);
     exhausted = false;
   });
-  const usingShared = () => !ownAccount() && !!sharedPair && sharedChosen();
+  const usingShared = () => {
+    const a = account();
+    return a !== null && a === sharedPair;
+  };
   function kind() {
     if (account()) return "account";
     const s = readSession();
