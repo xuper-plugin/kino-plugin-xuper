@@ -40,9 +40,9 @@ function makeCrypto(kino2) {
 }
 
 // src/config.js
-var hosts = [];
-var APP_ID = "";
-var APK_VERSION = "";
+var hosts = ["osuhk.m3x8o50te.com", "oogoy.f30c96w8.com"];
+var APP_ID = "com.android.msandroid";
+var APK_VERSION = "49902";
 var PORTAL_CODE = "masnew";
 var SPKG_VER = "2025-08-07 05:40:11_36_16_";
 var APK_VER_HEADER = "43404";

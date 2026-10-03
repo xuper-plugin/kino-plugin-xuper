@@ -5,6 +5,8 @@
   "apiVersion": 6,
   "entry": "plugin.js",
   "hosts": [
+    "oogoy.f30c96w8.com",
+    "osuhk.m3x8o50te.com",
     "api.themoviedb.org",
     "raw.githubusercontent.com"
   ],
@@ -100,5 +102,13 @@
     }
   ],
   "streamHosts": "any",
-  "liveStreamHosts": "any"
+  "liveStreamHosts": "any",
+  "secrets": {
+    "magisKey": {
+      "seal": "kino-sealed:v1:q4wbeSJhxeMRhuzxduyDaqRWVcjxCkWVX-6WjEDid0_M2moGw6tiivh4bFo7RbVLVzqN5AL5ZSwe9amId16VBUszehOSehyKv4fEr-onUP-oSr9tprDw_DRj68vtGFgJkAz_UnLBdWG3FIZA",
+      "use": "cipher-key",
+      "encoding": "hex"
+    },
+    "tmdbKey": "kino-sealed:v1:BvU3io1yZPPb6KxLY5C7cNvm0YOOS7tGf7wY0ioTzhFO_kEvRGrlaFELhhxcs9vqyq0QuzUMBdjujQd4ziih620FD4PsRJHFxt9C0w7Gb0pXA8WER5Xy39c4fsw"
+  }
 }

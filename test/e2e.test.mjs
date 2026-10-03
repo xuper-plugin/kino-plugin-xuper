@@ -35,11 +35,11 @@ const SEEDS_URL_PART = "raw.githubusercontent.com";
 
 // ---- the module under test ---------------------------------------------------------------------
 
-// config.js with its empty values filled in; each replacement must actually happen.
+// config.js with its three deployment values replaced by synthetic ones (whatever they hold: empty or real); each replacement must actually happen.
 const FILL = [
-  [/export const hosts = \[\];/, `export const hosts = ["${HOST}"];`, /var hosts = \[\];/, `var hosts = ["${HOST}"];`],
-  [/export const APP_ID = "";/, `export const APP_ID = "${APP}";`, /var APP_ID = "";/, `var APP_ID = "${APP}";`],
-  [/export const APK_VERSION = "";/, `export const APK_VERSION = "${APK}";`, /var APK_VERSION = "";/, `var APK_VERSION = "${APK}";`],
+  [/export const hosts = \[[^\]]*\];/, `export const hosts = ["${HOST}"];`, /var hosts = \[[^\]]*\];/, `var hosts = ["${HOST}"];`],
+  [/export const APP_ID = "[^"]*";/, `export const APP_ID = "${APP}";`, /var APP_ID = "[^"]*";/, `var APP_ID = "${APP}";`],
+  [/export const APK_VERSION = "[^"]*";/, `export const APK_VERSION = "${APK}";`, /var APK_VERSION = "[^"]*";/, `var APK_VERSION = "${APK}";`],
 ];
 function fill(text, which) {
   let out = text;

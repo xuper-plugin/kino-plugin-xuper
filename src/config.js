@@ -1,10 +1,10 @@
 // Protocol constants of the Magis portal, ported from the native client. `appId`, `apkVersion` and
 // the host list are NOT here: they are credentials-grade values injected at runtime.
-export const hosts = [];
+export const hosts = ["osuhk.m3x8o50te.com", "oogoy.f30c96w8.com"];
 
 // The owner supplies the real values (not secrets per the spec, but not known here): left empty.
-export const APP_ID = "";
-export const APK_VERSION = "";
+export const APP_ID = "com.android.msandroid";
+export const APK_VERSION = "49902";
 
 export const PORTAL_CODE = "masnew";
 export const SPKG_VER = "2025-08-07 05:40:11_36_16_";
