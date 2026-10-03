@@ -58,7 +58,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   });
   const view = () => { const s = readSession(); return { userId: s.userId, userToken: s.userToken }; };
   const hasToken = () => !blank(readSession().userToken);
-  // Same hash the portal gets, then hashed again with the email: the stored key cannot give the password back.
+  // A fast device-local fingerprint of values the portal already receives (email + the portal's own
+  // password hash), only to tell accounts apart. NOT a password KDF: do not rely on it against offline guessing.
   const accountKey = (email, password) =>
     kino.crypto.hash("sha256", str(email) + "\n" + kino.crypto.hash("md5", str(password) + PASSWORD_SALT));
 
@@ -78,7 +79,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   };
   const ownAccount = () => {
     const email = kino.config.get("email"), password = kino.config.get("password");
-    return blank(email) || blank(password) ? null : { email: str(email), password: str(password) };
+    // Trimmed like the settings screen does, so ensure, the login action and adoption key on the same values.
+    return blank(email) || blank(password) ? null : { email: str(email).trim(), password: str(password).trim() };
   };
   // The account the settings ask for (own wins, else the shared pair when chosen; email alone or
   // password alone is no account), whether or not the portal ever accepted it.
@@ -93,10 +95,30 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   // The last account key the portal REFUSED: not retried on every call, only when the key changes
   // or on an explicit login / reauthentication.
-  const refusedKey = () => { const k = readJson("refusedAcct"); return typeof k === "string" ? k : ""; };
-  const setRefused = (key) => { try { writeJson("refusedAcct", key); } catch (_) { /* ignored */ } };
-  const clearRefused = (key) => { if (key !== "" && refusedKey() === key) { try { kino.storage.remove("refusedAcct"); } catch (_) { /* ignored */ } } };
-  const refusal = (e) => e instanceof PortalError;
+  // Memory of a refusal expires: a transient portal answer heals by itself.
+  const REFUSAL_TTL_MS = 10 * 60_000;
+  const LOGIN_COOLDOWN_MS = 60_000;
+  // Answers that are NOT a verdict on the credentials: a geo-block, or a portal that answered without a session.
+  const NOT_A_REFUSAL = new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token"]);
+  const refusal = (e) => e instanceof PortalError && !NOT_A_REFUSAL.has(e.code);
+  const refusedKey = () => {
+    const r = readJson("refusedAcct");
+    if (!r || typeof r !== "object" || typeof r.key !== "string" || typeof r.at !== "number") return "";
+    const age = clock.now() - r.at;
+    return age >= 0 && age < REFUSAL_TTL_MS ? r.key : "";
+  };
+  const setRefused = (key) => { try { writeJson("refusedAcct", { key, at: clock.now() }); } catch (_) { /* ignored */ } };
+  const clearRefused = (key) => {
+    if (key === "") return;
+    const r = readJson("refusedAcct");
+    if (r && typeof r === "object" && r.key === key) { try { kino.storage.remove("refusedAcct"); } catch (_) { /* ignored */ } }
+  };
+  // After a login that failed without a verdict (network, portal down) the anonymous token is used as
+  // is for a while instead of retrying login + activation on every call. In memory only.
+  let cooldown = { key: "", until: 0 };
+  const cooling = (key) => cooldown.key === key && clock.now() < cooldown.until;
+  const startCooldown = (key) => { cooldown = { key, until: clock.now() + LOGIN_COOLDOWN_MS }; };
+  const endCooldown = () => { cooldown = { key: "", until: 0 }; };
 
   // The account in use: configured and not known to be refused. Null means anonymous.
   const account = () => {
@@ -190,12 +212,16 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (tokenHeld()) return;
     // A token of another account (credentials arrived by sync, account changed or cleared) is no
     // token; the device (sn) stays, so nothing is minted.
-    if (hasToken()) forgetToken();
     const acc = account();
-    if (acc) {
+    const key = acc ? keyOf(acc) : "";
+    const wait = acc !== null && cooling(key);
+    // Cooling down after a failed login: the anonymous token is used as is.
+    if (wait && hasToken() && readSession().acct === "") return;
+    if (hasToken()) forgetToken();
+    if (acc && !wait) {
       // A rejected credential or a portal down: anonymous is served before serving nothing.
-      try { await loginUnlocked(acc.email, acc.password); clearRefused(keyOf(acc)); return; }
-      catch (e) { if (refusal(e)) setRefused(keyOf(acc)); }
+      try { await loginUnlocked(acc.email, acc.password); clearRefused(key); endCooldown(); return; }
+      catch (e) { if (refusal(e)) setRefused(key); else startCooldown(key); }
     }
     await ensureAnonymousUnlocked();
   }
@@ -217,7 +243,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       // Reauthentication retries even an account refused before (the retry is rare and bounded).
       const acc = configuredAccount();
       if (acc) {
-        try { await loginUnlocked(acc.email, acc.password); clearRefused(keyOf(acc)); }
+        try { await loginUnlocked(acc.email, acc.password); clearRefused(keyOf(acc)); endCooldown(); }
         catch (e) {
           if (!refusal(e)) throw e;
           setRefused(keyOf(acc)); // refused: the session falls to the anonymous path, as `ensure` does
@@ -286,9 +312,12 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     await null;
     const key = keyOf({ email, password });
     try {
-      await lock(async () => { await loginUnlocked(email, password, bounds); clearRefused(key); dropLegacy(); });
+      await lock(async () => { await loginUnlocked(email, password, bounds); clearRefused(key); endCooldown(); dropLegacy(); });
     } catch (e) {
-      if (refusal(e)) { setRefused(key); throw kino.error("auth_required", "Credenciales de Xuper inválidas"); }
+      if (e instanceof PortalError) {
+        if (refusal(e)) setRefused(key);
+        throw kino.error("auth_required", "Credenciales de Xuper inválidas");
+      }
       throw e;
     }
   }
@@ -297,9 +326,12 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   async function useShared(bounds = {}) {
     await null;
     if (!sharedPair) throw kino.error("unavailable", "La cuenta compartida no está disponible");
-    try { await lock(async () => { await loginUnlocked(sharedPair.email, sharedPair.password, bounds); clearRefused("shared"); }); }
+    try { await lock(async () => { await loginUnlocked(sharedPair.email, sharedPair.password, bounds); clearRefused("shared"); endCooldown(); }); }
     catch (e) {
-      if (refusal(e)) { setRefused("shared"); throw kino.error("auth_required", "No se pudo activar la cuenta compartida"); }
+      if (e instanceof PortalError) {
+        if (refusal(e)) setRefused("shared");
+        throw kino.error("auth_required", "No se pudo activar la cuenta compartida");
+      }
       throw e;
     }
   }

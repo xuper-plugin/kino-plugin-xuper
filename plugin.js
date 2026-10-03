@@ -327,7 +327,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   };
   const ownAccount = () => {
     const email = kino2.config.get("email"), password = kino2.config.get("password");
-    return blank2(email) || blank2(password) ? null : { email: str2(email), password: str2(password) };
+    return blank2(email) || blank2(password) ? null : { email: str2(email).trim(), password: str2(password).trim() };
   };
   const configuredAccount = () => {
     const own = ownAccount();
@@ -340,25 +340,40 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const chosen = toggle === true || toggle === void 0 && legacyShared();
     return sharedPair && chosen ? sharedPair : null;
   };
+  const REFUSAL_TTL_MS = 10 * 6e4;
+  const LOGIN_COOLDOWN_MS = 6e4;
+  const NOT_A_REFUSAL = /* @__PURE__ */ new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token"]);
+  const refusal = (e) => e instanceof PortalError && !NOT_A_REFUSAL.has(e.code);
   const refusedKey = () => {
-    const k = readJson("refusedAcct");
-    return typeof k === "string" ? k : "";
+    const r = readJson("refusedAcct");
+    if (!r || typeof r !== "object" || typeof r.key !== "string" || typeof r.at !== "number") return "";
+    const age = clock2.now() - r.at;
+    return age >= 0 && age < REFUSAL_TTL_MS ? r.key : "";
   };
   const setRefused = (key) => {
     try {
-      writeJson("refusedAcct", key);
+      writeJson("refusedAcct", { key, at: clock2.now() });
     } catch (_) {
     }
   };
   const clearRefused = (key) => {
-    if (key !== "" && refusedKey() === key) {
+    if (key === "") return;
+    const r = readJson("refusedAcct");
+    if (r && typeof r === "object" && r.key === key) {
       try {
         kino2.storage.remove("refusedAcct");
       } catch (_) {
       }
     }
   };
-  const refusal = (e) => e instanceof PortalError;
+  let cooldown = { key: "", until: 0 };
+  const cooling = (key) => cooldown.key === key && clock2.now() < cooldown.until;
+  const startCooldown = (key) => {
+    cooldown = { key, until: clock2.now() + LOGIN_COOLDOWN_MS };
+  };
+  const endCooldown = () => {
+    cooldown = { key: "", until: 0 };
+  };
   const account = () => {
     const acc = configuredAccount();
     return acc && keyOf(acc) !== refusedKey() ? acc : null;
@@ -450,15 +465,20 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   async function ensureUnlocked() {
     if (tokenHeld()) return;
-    if (hasToken()) forgetToken();
     const acc = account();
-    if (acc) {
+    const key = acc ? keyOf(acc) : "";
+    const wait = acc !== null && cooling(key);
+    if (wait && hasToken() && readSession().acct === "") return;
+    if (hasToken()) forgetToken();
+    if (acc && !wait) {
       try {
         await loginUnlocked(acc.email, acc.password);
-        clearRefused(keyOf(acc));
+        clearRefused(key);
+        endCooldown();
         return;
       } catch (e) {
-        if (refusal(e)) setRefused(keyOf(acc));
+        if (refusal(e)) setRefused(key);
+        else startCooldown(key);
       }
     }
     await ensureAnonymousUnlocked();
@@ -478,6 +498,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         try {
           await loginUnlocked(acc.email, acc.password);
           clearRefused(keyOf(acc));
+          endCooldown();
         } catch (e) {
           if (!refusal(e)) throw e;
           setRefused(keyOf(acc));
@@ -552,11 +573,12 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       await lock(async () => {
         await loginUnlocked(email, password, bounds);
         clearRefused(key);
+        endCooldown();
         dropLegacy();
       });
     } catch (e) {
-      if (refusal(e)) {
-        setRefused(key);
+      if (e instanceof PortalError) {
+        if (refusal(e)) setRefused(key);
         throw kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas");
       }
       throw e;
@@ -569,10 +591,11 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       await lock(async () => {
         await loginUnlocked(sharedPair.email, sharedPair.password, bounds);
         clearRefused("shared");
+        endCooldown();
       });
     } catch (e) {
-      if (refusal(e)) {
-        setRefused("shared");
+      if (e instanceof PortalError) {
+        if (refusal(e)) setRefused("shared");
         throw kino2.error("auth_required", "No se pudo activar la cuenta compartida");
       }
       throw e;

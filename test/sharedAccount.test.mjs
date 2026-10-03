@@ -133,7 +133,7 @@ test("useShared: logs in with the pair on this device's sn and stores it as the 
   f.portal.queue("v8/login", new PortalError("aaa100011", "bad"));
   await rejects(f.session.useShared(), "auth_required", "No se pudo activar la cuenta compartida");
   assert.equal(f.stored().userToken, "T0", "a refusal leaves the session alone");
-  assert.equal(f.kino.storage.get("refusedAcct"), JSON.stringify("shared"));
+  assert.equal(JSON.parse(f.kino.storage.get("refusedAcct")).key, "shared");
 });
 
 test("useShared: a blank pair is unavailable with no portal call", async () => {
@@ -204,14 +204,14 @@ test("ensure with a refused shared pair goes anonymous; a network failure does n
   t.portal.queue("v8/login", new PortalError("aaa100011", "bad"));
   t.portal.queue("v8/active", ok("TA"));
   await t.session.ensure();
-  assert.equal(t.kino.storage.get("refusedAcct"), JSON.stringify("shared"));
+  assert.equal(JSON.parse(t.kino.storage.get("refusedAcct")).key, "shared");
 
   const n = setup({ toggle: true, session: stored("") });
   n.portal.queue("v8/login", n.kino.error("unavailable", "red"));
   n.portal.queue("v8/active", ok("TA"));
   await n.session.ensure();
   assert.equal(n.kino.storage.get("refusedAcct"), null);
-  assert.equal(n.session.usingShared(), true, "still chosen: retried later");
+  assert.equal(n.session.usingShared(), true, "still chosen: retried after the cooldown");
 });
 
 test("a storage failure while saving the shared token never leaks the pair", async () => {

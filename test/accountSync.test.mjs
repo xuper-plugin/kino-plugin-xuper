@@ -51,7 +51,7 @@ function world({ stored = { userId: "u0", userToken: "T0", jwtToken: "", sn: SN,
   session = makeSession({ kino, portal, clock, random: () => 0, shared: { email: "compartida@stand-in.test", password: "shared-stand-in-pw" } });
   const settings = makeSettings({ kino, session, clock });
   return {
-    kino, base, cfg, session, settings, requests, logs, failNext,
+    kino, base, cfg, session, settings, requests, logs, failNext, clock,
     paths: () => requests.map((r) => r.path),
     stored: () => JSON.parse(base.storage.get("session")),
     status: async () => (await settings.settingsStatus()).status,
@@ -171,14 +171,76 @@ test("a refused pair falls to anonymous, is remembered, and is retried only when
   assert.equal(w.session.kind(), "account");
 });
 
-test("a login that fails on the network is NOT remembered as refused: the next call retries", async () => {
+test("a login that fails on the network is never remembered as refused; the anonymous token is used for 60 s without any portal call, then one retry", async () => {
   const w = world({ config: A });
   w.failNext.network = true;
   await assert.rejects(w.session.ensure()); // login and anonymous both fail offline
+  assert.equal(w.base.storage.get("refusedAcct"), null);
+  w.failNext.network = false;
+  await w.session.ensure(); // cooling: no login, only the anonymous reactivation
+  assert.ok(!w.paths().slice(2).includes("v8/login"));
+  const calls = w.requests.length;
+  for (let i = 0; i < 3; i++) await w.session.ensure();
+  assert.equal(w.requests.length, calls, "token held (anonymous) and cooling: zero portal calls");
+  assert.equal(w.session.kind(), "own");
+  assert.equal(await w.status(), "Conectando con tu cuenta… Mientras tanto, sesión anónima");
+  w.clock.t += 61_000;
+  await w.session.ensure();
+  assert.deepEqual(w.paths().slice(calls), ["v8/login"], "one retry after the cooldown");
+  assert.equal(w.stored().acct, keyOf(A.email, A.password));
+});
+
+test("explicit login and reauthentication ignore the cooldown", async () => {
+  const w = world({ config: A });
+  w.failNext.network = true;
+  await assert.rejects(w.session.ensure());
   w.failNext.network = false;
   await w.session.ensure();
-  assert.ok(w.paths().filter((p) => p === "v8/login").length >= 2);
+  const before = w.requests.length;
+  await w.session.login(A.email, A.password);
+  assert.deepEqual(w.paths().slice(before), ["v8/login"]);
+});
+
+test("geo-block and 'no session' answers on login are not remembered as a refusal; any other code is, for 10 minutes", async () => {
+  for (const code of ["portal100024", "login_sin_token"]) {
+    const w = world({ config: A, login: () => (code === "login_sin_token" ? { returnCode: "0" } : { returnCode: code, errorMessage: "geo" }) });
+    await w.session.ensure();
+    assert.equal(w.base.storage.get("refusedAcct"), null, code);
+  }
+  const w = world({ config: A, login: refuse });
+  await w.session.ensure();
+  assert.equal(JSON.parse(w.base.storage.get("refusedAcct")).key, keyOf(A.email, A.password));
+  const calls = w.requests.length;
+  w.clock.t += 9 * 60_000;
+  await w.session.ensure();
+  assert.equal(w.requests.length, calls, "still remembered inside 10 minutes");
+  assert.equal(w.session.kind(), "own");
+  w.clock.t += 2 * 60_000; // 11 min
+  assert.equal(w.session.accountState(), "pending", "expired: not remembered any more");
+  await w.session.ensure();
+  assert.deepEqual(w.paths().slice(calls), ["v8/login", "v8/active"], "retried after 10 minutes");
+});
+
+test("a password fix (key change) retries at once, even inside the 10 minutes", async () => {
+  const w = world({ config: A, login: (bean) => (bean.password === md5("fixed-pw" + PASSWORD_SALT) ? { returnCode: "0", userId: "u", userToken: "TF", jwtToken: "" } : refuse(bean)) });
+  await w.session.ensure();
+  w.cfg.password = "fixed-pw";
+  await w.session.ensure();
+  assert.equal(w.stored().userToken, "TF");
+  assert.equal(w.session.kind(), "account");
+});
+
+test("stray whitespace around email and password: ensure, login and the stored key agree, no relogin loop", async () => {
+  const w = world({ config: { email: "  " + A.email + " ", password: " " + A.password + "\n" } });
+  await w.session.ensure();
+  assert.equal(w.requests[0].bean.userName, A.email);
+  assert.equal(w.requests[0].bean.password, md5(A.password + PASSWORD_SALT));
   assert.equal(w.stored().acct, keyOf(A.email, A.password));
+  await w.session.ensure();
+  await w.session.login(A.email, A.password);
+  await w.session.ensure();
+  assert.deepEqual(w.paths(), ["v8/login", "v8/login"], "only the explicit login hit the portal again");
+  assert.equal(w.session.kind(), "account");
 });
 
 test("a failing storage write on the refused-key memory never breaks the call", async () => {
