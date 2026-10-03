@@ -567,6 +567,27 @@ test("periodic refresh: only when region-blocked without an account, and at most
   assert.equal(c.fetches.length, 2);
 });
 
+test("periodic refresh: the 'Actualizar semillas automáticamente' switch gates it (default on)", async () => {
+  const blocked = (w) => w.kino.storage.set("region", JSON.stringify({ blocked: true }));
+  const off = setup({ fetchAnswer: [seed(1)], config: { autoRefreshSeeds: false } });
+  blocked(off);
+  await off.session.refreshSeeds({ periodic: true });
+  assert.equal(off.fetches.length, 0, "switch off: no periodic download");
+  assert.equal(off.session.seedPool().length, 0);
+  await off.session.refreshSeeds(); // the manual button is not gated
+  assert.equal(off.fetches.length, 1);
+
+  const on = setup({ fetchAnswer: [seed(1)], config: { autoRefreshSeeds: true } });
+  blocked(on);
+  await on.session.refreshSeeds({ periodic: true });
+  assert.equal(on.fetches.length, 1, "switch on + region blocked + no account");
+
+  const acc = setup({ fetchAnswer: [seed(1)], config: { ...account, autoRefreshSeeds: true } });
+  blocked(acc);
+  await acc.session.refreshSeeds({ periodic: true });
+  assert.equal(acc.fetches.length, 0, "an account never uses seeds");
+});
+
 test("a 50-seed pool stored stays well under the 256 KB storage limit (< 12 KB)", async () => {
   const big = Array.from({ length: 50 }, (_, i) => ({
     sn: md5("s" + i), userId: String(1000000 + i), userToken: md5("t" + i),

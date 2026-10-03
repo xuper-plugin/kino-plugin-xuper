@@ -91,6 +91,24 @@ test("status: region blocked adds the seed count; exhausted adds the banner, all
   keptStatus(out);
 });
 
+test("status: region blocked with the automatic refresh off says so (and still fits 200 chars)", async () => {
+  const pool = [1, 2].map((n) => ({ sn: "s" + n, userId: "", userToken: "t" + n }));
+  const blocked = fakeSession({ kind: () => "seed", regionBlocked: () => true, seedPool: () => pool });
+  let { settings } = setup({ session: blocked, config: { autoRefreshSeeds: false } });
+  let out = await settings.settingsStatus();
+  assert.match(out.status, /2 semillas cargadas\. Actualización automática desactivada\.$/);
+  keptStatus(out);
+  ({ settings } = setup({ session: blocked, config: { autoRefreshSeeds: true } }));
+  assert.ok(!(await settings.settingsStatus()).status.includes("automática"));
+  ({ settings } = setup({ session: fakeSession({ ...blocked, seedsExhausted: () => true, seedPool: () => pool }), config: { autoRefreshSeeds: false } }));
+  out = await settings.settingsStatus();
+  assert.match(out.status, /Actualizar semillas/);
+  keptStatus(out);
+  // an account never reads the seed state
+  ({ settings } = setup({ session: fakeSession({ kind: () => "account", regionBlocked: () => true }), config: { email: "a@x.test", autoRefreshSeeds: false } }));
+  assert.equal((await settings.settingsStatus()).status, "Conectado como a@x.test");
+});
+
 test("status: an account with a very long email still fits 200 chars; a failing session never throws", async () => {
   const email = "a".repeat(250) + "@x.test";
   let { settings } = setup({ session: fakeSession({ kind: () => "account" }), config: { email, password: PW } });

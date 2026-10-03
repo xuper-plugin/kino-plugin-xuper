@@ -48,6 +48,7 @@ export function makeSettings({ kino, session, clock, registration }) {
         const n = session.seedPool().length;
         parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
         if (session.seedsExhausted()) parts.push(SEEDS_BANNER);
+        else if (kino.config.get("autoRefreshSeeds") === false) parts.push("Actualización automática desactivada");
       }
       const text = parts.length === 1 ? parts[0] : parts.join(". ") + ".";
       return { status: clip(text, STATUS_MAX) };

@@ -315,6 +315,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const email = kino2.config.get("email"), password = kino2.config.get("password");
     return blank2(email) || blank2(password) ? null : { email: str2(email), password: str2(password) };
   };
+  const autoRefresh = () => kino2.config.get("autoRefreshSeeds") !== false;
   const regionBlocked = () => {
     const r = readJson("region");
     return !!(r && r.blocked === true);
@@ -447,7 +448,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   function refreshSeeds({ periodic = false, timeoutMs = 15e3 } = {}) {
     return poolLock(async () => {
       if (periodic) {
-        if (!regionBlocked() || account()) return seedPool().length > 0;
+        if (!autoRefresh() || !regionBlocked() || account()) return seedPool().length > 0;
         const at = readJson("seedsAt");
         if (typeof at === "number" && clock2.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
       }
@@ -2635,6 +2636,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
         const n = session.seedPool().length;
         parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
         if (session.seedsExhausted()) parts.push(SEEDS_BANNER);
+        else if (kino2.config.get("autoRefreshSeeds") === false) parts.push("Actualizaci\xF3n autom\xE1tica desactivada");
       }
       const text2 = parts.length === 1 ? parts[0] : parts.join(". ") + ".";
       return { status: clip(text2, STATUS_MAX) };

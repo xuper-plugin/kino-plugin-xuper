@@ -62,6 +62,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     return blank(email) || blank(password) ? null : { email: str(email), password: str(password) };
   };
 
+  // The "Actualizar semillas automáticamente" toggle; unset (never saved) counts as on, like native.
+  const autoRefresh = () => kino.config.get("autoRefreshSeeds") !== false;
+
   const regionBlocked = () => { const r = readJson("region"); return !!(r && r.blocked === true); };
   const setRegion = (blocked) => { if (regionBlocked() !== blocked) writeJson("region", { blocked }); };
 
@@ -194,7 +197,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   function refreshSeeds({ periodic = false, timeoutMs = 15000 } = {}) {
     return poolLock(async () => {
       if (periodic) {
-        if (!regionBlocked() || account()) return seedPool().length > 0;
+        if (!autoRefresh() || !regionBlocked() || account()) return seedPool().length > 0;
         const at = readJson("seedsAt");
         if (typeof at === "number" && clock.now() - at < PERIODIC_REFRESH_MS) return seedPool().length > 0;
       }
