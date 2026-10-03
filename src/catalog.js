@@ -282,7 +282,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   // classification across the portal's sections (type x genre, featured), so no portal column matches one and its
   // searchByName cannot be restricted to it: the row's tree (Home's cache, no new storage key) is filtered here and
   // ranked like the global search, inside the search's own budget. The 18+ tile is searched only when asked (its
-  // movies stay marked adult); an unknown row is not_found, like browse.
+  // movies stay marked adult); an unknown row answers null.
   async function searchWithin(query) {
     const q = typeof query.q === "string" ? query.q.trim() : "";
     if (q === "") return { items: [] };
@@ -293,7 +293,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       pool = await adultMovies(callDeadline(clock, CALL_BUDGET_MS.search));
     } else {
       const row = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : undefined;
-      if (!row) throw kino.error("not_found", "No se encontró esa lista");
+      // Not one of our refs: null is scopedSearch's "can't search there" (Kino filters the page itself), not a failure.
+      if (!row) return null;
       pool = row.all;
     }
     const ranked = rankWithin(kino, pool, q);

@@ -2307,7 +2307,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
       pool = await adultMovies(callDeadline(clock2, CALL_BUDGET_MS.search));
     } else {
       const row2 = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : void 0;
-      if (!row2) throw kino2.error("not_found", "No se encontr\xF3 esa lista");
+      if (!row2) return null;
       pool = row2.all;
     }
     const ranked = rankWithin(kino2, pool, q);

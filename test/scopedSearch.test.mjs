@@ -3,13 +3,14 @@
 // are Xuper's own classification across the portal's sections (type x genre, featured), so no portal column matches one
 // and the portal's searchByName cannot be restricted to it: the plugin filters the row's cached tree, ranked like the
 // global search (kino.rank), paged by a numeric cursor, inside the search's own 15 s budget, with no new storage key.
+// A ref it does not know answers null: Kino then filters the page's titles itself.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { checkOutput, validateManifest } from "../sdk/contract.mjs";
 import { readFileSync } from "node:fs";
 import { makeCatalog, ADULT_REF, ADULT_ROOT_CODE } from "../src/catalog.js";
 import { fakeKino } from "./helpers/fakeKino.mjs";
-import { answer, column, asset, assets, NOW, kinoErr } from "./helpers/fakeCatalog.mjs";
+import { answer, column, asset, assets, NOW } from "./helpers/fakeCatalog.mjs";
 
 const manifestText = readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8");
 
@@ -114,9 +115,10 @@ test("the 18+ tile is searched only when the app asks for it, its movies kept ma
   assert.equal(w.calls.filter((c) => c.bean.columnCode === ADULT_ROOT_CODE).length, 1);
 });
 
-test("an unknown row is not_found, an empty query lists nothing, and no new storage key is ever written", async () => {
+test("an unknown row answers null (Kino filters its page itself, no failed call), an empty query lists nothing, and no new storage key is ever written", async () => {
   const w = setup();
-  await assert.rejects(() => w.catalog.search({ q: "x", within: "no-such-row" }), kinoErr("not_found"));
+  assert.equal(await w.catalog.search({ q: "x", within: "no-such-row" }), null);
+  assert.equal(await w.catalog.search({ q: "x", within: 42 }), null);
   assert.deepEqual(await w.catalog.search({ q: "  ", within: DRAMA }), { items: [] });
   await w.catalog.search({ q: "padrino", within: DRAMA });
   await w.catalog.search({ q: "padrino", within: ADULT_REF });
