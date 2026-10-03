@@ -6,6 +6,7 @@ import { PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS } f
 import { encode, isSeries } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
 import { isObject, isKinoError } from "./util.js";
+import { trace } from "./trace.js";
 
 const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const MAX_OUTPUT_ITEMS = 100; // SDK cap
@@ -129,7 +130,6 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
     if (isKinoError(e)) return e;
     return kino.error("unavailable", "Xuper no está disponible ahora");
   };
-  const log = (msg) => { try { kino.log(msg); } catch (_) {} };
 
   const cache = makeByteCache({ kino, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, valid: validEntryItems });
 
@@ -245,7 +245,8 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
       const matching = items.filter((it) => !isSeries(it.p ?? "movie") || seasonFromName(it.t) === ctx.season);
       if (matching.length > 0) items = matching;
     }
-    if (items.length === 0 && ctx.tmdbId > 0) log(`xuper search: 0 results tmdb=${ctx.tmdbId} type=${ctx.type} pool=${pool.length}`);
+    // Never the tmdb id: it names what the person looked for, like the query itself.
+    if (items.length === 0 && ctx.tmdbId > 0) trace(kino, "search", "empty", { type: ctx.type, pool: pool.length });
 
     const out = [];
     for (const it of sortSeasons(items)) {

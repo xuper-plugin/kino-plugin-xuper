@@ -107,6 +107,58 @@ function intOrNull(v) {
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
 
+// src/trace.js
+var MAX_LINE_CHARS = 160;
+var NAME = /^[a-z][a-z0-9_]{0,23}$/;
+var KEY = /^[a-z][a-zA-Z0-9]{0,11}$/;
+var SENSITIVE_KEY = /pass|token|secret|cred|auth|bearer|cookie|session|key|mail|host|url|^sn$|user|license|sign/i;
+var VALUE = /^[A-Za-z0-9_\/-]{1,32}$/;
+function word(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? String(Math.round(v)) : "?";
+  if (typeof v === "boolean") return v ? "1" : "0";
+  const s = typeof v === "string" ? v : "";
+  return VALUE.test(s) ? s : "?";
+}
+function trace(kino2, area, event, fields = {}) {
+  try {
+    const parts = [`xuper:${NAME.test(area) ? area : "?"}`, NAME.test(event) ? event : "?"];
+    if (fields !== null && typeof fields === "object") {
+      for (const [k, v] of Object.entries(fields)) {
+        if (v === void 0 || v === null || !KEY.test(k) || SENSITIVE_KEY.test(k)) continue;
+        parts.push(`${k}=${word(v)}`);
+      }
+    }
+    kino2.log(parts.join(" ").slice(0, MAX_LINE_CHARS));
+  } catch (_) {
+  }
+}
+function errCode(e) {
+  if (e === null || typeof e !== "object") return "error";
+  const name = typeof e.name === "string" ? e.name : "";
+  let c = "";
+  if (name === "PortalError" && typeof e.code === "string") c = e.code;
+  else if (name.startsWith("KinoError_")) c = name.slice("KinoError_".length);
+  else c = name;
+  return VALUE.test(c) ? c : "error";
+}
+async function traced(kino2, clock2, fn, body) {
+  const t0 = clock2.now();
+  try {
+    return await body();
+  } catch (e) {
+    trace(kino2, "call", "fail", { fn, code: errCode(e), ms: clock2.now() - t0 });
+    throw e;
+  }
+}
+function seedTag(kino2, sn) {
+  try {
+    if (typeof sn !== "string" || sn === "") return "?";
+    return String(kino2.crypto.hash("sha256", "xuper-seed\n" + sn)).slice(0, 8);
+  } catch (_) {
+    return "?";
+  }
+}
+
 // src/portal.js
 var MAX_SLEEP_MS = 5e3;
 var MAX_REQUEST_MS = 3e4;
@@ -222,7 +274,10 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
       "Content-Type": CONTENT_TYPE
     };
     const outOfTime = () => typeof deadline === "number" && Math.floor(deadline - clock2.now()) < 1;
-    if (outOfTime()) throw kino2.error("unavailable", CONTACT_FAILED);
+    if (outOfTime()) {
+      trace(kino2, "portal", "deadline", { path });
+      throw kino2.error("unavailable", CONTACT_FAILED);
+    }
     await waitTurn();
     let lastError = null;
     const order = hostOrder();
@@ -231,7 +286,10 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
       let requestMs = perRequest;
       if (typeof deadline === "number") {
         const left = Math.floor(deadline - clock2.now());
-        if (left < 1) break;
+        if (left < 1) {
+          trace(kino2, "portal", "deadline", { path, i });
+          break;
+        }
         const remaining = order.length - i;
         requestMs = Math.min(perRequest, remaining > 1 ? Math.ceil(left / remaining) : left);
       }
@@ -246,6 +304,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
         });
         answer = JSON.parse(res.text());
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
+        if (i > 0) trace(kino2, "portal", "failover", { path, to: i });
         preferredHost = host;
         const rc = answer.returnCode;
         const code = rc === void 0 || rc === null ? "" : String(rc);
@@ -265,15 +324,16 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
         }
       } catch (e) {
         lastError = e;
-        try {
-          kino2.log("portal " + path + ": " + String(e && e.message).replace(/\s+/g, " ").slice(0, 200));
-        } catch (_) {
-        }
+        trace(kino2, "portal", "host_fail", { path, i, why: errCode(e) });
         continue;
       }
-      if (answer.portalFailure) throw answer.portalFailure;
+      if (answer.portalFailure) {
+        trace(kino2, "portal", "rc", { path, code: answer.portalFailure.code });
+        throw answer.portalFailure;
+      }
       return answer.ok;
     }
+    if (order.length > 0) trace(kino2, "portal", "all_fail", { path, n: order.length });
     throw kino2.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
   }
   return { call };
@@ -442,6 +502,18 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     return acc ? keyOf(acc) : "";
   };
   const tokenHeld = () => hasToken() && readSession().acct === currentKey();
+  const acctKind = (acc) => acc === sharedPair ? "shared" : "own";
+  function mode() {
+    try {
+      const acc = account();
+      if (acc) return acctKind(acc);
+      const s = readSession();
+      if (blank2(s.sn)) return "none";
+      return seedPool().some((e) => e.sn === s.sn) ? "seed" : "anon";
+    } catch (_) {
+      return "?";
+    }
+  }
   const autoRefresh = () => kino2.config.get("autoRefreshSeeds") !== false;
   const regionBlocked = () => {
     const r = readJson("region");
@@ -482,12 +554,21 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const storedSn = readSession().sn;
     if (!blank2(storedSn)) {
       try {
-        return await activate("", storedSn, bounds);
+        await activate("", storedSn, bounds);
+        trace(kino2, "session", "activate", { ok: true });
+        return;
       } catch (e) {
+        trace(kino2, "session", "activate", { ok: false, code: errCode(e) });
         if (!(e instanceof PortalError && INVALID_SN.has(e.code))) throw e;
       }
     }
-    return mintDevice(bounds);
+    try {
+      await mintDevice(bounds);
+      trace(kino2, "session", "mint", { ok: true });
+    } catch (e) {
+      trace(kino2, "session", "mint", { ok: false, code: errCode(e) });
+      throw e;
+    }
   }
   async function ensureAnonymousUnlocked(bounds = {}) {
     if (hasToken() && readSession().acct === "") return;
@@ -499,7 +580,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     } catch (e) {
       direct = e;
     }
-    if (direct instanceof PortalError && direct.code === GEO_BLOCKED) setRegion(true);
+    if (direct instanceof PortalError && direct.code === GEO_BLOCKED) {
+      trace(kino2, "session", "geo", { at: "activate" });
+      setRegion(true);
+    }
     let pool = seedPool();
     if (pool.length === 0) {
       try {
@@ -509,9 +593,12 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       pool = seedPool();
     }
     if (pool.length > 0) {
-      writeSession(seedSession(pick(pool)));
+      const chosen = pick(pool);
+      writeSession(seedSession(chosen));
+      trace(kino2, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino2, chosen.sn) });
       return;
     }
+    trace(kino2, "session", "no_seed", { code: errCode(direct) });
     throw direct;
   }
   async function loginUnlocked(email, password, bounds = {}) {
@@ -542,11 +629,14 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (acc && !wait) {
       try {
         await loginUnlocked(acc.email, acc.password, bounds);
+        trace(kino2, "session", "login", { acct: acctKind(acc), ok: true });
         clearRefused(key);
         endCooldown();
         return;
       } catch (e) {
-        if (refusal(e, key)) setRefused(key);
+        const refused = refusal(e, key);
+        trace(kino2, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
+        if (refused) setRefused(key);
         else startCooldown(key);
       }
     }
@@ -560,7 +650,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   const renew = (stale, bounds = {}) => lock(async () => {
     const current = readSession().userToken;
     if (!blank2(current) && current !== stale) return { ok: true, loginError: null };
-    if (timeLeft(bounds) < MIN_REQUEST_MS) return { ok: false, loginError: null };
+    if (timeLeft(bounds) < MIN_REQUEST_MS) {
+      trace(kino2, "session", "reauth", { ok: false, why: "deadline" });
+      return { ok: false, loginError: null };
+    }
     forgetToken();
     let loginError = null;
     try {
@@ -579,8 +672,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
           await ensureAnonymousUnlocked(bounds);
         }
       } else await ensureAnonymousUnlocked(bounds);
+      trace(kino2, "session", "reauth", { ok: true, mode: mode() });
       return { ok: true, loginError: null };
-    } catch (_) {
+    } catch (e) {
+      trace(kino2, "session", "reauth", { ok: false, code: errCode(loginError || e), mode: mode() });
       return { ok: false, loginError };
     }
   });
@@ -589,29 +684,45 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const pool = seedPool();
     if (pool.length === 0) return false;
     if (readSession().userToken !== stale) return true;
-    writeSession(seedSession(pick(pool)));
+    const chosen = pick(pool);
+    writeSession(seedSession(chosen));
+    trace(kino2, "session", "seed_switch", { pool: pool.length, seed: seedTag(kino2, chosen.sn) });
     return true;
   });
   async function fetchSeeds(timeoutMs) {
-    let list;
+    let text2;
     try {
-      const res = await kino2.fetch(seedsUrl, { timeoutMs });
-      list = JSON.parse(res.text());
-    } catch (_) {
+      text2 = (await kino2.fetch(seedsUrl, { timeoutMs })).text();
+    } catch (e) {
+      trace(kino2, "seeds", "refresh", { ok: false, why: "fetch", code: errCode(e) });
       return false;
     }
-    if (!Array.isArray(list)) return false;
+    let list;
+    try {
+      list = JSON.parse(text2);
+    } catch (_) {
+      list = null;
+    }
+    if (!Array.isArray(list)) {
+      trace(kino2, "seeds", "refresh", { ok: false, why: "parse" });
+      return false;
+    }
     const clean = list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).slice(0, MAX_SEEDS).map((e) => ({ sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) }));
-    if (clean.length === 0) return false;
+    if (clean.length === 0) {
+      trace(kino2, "seeds", "refresh", { ok: false, why: "empty" });
+      return false;
+    }
     try {
       writeJson("seeds", clean);
     } catch (_) {
+      trace(kino2, "seeds", "refresh", { ok: false, why: "store", n: clean.length });
       return false;
     }
     try {
       writeJson("seedsAt", clock2.now());
     } catch (_) {
     }
+    trace(kino2, "seeds", "refresh", { ok: true, n: clean.length });
     return true;
   }
   async function refreshSeeds({ periodic = false, timeoutMs = 15e3, deadline, manual = false } = {}) {
@@ -668,7 +779,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         endCooldown();
         dropLegacy();
       });
+      trace(kino2, "session", "login_action", { acct: "own", ok: true });
     } catch (e) {
+      trace(kino2, "session", "login_action", { acct: "own", ok: false, code: errCode(e) });
       if (e instanceof PortalError) {
         if (refusal(e, key)) setRefused(key);
         throw kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas");
@@ -685,7 +798,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         clearRefused("shared");
         endCooldown();
       });
+      trace(kino2, "session", "login_action", { acct: "shared", ok: true });
     } catch (e) {
+      trace(kino2, "session", "login_action", { acct: "shared", ok: false, code: errCode(e) });
       if (e instanceof PortalError) {
         if (refusal(e, "shared")) setRefused("shared");
         throw kino2.error("auth_required", "No se pudo activar la cuenta compartida");
@@ -735,12 +850,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       const j = Math.min(i, Math.floor(rand() * (i + 1)));
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
-    const note = (tries2, outcome) => {
-      try {
-        kino2.log(`xuper seed fallback: ${outcome} after ${tries2} of ${candidates.length} seeds${refreshed ? " (pool refreshed)" : ""}`);
-      } catch (_) {
-      }
-    };
+    const note = (tries2, outcome) => trace(kino2, "session", "seed_fallback", { outcome, tries: tries2, pool: candidates.length, refreshed });
     let tries = 0;
     for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
       if (left() < SEED_FALLBACK_MIN_MS) break;
@@ -757,7 +867,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         if (!(e instanceof PortalError) && !isKinoError(e)) throw e;
       }
     }
-    note(tries, left() < SEED_FALLBACK_MIN_MS ? "out of time" : "no seed answered");
+    note(tries, left() < SEED_FALLBACK_MIN_MS ? "out_of_time" : "none");
     return null;
   }
   async function withValidSession(block, { seedFallback: allowSeeds = false, deadline } = {}) {
@@ -786,7 +896,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const tokenUsed = view().userToken;
     let result = await attempt();
     if (!result.err) return settle(result);
+    trace(kino2, "session", "err", { code: result.err.code, mode: mode() });
     if (result.err.code === GEO_BLOCKED) {
+      trace(kino2, "session", "geo", { at: "content", mode: mode() });
       setRegion(true);
       if (!account()) {
         if (seedPool().length === 0) {
@@ -816,17 +928,21 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     }
     if (SESSION_DEAD.has(result.err.code) && !account()) {
       setRegion(true);
+      let rounds = 0;
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
         if (timeLeft(bounds) < MIN_REQUEST_MS) break;
+        rounds++;
         if (await refreshSeeds({ deadline }) && await switchToBackup(view().userToken)) {
           const retry = await attempt();
           if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
             exhausted = false;
+            trace(kino2, "session", "rescued", { round: rounds });
             return settle(retry);
           }
         }
       }
       exhausted = true;
+      trace(kino2, "session", "exhausted", { rounds });
     }
     if (allowSeeds && blockedOrDead(result.err) && usingShared()) {
       const rescued = await seedFallback(block, typeof deadline === "number" ? deadline : startedAt + SEED_FALLBACK_DEFAULT_MS);
@@ -839,7 +955,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   async function switchSeed({ timeoutMs, deadline } = {}) {
     await null;
-    return lock(async () => {
+    const out = await lock(async () => {
       if (account()) return { result: "account_linked", tries: 0 };
       const current = readSession().sn;
       const candidates = seedPool().filter((e) => e.sn !== current);
@@ -866,6 +982,8 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       if (typeof deadline === "number" && !reached) return { result: "offline", tries };
       return { result: "all_failed", tries };
     });
+    trace(kino2, "seeds", "switch", { result: out.result, tries: out.tries });
+    return out;
   }
   const adoptSession = (s) => lock(async () => {
     writeSession(s);
@@ -1354,6 +1472,7 @@ function decodeTree(text2) {
 
 // src/byteCache.js
 function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid = () => true }) {
+  const what = String(key).split(":")[0];
   const decode2 = (raw) => {
     try {
       const o = JSON.parse(raw);
@@ -1387,18 +1506,25 @@ function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, va
       }
       for (const a of added) {
         const entry = { k: a.k, s: now, i: a.i };
-        if (storedLength(encode2([entry])) > budgetBytes) continue;
+        if (storedLength(encode2([entry])) > budgetBytes) {
+          trace(kino2, "store", "skip", { what });
+          continue;
+        }
         entries = entries.filter((e) => e.k !== a.k);
         entries.push(entry);
       }
       let text2 = encode2(entries);
+      let evicted = 0;
       while (storedLength(text2) > budgetBytes && entries.length > 0) {
         entries.shift();
+        evicted++;
         text2 = encode2(entries);
       }
+      if (evicted > 0) trace(kino2, "store", "evict", { what, n: evicted });
       if (entries.length === 0) return;
       kino2.storage.set(key, text2);
-    } catch (_) {
+    } catch (e) {
+      trace(kino2, "store", "full", { what, code: errCode(e) });
     }
   }
   return { read, get, fresh, write };
@@ -1507,12 +1633,6 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
     if (isKinoError(e)) return e;
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
-  const log = (msg) => {
-    try {
-      kino2.log(msg);
-    } catch (_) {
-    }
-  };
   const cache = makeByteCache({ kino: kino2, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock: clock2, ttlMs: CACHE_FRESH_MS, valid: validEntryItems });
   function contextOf(query) {
     const q = isObject(query) ? query : {};
@@ -1618,7 +1738,7 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
       const matching = items.filter((it) => !isSeries(it.p ?? "movie") || seasonFromName(it.t) === ctx.season);
       if (matching.length > 0) items = matching;
     }
-    if (items.length === 0 && ctx.tmdbId > 0) log(`xuper search: 0 results tmdb=${ctx.tmdbId} type=${ctx.type} pool=${pool.length}`);
+    if (items.length === 0 && ctx.tmdbId > 0) trace(kino2, "search", "empty", { type: ctx.type, pool: pool.length });
     const out = [];
     for (const it of sortSeasons(items)) {
       if (!ITEM_ID.test(it.c)) continue;
@@ -1883,15 +2003,18 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     }
   }
   function writeTree(root, sections) {
-    for (const shed of SHED_STEPS) {
-      const text2 = encodeTree(sections, shed);
+    for (let step = 0; step < SHED_STEPS.length; step++) {
+      const text2 = encodeTree(sections, SHED_STEPS[step]);
       if (storedLength(text2) > TREE_BUDGET_BYTES) continue;
+      if (step > 0) trace(kino2, "store", "trim", { what: "tree", root, step });
       try {
         kino2.storage.set(key(root), text2, { ttlMs: TREE_TTL_MS });
-      } catch (_) {
+      } catch (e) {
+        trace(kino2, "store", "full", { what: "tree", root, code: errCode(e) });
       }
       return;
     }
+    trace(kino2, "store", "skip", { what: "tree", root });
   }
   async function fetchRoot(root, deadline) {
     try {
@@ -1905,10 +2028,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
       writeTree(root, sections);
       return { sections, error: null };
     } catch (e) {
-      try {
-        kino2.log(`xuper home ${root}: ${e && (e.code || e.name) || "error"}`);
-      } catch (_) {
-      }
+      trace(kino2, "home", "root_fail", { root, code: errCode(e) });
       return { sections: [], error: isKinoError(e) ? e : kino2.error("unavailable", "Xuper no est\xE1 disponible ahora") };
     }
   }
@@ -2650,6 +2770,7 @@ function buildSignContext(license, cdns) {
   }
   return null;
 }
+var signError = (why, message) => Object.assign(new Error(message), { why });
 function readContext(context) {
   let ctx;
   try {
@@ -2658,7 +2779,7 @@ function readContext(context) {
     ctx = null;
   }
   const ok = ctx && typeof ctx === "object" && typeof ctx.l === "string" && Array.isArray(ctx.c) && ctx.c.length > 0 && ctx.c.every((d) => d && typeof d.h === "string" && typeof d.a === "string");
-  if (!ok) throw new Error("live signContext is not readable");
+  if (!ok) throw signError("context", "live signContext is not readable");
   return ctx;
 }
 function signRequest({ url, context }, nowMs) {
@@ -2666,7 +2787,7 @@ function signRequest({ url, context }, nowMs) {
   const want = authorityOf(url);
   const cdn = ctx.c.find((d) => normalize(d.h) === want) || ctx.c[0];
   const token = typeof cdn.t === "string" && HEX32.test(cdn.t) ? cdn.t : tokenOf(cdn.a);
-  if (token === "") throw new Error("live CDN entry without a token");
+  if (token === "") throw signError("no_token", "live CDN entry without a token");
   const moment = Math.trunc(nowMs);
   return {
     headers: {
@@ -2921,11 +3042,9 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
   const rotation = makeLiveRotation({ kino: kino2, clock: clock2, random: rand });
   const served = /* @__PURE__ */ new Map();
   const unavailable = (text2) => kino2.error("unavailable", text2);
-  const log = (line) => {
-    try {
-      kino2.log("xuper live: " + line);
-    } catch (_) {
-    }
+  const bad = (why, text2) => {
+    trace(kino2, "live", "bad", { why });
+    return unavailable(text2);
   };
   const channelNotFound = (e) => e.code === "not_found" ? kino2.error("not_found", TEXT.unknownChannel) : e;
   const surface = (e) => {
@@ -2958,6 +3077,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     try {
       play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" }, deadline - SLB_RESERVE_MS);
     } catch (e) {
+      trace(kino2, "live", "open_fail", { step: "play", code: lastCode ?? errCode(e), seed: !!seed });
       const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
       if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.userMessage))) {
         throw kino2.error("auth_required", "el canal necesita una cuenta (aaa100028)", { userMessage: TEXT.noAccount });
@@ -2965,17 +3085,25 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
       throw e;
     }
     const signal = signalFrom(play);
-    if (!signal) throw unavailable(TEXT.noAddresses);
-    const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]), deadline);
+    if (!signal) throw bad("no_address", TEXT.noAddresses);
+    lastCode = null;
+    let slb;
+    try {
+      slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]), deadline);
+    } catch (e) {
+      trace(kino2, "live", "open_fail", { step: "slb", code: lastCode ?? errCode(e), seed: !!seed });
+      throw e;
+    }
     const all = liveCdns(slb);
-    if (all.length === 0) throw unavailable(TEXT.noCdn);
-    if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
+    if (all.length === 0) throw bad("no_cdn", TEXT.noCdn);
+    if (!notBlank(signal.license)) throw bad("no_license", TEXT.noLicense);
     const withToken = all.filter((d) => tokenOf(d.authBase) !== "");
-    if (withToken.length === 0) throw unavailable(TEXT.noToken);
+    if (withToken.length === 0) throw bad("no_token", TEXT.noToken);
     const cdns = withToken.filter((d) => ALTERNATE_HOST.test(d.cflHost));
-    if (cdns.length === 0) throw unavailable(TEXT.badHost);
+    if (cdns.length === 0) throw bad("bad_cdn", TEXT.badHost);
     const built = buildSignContext(signal.license, cdns);
-    if (!built) throw unavailable(TEXT.tooLong);
+    if (!built) throw bad("too_long", TEXT.tooLong);
+    if (built.kept.length < cdns.length) trace(kino2, "live", "cdn_cut", { kept: built.kept.length, of: cdns.length });
     const primary = built.kept[0].cflHost;
     const alternates = [];
     for (const d of built.kept.slice(1)) {
@@ -2994,22 +3122,16 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     };
   }
   const seedBySn = (sn) => sn === null ? null : session.seedPool().find((e) => e.sn === sn) || null;
-  const OUTCOME_LOG = {
-    rotated: "next open uses another seed",
-    exhausted: "no seed left, back to the own session",
-    already_exhausted: "its budget is already spent for this window, stays on the own session",
-    repeated: "again for the same license"
-  };
   function onConflict(code, attempt) {
     const kind = session.kind();
     if (kind !== "seed") {
-      log(`409 on a channel: session kind is '${kind}', only a shared seed rotates`);
+      trace(kino2, "live", "conflict", { mode: kind, outcome: "no_rotation" });
       return;
     }
     const current = rotation.activeSn(code) ?? session.current().sn;
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
     const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
-    log(`409 on a channel: ${OUTCOME_LOG[outcome]} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
+    trace(kino2, "live", "conflict", { mode: kind, outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
   }
   async function openWithRotation(code, deadline) {
     let seed = session.kind() === "seed" ? seedBySn(rotation.activeSn(code)) : null;
@@ -3017,8 +3139,8 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     for (let i = 0; i < MAX_ROTATIONS + 1; i++) {
       try {
         return await open(code, seed, deadline);
-      } catch (_) {
-        log("a rotated seed could not open the channel: next");
+      } catch (e) {
+        trace(kino2, "live", "seed_fail", { seed: seedTag(kino2, seed.sn), code: errCode(e) });
         const moved = rotation.refuse(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`) === "rotated";
         const next = seedBySn(rotation.activeSn(code));
         if (!next || !moved) return open(code, null, deadline);
@@ -3032,6 +3154,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     const deadline = callDeadline(clock2, CALL_BUDGET_MS.resolve);
     try {
       const retry = isObject(options) && isObject(options.retry) ? options.retry : null;
+      if (retry) trace(kino2, "live", "retry", { reason: typeof retry.reason === "string" ? retry.reason : "?", attempt: retry.attempt });
       if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
       return await openWithRotation(code, deadline);
     } catch (e) {
@@ -3162,10 +3285,7 @@ function makeCountryRow({ kino: kino2, live: live2 }) {
       });
       return items.length > 0 ? { id: COUNTRY_ROW_ID, title: COUNTRY_ROW_TITLE, items } : null;
     } catch (e) {
-      try {
-        kino2.log(`xuper home live row: ${e && (e.code || e.name) || "error"}`);
-      } catch (_) {
-      }
+      trace(kino2, "home", "live_row_fail", { code: errCode(e) });
       return null;
     }
   };
@@ -3196,10 +3316,7 @@ async function guarded(body) {
     return await body(getDeps());
   } catch (e) {
     if (isKinoError(e)) throw e;
-    try {
-      kino.log("xuper: " + String(e && e.name || "error"));
-    } catch (_) {
-    }
+    trace(kino, "call", "bug", { code: errCode(e) });
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }
@@ -3276,10 +3393,7 @@ var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name =
 function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   const surface = (e) => {
     if (isKinoError(e)) return e;
-    try {
-      kino2.log("xuper settings: " + String(e && e.name || "error"));
-    } catch (_) {
-    }
+    trace(kino2, "settings", "fail", { code: errCode(e) });
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
   const savedAccount = () => ({ email: str4(kino2.config.get("email")).trim(), password: str4(kino2.config.get("password")).trim() });
@@ -3434,12 +3548,9 @@ var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : 
 function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   const fingerprint = makeFingerprint(kino2);
   const failure = (e, text2) => {
+    trace(kino2, "register", "fail", { code: errCode(e) });
     if (e instanceof PortalError) return kino2.error("unavailable", text2);
     if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) return e;
-    try {
-      kino2.log("xuper registration: " + String(e && e.name || "error"));
-    } catch (_) {
-    }
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
   function pendingFor(email) {
@@ -3527,31 +3638,31 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
 // src/plugin.js
 async function search(query) {
   await null;
-  return guarded(({ catalog }) => catalog.search(query));
+  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)));
 }
 async function home() {
   await null;
-  return guarded(({ catalog }) => catalog.home());
+  return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()));
 }
 async function browse(ref, cursor) {
   await null;
-  return guarded(({ catalog }) => catalog.browse(ref, cursor));
+  return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor)));
 }
 async function section(arg) {
   await null;
-  return guarded(({ section: s }) => s.section(arg));
+  return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg)));
 }
 async function categories() {
   await null;
-  return guarded(({ categories: c }) => c.categories());
+  return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories()));
 }
 async function episodes(ref) {
   await null;
-  return guarded(({ catalog }) => catalog.episodes(ref));
+  return traced(kino, clock, "episodes", () => guarded(({ catalog }) => catalog.episodes(ref)));
 }
 async function resolve(ref, options) {
   await null;
-  return guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options));
+  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)));
 }
 async function sign(request) {
   await null;
@@ -3559,20 +3670,17 @@ async function sign(request) {
     return signRequest(request, clock.now());
   } catch (e) {
     if (isKinoError(e)) throw e;
-    try {
-      kino.log("xuper sign: " + String(e && e.name || "error"));
-    } catch (_) {
-    }
+    trace(kino, "sign", "fail", { why: typeof e?.why === "string" ? e.why : errCode(e) });
     throw kino.error("unavailable", "No se pudo firmar la petici\xF3n del canal");
   }
 }
 async function liveCategories() {
   await null;
-  return guarded(({ live: live2 }) => live2.liveCategories());
+  return traced(kino, clock, "liveCategories", () => guarded(({ live: live2 }) => live2.liveCategories()));
 }
 async function liveChannels(args) {
   await null;
-  return guarded(({ live: live2 }) => live2.liveChannels(args));
+  return traced(kino, clock, "liveChannels", () => guarded(({ live: live2 }) => live2.liveChannels(args)));
 }
 var migrator = makeMigrate();
 async function migrate(input) {
@@ -3581,10 +3689,7 @@ async function migrate(input) {
     return await migrator.migrate(input);
   } catch (e) {
     if (isKinoError(e)) throw e;
-    try {
-      kino.log("xuper migrate: " + String(e && e.name || "error"));
-    } catch (_) {
-    }
+    trace(kino, "migrate", "fail", { code: errCode(e) });
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }
@@ -3597,14 +3702,15 @@ async function settingsStatus() {
   await null;
   try {
     return await settings().settingsStatus();
-  } catch (_) {
+  } catch (e) {
+    trace(kino, "settings", "status_fail", { code: errCode(e) });
     return { status: "No se pudo consultar el estado" };
   }
 }
 async function action(key) {
   await null;
   try {
-    return await settings().action(key);
+    return await traced(kino, clock, "action", () => settings().action(key));
   } catch (e) {
     if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
@@ -3613,7 +3719,7 @@ async function action(key) {
 async function validateSettings(values) {
   await null;
   try {
-    return await settings().validateSettings(values);
+    return await traced(kino, clock, "validate", () => settings().validateSettings(values));
   } catch (e) {
     if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");

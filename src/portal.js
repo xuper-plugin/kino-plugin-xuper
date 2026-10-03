@@ -4,6 +4,7 @@ import {
   REQUEST_TIMEOUT_MS, DEVICE_FIXED,
 } from "./config.js";
 import { isObject } from "./util.js";
+import { trace, errCode } from "./trace.js";
 
 const MAX_SLEEP_MS = 5000; // kino.sleep ceiling
 const MAX_REQUEST_MS = 30000; // kino.fetch ceiling
@@ -158,7 +159,10 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
 
     const outOfTime = () => typeof deadline === "number" && Math.floor(deadline - clock.now()) < 1;
     // A deadline already gone: the plugin's own answer, no request at all.
-    if (outOfTime()) throw kino.error("unavailable", CONTACT_FAILED);
+    if (outOfTime()) {
+      trace(kino, "portal", "deadline", { path });
+      throw kino.error("unavailable", CONTACT_FAILED);
+    }
     await waitTurn();
 
     let lastError = null;
@@ -168,7 +172,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
       let requestMs = perRequest;
       if (typeof deadline === "number") {
         const left = Math.floor(deadline - clock.now());
-        if (left < 1) break;
+        if (left < 1) { trace(kino, "portal", "deadline", { path, i }); break; }
         // The time left is shared with the hosts still to try, so a black-holed host cannot use it
         // all and the failover still reaches the next one; the last host gets whatever is left.
         const remaining = order.length - i;
@@ -181,6 +185,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
         });
         answer = JSON.parse(res.text());
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
+        if (i > 0) trace(kino, "portal", "failover", { path, to: i });
         preferredHost = host;
         const rc = answer.returnCode;
         const code = rc === undefined || rc === null ? "" : String(rc);
@@ -201,14 +206,18 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
         }
       } catch (e) {
         lastError = e;
-        // Debug trail only: one truncated line, never the wire, token or headers.
-        try { kino.log("portal " + path + ": " + String(e && e.message).replace(/\s+/g, " ").slice(0, 200)); } catch (_) {}
+        // The host's INDEX and the error's code, never its message: a fetch error names the host or the url.
+        trace(kino, "portal", "host_fail", { path, i, why: errCode(e) });
         continue;
       }
-      if (answer.portalFailure) throw answer.portalFailure;
+      if (answer.portalFailure) {
+        trace(kino, "portal", "rc", { path, code: answer.portalFailure.code });
+        throw answer.portalFailure;
+      }
       return answer.ok;
     }
     // Fixed text: the underlying error may echo the URL (host) and must not reach the caller.
+    if (order.length > 0) trace(kino, "portal", "all_fail", { path, n: order.length });
     throw kino.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
   }
 

@@ -43,6 +43,20 @@ export function errCode(e) {
   return VALUE.test(c) ? c : "error";
 }
 
+/**
+ * Runs export `fn`'s body; when it fails, one `xuper:call fail fn=<fn> code=<code> ms=<elapsed>` line
+ * (the error itself is rethrown untouched). A success writes nothing: its lines would never be sent.
+ */
+export async function traced(kino, clock, fn, body) {
+  const t0 = clock.now();
+  try {
+    return await body();
+  } catch (e) {
+    trace(kino, "call", "fail", { fn, code: errCode(e), ms: clock.now() - t0 });
+    throw e;
+  }
+}
+
 /** 8 hex characters of a hash of a seed's sn: tells seeds apart in a report, never the sn. */
 export function seedTag(kino, sn) {
   try {

@@ -5,6 +5,7 @@
 // "none" (the default) is no row. One categories read and one channels page per call, inside the
 // caller's deadline; nothing is stored (R19: Kino caches the Home rows). Never throws: a failure is
 // simply no row.
+import { trace, errCode } from "./trace.js";
 
 /**
  * Portal categories that represent a country, by ISO-3166 alpha-2 code, matched by NAME as the
@@ -103,7 +104,7 @@ export function makeCountryRow({ kino, live }) {
       });
       return items.length > 0 ? { id: COUNTRY_ROW_ID, title: COUNTRY_ROW_TITLE, items } : null;
     } catch (e) {
-      try { kino.log(`xuper home live row: ${(e && (e.code || e.name)) || "error"}`); } catch (_) { /* never fails home */ }
+      trace(kino, "home", "live_row_fail", { code: errCode(e) }); // never fails home
       return null;
     }
   };

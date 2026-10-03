@@ -7,6 +7,7 @@
 // cannot be done is dropped (the caller just serves uncached).
 import { storedLength } from "./homeTree.js";
 import { isObject } from "./util.js";
+import { trace, errCode } from "./trace.js";
 
 
 /**
@@ -14,6 +15,7 @@ import { isObject } from "./util.js";
  * Only the caller knows what is worth caching: it simply never writes an empty result.
  */
 export function makeByteCache({ kino, key, budgetBytes, clock, ttlMs, valid = () => true }) {
+  const what = String(key).split(":")[0]; // "search", "chapters": the cache, for a breadcrumb
   const decode = (raw) => {
     try {
       const o = JSON.parse(raw);
@@ -56,18 +58,21 @@ export function makeByteCache({ kino, key, budgetBytes, clock, ttlMs, valid = ()
       }
       for (const a of added) {
         const entry = { k: a.k, s: now, i: a.i };
-        if (storedLength(encode([entry])) > budgetBytes) continue;
+        if (storedLength(encode([entry])) > budgetBytes) { trace(kino, "store", "skip", { what }); continue; }
         entries = entries.filter((e) => e.k !== a.k);
         entries.push(entry);
       }
       let text = encode(entries);
+      let evicted = 0;
       while (storedLength(text) > budgetBytes && entries.length > 0) {
         entries.shift();
+        evicted++;
         text = encode(entries);
       }
+      if (evicted > 0) trace(kino, "store", "evict", { what, n: evicted });
       if (entries.length === 0) return;
       kino.storage.set(key, text);
-    } catch (_) { /* storage full or unavailable: serve uncached */ }
+    } catch (e) { trace(kino, "store", "full", { what, code: errCode(e) }); /* serve uncached */ }
   }
 
   return { read, get, fresh, write };

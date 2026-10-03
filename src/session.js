@@ -4,6 +4,7 @@ import { PortalError, mapPortalError, ACCOUNT_IN_USE_ELSEWHERE } from "./portal.
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom } from "./device.js";
 import { isKinoError } from "./util.js";
+import { trace, errCode, seedTag } from "./trace.js";
 
 export const DEFAULT_SEEDS_URL =
   "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
@@ -152,6 +153,17 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const currentKey = () => { const acc = account(); return acc ? keyOf(acc) : ""; };
   // A stored token only counts when it belongs to the account in use (an anonymous one when none).
   const tokenHeld = () => hasToken() && readSession().acct === currentKey();
+  // For breadcrumbs only: which kind of session is in play (never which account or which device).
+  const acctKind = (acc) => (acc === sharedPair ? "shared" : "own");
+  function mode() {
+    try {
+      const acc = account();
+      if (acc) return acctKind(acc);
+      const s = readSession();
+      if (blank(s.sn)) return "none";
+      return seedPool().some((e) => e.sn === s.sn) ? "seed" : "anon";
+    } catch (_) { return "?"; }
+  }
 
   // The "Actualizar semillas automáticamente" toggle; unset (never saved) counts as on, like native.
   const autoRefresh = () => kino.config.get("autoRefreshSeeds") !== false;
@@ -199,13 +211,15 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   async function directAnonymous(bounds = {}) {
     const storedSn = readSession().sn;
     if (!blank(storedSn)) {
-      try { return await activate("", storedSn, bounds); }
+      try { await activate("", storedSn, bounds); trace(kino, "session", "activate", { ok: true }); return; }
       catch (e) {
+        trace(kino, "session", "activate", { ok: false, code: errCode(e) });
         // Anything but these two codes (network, portal down) does not justify another device.
         if (!(e instanceof PortalError && INVALID_SN.has(e.code))) throw e;
       }
     }
-    return mintDevice(bounds);
+    try { await mintDevice(bounds); trace(kino, "session", "mint", { ok: true }); }
+    catch (e) { trace(kino, "session", "mint", { ok: false, code: errCode(e) }); throw e; }
   }
 
   // An anonymous token on this device (`acct` ""); a token of another account is dropped first.
@@ -216,7 +230,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (hasToken()) forgetToken();
     let direct;
     try { await directAnonymous(bounds); return; } catch (e) { direct = e; }
-    if (direct instanceof PortalError && direct.code === GEO_BLOCKED) setRegion(true);
+    if (direct instanceof PortalError && direct.code === GEO_BLOCKED) { trace(kino, "session", "geo", { at: "activate" }); setRegion(true); }
     // Direct path failed: what an unflagged geo-block looks like. Any pool session beats none, and a
     // fresh install has no pool yet: it is downloaded once, bounded (native loaded it at activation).
     let pool = seedPool();
@@ -224,7 +238,13 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       try { await refreshSeeds({ timeoutMs: BLOCKED_REFRESH_MS, deadline: bounds.deadline }); } catch (_) { /* ignored */ }
       pool = seedPool();
     }
-    if (pool.length > 0) { writeSession(seedSession(pick(pool))); return; }
+    if (pool.length > 0) {
+      const chosen = pick(pool);
+      writeSession(seedSession(chosen));
+      trace(kino, "session", "seed_pick", { pool: pool.length, seed: seedTag(kino, chosen.sn) });
+      return;
+    }
+    trace(kino, "session", "no_seed", { code: errCode(direct) });
     throw direct;
   }
 
@@ -255,8 +275,15 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (hasToken() && readSession().acct !== "") forgetToken();
     if (acc && !wait) {
       // A rejected credential or a portal down: anonymous is served before serving nothing.
-      try { await loginUnlocked(acc.email, acc.password, bounds); clearRefused(key); endCooldown(); return; }
-      catch (e) { if (refusal(e, key)) setRefused(key); else startCooldown(key); }
+      try {
+        await loginUnlocked(acc.email, acc.password, bounds);
+        trace(kino, "session", "login", { acct: acctKind(acc), ok: true });
+        clearRefused(key); endCooldown(); return;
+      } catch (e) {
+        const refused = refusal(e, key);
+        trace(kino, "session", "login", { acct: acctKind(acc), ok: false, code: errCode(e), refused });
+        if (refused) setRefused(key); else startCooldown(key);
+      }
     }
     await ensureAnonymousUnlocked(bounds);
   }
@@ -275,7 +302,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const current = readSession().userToken;
     if (!blank(current) && current !== stale) return { ok: true, loginError: null };
     // No time left in the calling export: the stored token is left as it is for the next call.
-    if (timeLeft(bounds) < MIN_REQUEST_MS) return { ok: false, loginError: null };
+    if (timeLeft(bounds) < MIN_REQUEST_MS) { trace(kino, "session", "reauth", { ok: false, why: "deadline" }); return { ok: false, loginError: null }; }
     forgetToken();
     let loginError = null;
     try {
@@ -289,8 +316,12 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
           await ensureAnonymousUnlocked(bounds);
         }
       } else await ensureAnonymousUnlocked(bounds);
+      trace(kino, "session", "reauth", { ok: true, mode: mode() });
       return { ok: true, loginError: null };
-    } catch (_) { return { ok: false, loginError }; }
+    } catch (e) {
+      trace(kino, "session", "reauth", { ok: false, code: errCode(loginError || e), mode: mode() });
+      return { ok: false, loginError };
+    }
   });
   // A login that failed for a reason a second try can fix: no answer at all (network, a kino error),
   // or the portal answering "not logged in" to the login itself (native isTransientLoginFailure).
@@ -300,26 +331,29 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const pool = seedPool();
     if (pool.length === 0) return false;
     if (readSession().userToken !== stale) return true; // someone else already switched
-    writeSession(seedSession(pick(pool)));
+    const chosen = pick(pool);
+    writeSession(seedSession(chosen));
+    trace(kino, "session", "seed_switch", { pool: pool.length, seed: seedTag(kino, chosen.sn) });
     return true;
   });
 
   /** Downloads the pool; true when it stored a non-empty one. Never throws. */
   async function fetchSeeds(timeoutMs) {
+    let text;
+    try { text = (await kino.fetch(seedsUrl, { timeoutMs })).text(); }
+    catch (e) { trace(kino, "seeds", "refresh", { ok: false, why: "fetch", code: errCode(e) }); return false; }
     let list;
-    try {
-      const res = await kino.fetch(seedsUrl, { timeoutMs });
-      list = JSON.parse(res.text());
-    } catch (_) { return false; }
-    if (!Array.isArray(list)) return false;
+    try { list = JSON.parse(text); } catch (_) { list = null; }
+    if (!Array.isArray(list)) { trace(kino, "seeds", "refresh", { ok: false, why: "parse" }); return false; }
     const clean = list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken))
       .slice(0, MAX_SEEDS)
       .map((e) => ({ sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) }));
     // Only a non-empty answer replaces the pool (native SeedRefresher.reseed()).
-    if (clean.length === 0) return false;
+    if (clean.length === 0) { trace(kino, "seeds", "refresh", { ok: false, why: "empty" }); return false; }
     // A full store keeps the old pool: a download that cannot be kept is a failed one.
-    try { writeJson("seeds", clean); } catch (_) { return false; }
+    try { writeJson("seeds", clean); } catch (_) { trace(kino, "seeds", "refresh", { ok: false, why: "store", n: clean.length }); return false; }
     try { writeJson("seedsAt", clock.now()); } catch (_) { /* ignored */ }
+    trace(kino, "seeds", "refresh", { ok: true, n: clean.length });
     return true;
   }
 
@@ -373,7 +407,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const key = keyOf({ email, password });
     try {
       await lock(async () => { await loginUnlocked(email, password, bounds); clearRefused(key); endCooldown(); dropLegacy(); });
+      trace(kino, "session", "login_action", { acct: "own", ok: true });
     } catch (e) {
+      trace(kino, "session", "login_action", { acct: "own", ok: false, code: errCode(e) });
       if (e instanceof PortalError) {
         if (refusal(e, key)) setRefused(key);
         throw kino.error("auth_required", "Credenciales de Xuper inválidas");
@@ -386,8 +422,11 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   async function useShared(bounds = {}) {
     await null;
     if (!sharedPair) throw kino.error("unavailable", "La cuenta compartida no está disponible");
-    try { await lock(async () => { await loginUnlocked(sharedPair.email, sharedPair.password, bounds); clearRefused("shared"); endCooldown(); }); }
-    catch (e) {
+    try {
+      await lock(async () => { await loginUnlocked(sharedPair.email, sharedPair.password, bounds); clearRefused("shared"); endCooldown(); });
+      trace(kino, "session", "login_action", { acct: "shared", ok: true });
+    } catch (e) {
+      trace(kino, "session", "login_action", { acct: "shared", ok: false, code: errCode(e) });
       if (e instanceof PortalError) {
         if (refusal(e, "shared")) setRefused("shared");
         throw kino.error("auth_required", "No se pudo activar la cuenta compartida");
@@ -441,10 +480,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
     // Counts only: never a token or an sn.
-    const note = (tries, outcome) => {
-      try { kino.log(`xuper seed fallback: ${outcome} after ${tries} of ${candidates.length} seeds${refreshed ? " (pool refreshed)" : ""}`); }
-      catch (_) { /* never fails a call */ }
-    };
+    const note = (tries, outcome) => trace(kino, "session", "seed_fallback", { outcome, tries, pool: candidates.length, refreshed });
     let tries = 0;
     for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
       if (left() < SEED_FALLBACK_MIN_MS) break;
@@ -460,7 +496,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
         if (!(e instanceof PortalError) && !isKinoError(e)) throw e;
       }
     }
-    note(tries, left() < SEED_FALLBACK_MIN_MS ? "out of time" : "no seed answered");
+    note(tries, left() < SEED_FALLBACK_MIN_MS ? "out_of_time" : "none");
     return null;
   }
 
@@ -498,8 +534,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const tokenUsed = view().userToken;
     let result = await attempt();
     if (!result.err) return settle(result);
+    trace(kino, "session", "err", { code: result.err.code, mode: mode() });
 
     if (result.err.code === GEO_BLOCKED) {
+      trace(kino, "session", "geo", { at: "content", mode: mode() });
       setRegion(true);
       if (!account()) {
         // A fresh install has no pool yet: it is the only way out of a blocked region.
@@ -537,18 +575,22 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
     if (SESSION_DEAD.has(result.err.code) && !account()) {
       setRegion(true);
+      let rounds = 0;
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
         if (timeLeft(bounds) < MIN_REQUEST_MS) break;
+        rounds++;
         if ((await refreshSeeds({ deadline })) && (await switchToBackup(view().userToken))) {
           const retry = await attempt();
           if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
             // The rescue got a session that answers (even with an error that is not "dead"): the pool is not exhausted.
             exhausted = false;
+            trace(kino, "session", "rescued", { round: rounds });
             return settle(retry);
           }
         }
       }
       exhausted = true;
+      trace(kino, "session", "exhausted", { rounds });
     }
     if (allowSeeds && blockedOrDead(result.err) && usingShared()) {
       const rescued = await seedFallback(block, typeof deadline === "number" ? deadline : startedAt + SEED_FALLBACK_DEFAULT_MS);
@@ -564,7 +606,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   /** Manual "Cambiar semilla": probes other pool seeds for real; the first token wins. */
   async function switchSeed({ timeoutMs, deadline } = {}) {
     await null;
-    return lock(async () => {
+    const out = await lock(async () => {
       if (account()) return { result: "account_linked", tries: 0 };
       const current = readSession().sn;
       const candidates = seedPool().filter((e) => e.sn !== current);
@@ -591,6 +633,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       if (typeof deadline === "number" && !reached) return { result: "offline", tries };
       return { result: "all_failed", tries };
     });
+    trace(kino, "seeds", "switch", { result: out.result, tries: out.tries });
+    return out;
   }
 
   /** Makes `s` the stored session (registration: the temporary device that just logged in). */

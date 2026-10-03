@@ -52,12 +52,15 @@ export function buildSignContext(license, cdns) {
   return null;
 }
 
+/** A sign failure with a short `why` for the breadcrumb (the message is for nobody). */
+const signError = (why, message) => Object.assign(new Error(message), { why });
+
 function readContext(context) {
   let ctx;
   try { ctx = JSON.parse(context); } catch (_) { ctx = null; }
   const ok = ctx && typeof ctx === "object" && typeof ctx.l === "string" && Array.isArray(ctx.c) && ctx.c.length > 0
     && ctx.c.every((d) => d && typeof d.h === "string" && typeof d.a === "string");
-  if (!ok) throw new Error("live signContext is not readable");
+  if (!ok) throw signError("context", "live signContext is not readable");
   return ctx;
 }
 
@@ -73,7 +76,7 @@ export function signRequest({ url, context }, nowMs) {
   const want = authorityOf(url);
   const cdn = ctx.c.find((d) => normalize(d.h) === want) || ctx.c[0];
   const token = typeof cdn.t === "string" && HEX32.test(cdn.t) ? cdn.t : tokenOf(cdn.a);
-  if (token === "") throw new Error("live CDN entry without a token");
+  if (token === "") throw signError("no_token", "live CDN entry without a token");
   const moment = Math.trunc(nowMs);
   return {
     headers: {

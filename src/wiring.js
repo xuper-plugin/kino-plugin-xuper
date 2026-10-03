@@ -13,6 +13,7 @@ import { makeCategories } from "./categories.js";
 import { makeCountryRow } from "./countryRow.js";
 import * as constants from "./config.js";
 import { isKinoError } from "./util.js";
+import { trace, errCode } from "./trace.js";
 
 let deps = null;
 
@@ -47,7 +48,7 @@ export async function guarded(body) {
     return await body(getDeps());
   } catch (e) {
     if (isKinoError(e)) throw e;
-    try { kino.log("xuper: " + String((e && e.name) || "error")); } catch (_) {}
+    trace(kino, "call", "bug", { code: errCode(e) });
     throw kino.error("unavailable", "Xuper no está disponible ahora");
   }
 }

@@ -7,6 +7,7 @@ import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { isKinoError } from "./util.js";
+import { trace, errCode } from "./trace.js";
 
 export { parseShelveTime };
 
@@ -105,12 +106,15 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   // Never called with an empty tree. A tree that does not fit even without descriptions is simply
   // not cached (the next call refetches it).
   function writeTree(root, sections) {
-    for (const shed of SHED_STEPS) {
-      const text = encodeTree(sections, shed);
+    for (let step = 0; step < SHED_STEPS.length; step++) {
+      const text = encodeTree(sections, SHED_STEPS[step]);
       if (storedLength(text) > TREE_BUDGET_BYTES) continue; // as the app stores it: escaped
-      try { kino.storage.set(key(root), text, { ttlMs: TREE_TTL_MS }); } catch (_) { /* storage full: serve uncached */ }
+      if (step > 0) trace(kino, "store", "trim", { what: "tree", root, step });
+      try { kino.storage.set(key(root), text, { ttlMs: TREE_TTL_MS }); }
+      catch (e) { trace(kino, "store", "full", { what: "tree", root, code: errCode(e) }); /* serve uncached */ }
       return;
     }
+    trace(kino, "store", "skip", { what: "tree", root });
   }
 
   // `{ sections, error }`: a failing root shows as empty, but its error is kept so that a Home where
@@ -127,7 +131,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       writeTree(root, sections);
       return { sections, error: null };
     } catch (e) {
-      try { kino.log(`xuper home ${root}: ${(e && (e.code || e.name)) || "error"}`); } catch (_) {}
+      trace(kino, "home", "root_fail", { root, code: errCode(e) });
       return { sections: [], error: isKinoError(e) ? e : kino.error("unavailable", "Xuper no está disponible ahora") };
     }
   }

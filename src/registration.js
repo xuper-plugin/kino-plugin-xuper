@@ -2,6 +2,7 @@
 // confirmRegistration. The code is asked for with a SEPARATE temporary device so the person's own
 // stored session and sn are never touched; only a fully confirmed registration replaces them.
 import { PortalError } from "./portal.js";
+import { trace, errCode } from "./trace.js";
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom, blank } from "./device.js";
 
@@ -19,9 +20,9 @@ export function makeRegistration({ kino, portal, session, clock }) {
 
   // A portal refusal reads the native text; a kino error (network, bounds) passes; a bug is fixed text.
   const failure = (e, text) => {
+    trace(kino, "register", "fail", { code: errCode(e) });
     if (e instanceof PortalError) return kino.error("unavailable", text);
     if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) return e;
-    try { kino.log("xuper registration: " + String((e && e.name) || "error")); } catch (_) { /* no log */ }
     return kino.error("unavailable", "Xuper no está disponible ahora");
   };
 

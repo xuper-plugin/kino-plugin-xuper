@@ -10,6 +10,7 @@ import { isCfl, slbBean } from "./resolve.js";
 import { buildSignContext, tokenOf } from "./liveSign.js";
 import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
+import { trace, errCode, seedTag } from "./trace.js";
 
 const DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime (native CHANNEL_TTL_S)
 const MIN_EXPIRES_S = 30; // SDK range of expiresInSeconds
@@ -90,7 +91,8 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
   // conflict comes seconds after its open; a runtime discarded meanwhile just counts it as new.
   const served = new Map();
   const unavailable = (text) => kino.error("unavailable", text);
-  const log = (line) => { try { kino.log("xuper live: " + line); } catch (_) { /* never fails a call */ } };
+  // A failed check of the open's answer: the breadcrumb says which, the person reads the sentence.
+  const bad = (why, text) => { trace(kino, "live", "bad", { why }); return unavailable(text); };
 
   // A refused "not found" is about THIS channel (a junk ref that looks like a channel code lands
   // here too), so it says so. An answer with no addresses stays `unavailable`: the portal gives no
@@ -130,6 +132,7 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     try {
       play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" }, deadline - SLB_RESERVE_MS);
     } catch (e) {
+      trace(kino, "live", "open_fail", { step: "play", code: lastCode ?? errCode(e), seed: !!seed });
       // aaa100028 after withValidSession's retries: THIS channel needs a (re)linked account.
       const notLoggedIn = (e instanceof PortalError && e.code === NOT_LOGGED_IN)
         || (isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN);
@@ -140,24 +143,28 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
       throw e;
     }
     const signal = signalFrom(play);
-    if (!signal) throw unavailable(TEXT.noAddresses);
+    if (!signal) throw bad("no_address", TEXT.noAddresses);
 
     // The CHANNEL's code, not the playCode: the portal returns that signal's hosts.
-    const slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]), deadline);
+    lastCode = null;
+    let slb;
+    try { slb = await call("v14/getSlbInfo", slbBean(config.apkVersion, [code]), deadline); }
+    catch (e) { trace(kino, "live", "open_fail", { step: "slb", code: lastCode ?? errCode(e), seed: !!seed }); throw e; }
     const all = liveCdns(slb);
-    if (all.length === 0) throw unavailable(TEXT.noCdn);
-    if (!notBlank(signal.license)) throw unavailable(TEXT.noLicense);
+    if (all.length === 0) throw bad("no_cdn", TEXT.noCdn);
+    if (!notBlank(signal.license)) throw bad("no_license", TEXT.noLicense);
     // A CDN whose authBase has no token cannot be signed for: it is dropped (native refused the
     // channel when the FIRST one had none, see the report).
     const withToken = all.filter((d) => tokenOf(d.authBase) !== "");
-    if (withToken.length === 0) throw unavailable(TEXT.noToken);
+    if (withToken.length === 0) throw bad("no_token", TEXT.noToken);
     // A host that is not a plain host[:port] cannot go out as an alternate host: it is dropped too,
     // and if that leaves nothing the reason is the address, not the token.
     const cdns = withToken.filter((d) => ALTERNATE_HOST.test(d.cflHost));
-    if (cdns.length === 0) throw unavailable(TEXT.badHost);
+    if (cdns.length === 0) throw bad("bad_cdn", TEXT.badHost);
 
     const built = buildSignContext(signal.license, cdns);
-    if (!built) throw unavailable(TEXT.tooLong);
+    if (!built) throw bad("too_long", TEXT.tooLong);
+    if (built.kept.length < cdns.length) trace(kino, "live", "cdn_cut", { kept: built.kept.length, of: cdns.length });
     const primary = built.kept[0].cflHost;
     const alternates = [];
     for (const d of built.kept.slice(1)) {
@@ -180,22 +187,15 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
 
   const seedBySn = (sn) => (sn === null ? null : session.seedPool().find((e) => e.sn === sn) || null);
 
-  const OUTCOME_LOG = {
-    rotated: "next open uses another seed",
-    exhausted: "no seed left, back to the own session",
-    already_exhausted: "its budget is already spent for this window, stays on the own session",
-    repeated: "again for the same license",
-  };
-
   // AppGraph.onLiveConflict: only a shared seed can be in use twice, so only a device on a seed
   // rotates; an account or a minted own session never does (whatever a rotation left behind).
   function onConflict(code, attempt) {
     const kind = session.kind();
-    if (kind !== "seed") { log(`409 on a channel: session kind is '${kind}', only a shared seed rotates`); return; }
+    if (kind !== "seed") { trace(kino, "live", "conflict", { mode: kind, outcome: "no_rotation" }); return; }
     const current = rotation.activeSn(code) ?? session.current().sn;
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
     const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
-    log(`409 on a channel: ${OUTCOME_LOG[outcome]} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
+    trace(kino, "live", "conflict", { mode: kind, outcome, tried: rotation.triedCount(code), of: MAX_ROTATIONS + 1 });
   }
 
   // AppGraph.resolveLive: the channel's rotated (or carried) seed first, only while the device is on
@@ -207,8 +207,8 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     for (let i = 0; i < MAX_ROTATIONS + 1; i++) {
       try {
         return await open(code, seed, deadline);
-      } catch (_) {
-        log("a rotated seed could not open the channel: next");
+      } catch (e) {
+        trace(kino, "live", "seed_fail", { seed: seedTag(kino, seed.sn), code: errCode(e) });
         const moved = rotation.refuse(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`) === "rotated";
         const next = seedBySn(rotation.activeSn(code));
         if (!next || !moved) return open(code, null, deadline);
@@ -224,6 +224,7 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
     const deadline = callDeadline(clock, CALL_BUDGET_MS.resolve); // a channel resolve has the app's 20 s
     try {
       const retry = isObject(options) && isObject(options.retry) ? options.retry : null;
+      if (retry) trace(kino, "live", "retry", { reason: typeof retry.reason === "string" ? retry.reason : "?", attempt: retry.attempt });
       if (retry && retry.reason === "conflict") onConflict(code, retry.attempt);
       return await openWithRotation(code, deadline);
     } catch (e) {

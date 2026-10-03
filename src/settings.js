@@ -2,6 +2,7 @@
 // the person's email and password are saved. The account itself is NOT stored here: it is the
 // plugin's own settings (`kino.config`), which only the person can edit.
 import { isKinoError } from "./util.js";
+import { trace, errCode } from "./trace.js";
 const STATUS_MAX = 200;
 const MESSAGE_MAX = 300;
 
@@ -35,7 +36,7 @@ export function makeSettings({ kino, session, clock, registration }) {
   // an underlying message that might echo the password never reaches the person.
   const surface = (e) => {
     if (isKinoError(e)) return e;
-    try { kino.log("xuper settings: " + String((e && e.name) || "error")); } catch (_) { /* no log */ }
+    trace(kino, "settings", "fail", { code: errCode(e) });
     return kino.error("unavailable", "Xuper no está disponible ahora");
   };
 
