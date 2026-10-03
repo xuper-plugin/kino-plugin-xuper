@@ -2558,13 +2558,22 @@ function signRequest({ url, context }, nowMs) {
 // src/liveRotation.js
 var MAX_ROTATIONS = 3;
 var ROTATION_TTL_MS = 30 * 6e4;
+var MAX_CARRIED_REFUSALS = 16;
 var MAX_CHANNELS = 12;
 var PREFIX2 = "liveRot:";
-var empty = () => ({ tried: [], active: null, last: null, at: 0 });
+var CARRIED_KEY = "liveRotCarried";
+var empty = (now) => ({ tried: [], excluded: [], active: null, last: null, at: now, started: now, exhausted: false });
+var strings = (a) => Array.isArray(a) ? a.filter((s) => typeof s === "string") : [];
 function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = MAX_ROTATIONS, ttlMs = ROTATION_TTL_MS }) {
   const memory = /* @__PURE__ */ new Map();
+  let carriedMemory;
   const keyOf = (channel) => PREFIX2 + channel;
-  const fresh = (state) => state && clock2.now() - state.at < ttlMs;
+  const inWindow = (since) => {
+    const age = clock2.now() - since;
+    return age >= 0 && age < ttlMs;
+  };
+  const fresh = (state) => Boolean(state) && inWindow(state.started);
+  const ttlLeft = (since) => Math.max(1, ttlMs - Math.max(0, clock2.now() - since));
   const digest = (key) => {
     try {
       const d = kino2.crypto.hash("md5", String(key));
@@ -2577,11 +2586,16 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
     try {
       const o = JSON.parse(raw);
       if (!o || typeof o !== "object" || !Array.isArray(o.t)) return null;
+      const at = typeof o.at === "number" ? o.at : 0;
       return {
-        tried: o.t.filter((s) => typeof s === "string"),
+        tried: strings(o.t),
+        excluded: strings(o.x),
         active: typeof o.a === "string" ? o.a : null,
         last: typeof o.k === "string" ? o.k : null,
-        at: typeof o.at === "number" ? o.at : 0
+        at,
+        started: typeof o.s === "number" ? o.s : at,
+        // an older entry has no start: its last write
+        exhausted: o.e === true
       };
     } catch (_) {
       return null;
@@ -2599,7 +2613,8 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
     } catch (_) {
     }
     const stored = typeof raw === "string" ? parse(raw) : null;
-    if (stored) remember(channel, stored);
+    if (!fresh(stored)) return null;
+    remember(channel, stored);
     return stored;
   }
   function remember(channel, state) {
@@ -2634,30 +2649,84 @@ function makeLiveRotation({ kino: kino2, clock: clock2, random, maxRotations = M
       } catch (_) {
       }
       if (!exists) evictFor(channel);
-      kino2.storage.set(keyOf(channel), JSON.stringify({ t: state.tried, a: state.active, k: state.last, at: state.at }), { ttlMs });
+      const o = { t: state.tried, a: state.active, k: state.last, at: state.at, s: state.started };
+      if (state.excluded.length > 0) o.x = state.excluded;
+      if (state.exhausted) o.e = true;
+      kino2.storage.set(keyOf(channel), JSON.stringify(o), { ttlMs: ttlLeft(state.started) });
     } catch (_) {
     }
   }
-  const activeSn = (channel) => read(channel)?.active ?? null;
+  function carried() {
+    if (carriedMemory === void 0) {
+      carriedMemory = null;
+      try {
+        const raw = kino2.storage.get(CARRIED_KEY);
+        const o = typeof raw === "string" ? JSON.parse(raw) : null;
+        if (o && typeof o.a === "string" && typeof o.at === "number") carriedMemory = { sn: o.a, at: o.at, refused: strings(o.r) };
+      } catch (_) {
+      }
+    }
+    return carriedMemory && inWindow(carriedMemory.at) ? carriedMemory : null;
+  }
+  function setCarried(value) {
+    carriedMemory = value;
+    try {
+      if (value === null) kino2.storage.remove(CARRIED_KEY);
+      else kino2.storage.set(CARRIED_KEY, JSON.stringify({ a: value.sn, at: value.at, r: value.refused }), { ttlMs: ttlLeft(value.at) });
+    } catch (_) {
+    }
+  }
+  function activeSn(channel) {
+    const state = read(channel);
+    if (state) return state.active;
+    return carried()?.sn ?? null;
+  }
   const triedCount = (channel) => read(channel)?.tried.length ?? 0;
-  function onRefused(channel, currentSn, pool, refusedKey) {
-    const state = read(channel) || empty();
+  function refuse(channel, currentSn, pool, refusedKey) {
+    let state = read(channel);
+    if (!state) {
+      state = empty(clock2.now());
+      const c2 = carried();
+      if (c2) {
+        state.active = c2.sn;
+        state.excluded = c2.refused.slice();
+      }
+    }
+    if (state.exhausted) return "already_exhausted";
     const key = digest(refusedKey);
-    if (key !== null && state.last === key) return state.active !== null;
+    if (key !== null && state.last === key) return "repeated";
     state.last = key;
     const refused = state.active ?? currentSn;
     if (!state.tried.includes(refused)) state.tried.push(refused);
     const rotationsSoFar = state.tried.length - 1;
     let next = null;
     if (rotationsSoFar < maxRotations) {
-      const candidates = (Array.isArray(pool) ? pool : []).filter((e) => e && !isBlank(e.sn) && !state.tried.includes(e.sn));
+      const candidates = (Array.isArray(pool) ? pool : []).filter((e) => e && !isBlank(e.sn) && !state.tried.includes(e.sn) && !state.excluded.includes(e.sn));
       if (candidates.length > 0) next = candidates[Math.min(candidates.length - 1, Math.floor(random() * candidates.length))].sn;
     }
     state.active = next;
+    const c = carried();
+    let outcome;
+    if (next !== null) {
+      const refusedSns = c ? c.refused.slice() : [];
+      if (!refusedSns.includes(refused)) refusedSns.push(refused);
+      setCarried({ sn: next, at: clock2.now(), refused: refusedSns.slice(-MAX_CARRIED_REFUSALS) });
+      outcome = "rotated";
+    } else {
+      state.exhausted = true;
+      if (c && state.tried.includes(c.sn)) setCarried(null);
+      outcome = "exhausted";
+    }
     write(channel, state);
-    return next !== null;
+    return outcome;
   }
-  return { activeSn, triedCount, onRefused };
+  function onRefused(channel, currentSn, pool, refusedKey) {
+    const outcome = refuse(channel, currentSn, pool, refusedKey);
+    if (outcome === "rotated") return true;
+    if (outcome === "repeated") return activeSn(channel) !== null;
+    return false;
+  }
+  return { activeSn, triedCount, refuse, onRefused };
 }
 
 // src/live.js
@@ -2797,23 +2866,32 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
     };
   }
   const seedBySn = (sn) => sn === null ? null : session.seedPool().find((e) => e.sn === sn) || null;
+  const OUTCOME_LOG = {
+    rotated: "next open uses another seed",
+    exhausted: "no seed left, back to the own session",
+    already_exhausted: "its budget is already spent for this window, stays on the own session",
+    repeated: "again for the same license"
+  };
   function onConflict(code, attempt) {
-    const activeSn = rotation.activeSn(code);
-    if (session.kind() !== "seed" && activeSn === null) return;
-    const current = activeSn ?? session.current().sn;
+    const kind = session.kind();
+    if (kind !== "seed") {
+      log(`409 on a channel: session kind is '${kind}', only a shared seed rotates`);
+      return;
+    }
+    const current = rotation.activeSn(code) ?? session.current().sn;
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
-    const moved = rotation.onRefused(code, current, session.seedPool(), refusedKey);
-    log(`409 on a channel: ${moved ? "next open uses another seed" : "no seed left, back to the own session"} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
+    const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
+    log(`409 on a channel: ${OUTCOME_LOG[outcome]} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
   }
   async function openWithRotation(code, deadline) {
-    let seed = seedBySn(rotation.activeSn(code));
+    let seed = session.kind() === "seed" ? seedBySn(rotation.activeSn(code)) : null;
     if (!seed) return open(code, null, deadline);
     for (let i = 0; i < MAX_ROTATIONS + 1; i++) {
       try {
         return await open(code, seed, deadline);
       } catch (_) {
         log("a rotated seed could not open the channel: next");
-        const moved = rotation.onRefused(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`);
+        const moved = rotation.refuse(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`) === "rotated";
         const next = seedBySn(rotation.activeSn(code));
         if (!next || !moved) return open(code, null, deadline);
         seed = next;

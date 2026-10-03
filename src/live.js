@@ -174,28 +174,36 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
 
   const seedBySn = (sn) => (sn === null ? null : session.seedPool().find((e) => e.sn === sn) || null);
 
-  // AppGraph.onLiveConflict: only a shared seed can be in use twice, so only a device on a seed (or a
-  // channel already moved to one) rotates; an account or a minted own session never does.
+  const OUTCOME_LOG = {
+    rotated: "next open uses another seed",
+    exhausted: "no seed left, back to the own session",
+    already_exhausted: "its budget is already spent for this window, stays on the own session",
+    repeated: "again for the same license",
+  };
+
+  // AppGraph.onLiveConflict: only a shared seed can be in use twice, so only a device on a seed
+  // rotates; an account or a minted own session never does (whatever a rotation left behind).
   function onConflict(code, attempt) {
-    const activeSn = rotation.activeSn(code);
-    if (session.kind() !== "seed" && activeSn === null) return;
-    const current = activeSn ?? session.current().sn;
+    const kind = session.kind();
+    if (kind !== "seed") { log(`409 on a channel: session kind is '${kind}', only a shared seed rotates`); return; }
+    const current = rotation.activeSn(code) ?? session.current().sn;
     const refusedKey = served.has(code) ? served.get(code) : `retry:${attempt}`;
-    const moved = rotation.onRefused(code, current, session.seedPool(), refusedKey);
-    log(`409 on a channel: ${moved ? "next open uses another seed" : "no seed left, back to the own session"} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
+    const outcome = rotation.refuse(code, current, session.seedPool(), refusedKey);
+    log(`409 on a channel: ${OUTCOME_LOG[outcome]} (tried ${rotation.triedCount(code)}/${MAX_ROTATIONS + 1})`);
   }
 
-  // AppGraph.resolveLive: the channel's rotated seed first; a seed that cannot even open is marked
-  // refused and the next one is tried, up to MAX_ROTATIONS + 1; then the device's own session.
+  // AppGraph.resolveLive: the channel's rotated (or carried) seed first, only while the device is on
+  // a seed; a seed that cannot even open is marked refused and the next one is tried, up to
+  // MAX_ROTATIONS + 1; then the device's own session.
   async function openWithRotation(code, deadline) {
-    let seed = seedBySn(rotation.activeSn(code));
+    let seed = session.kind() === "seed" ? seedBySn(rotation.activeSn(code)) : null;
     if (!seed) return open(code, null, deadline);
     for (let i = 0; i < MAX_ROTATIONS + 1; i++) {
       try {
         return await open(code, seed, deadline);
       } catch (_) {
         log("a rotated seed could not open the channel: next");
-        const moved = rotation.onRefused(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`);
+        const moved = rotation.refuse(code, seed.sn, session.seedPool(), `resolve:${seed.sn}`) === "rotated";
         const next = seedBySn(rotation.activeSn(code));
         if (!next || !moved) return open(code, null, deadline);
         seed = next;

@@ -56,10 +56,12 @@ test("worst case: every key the plugin writes, all full at once, fits the 256 KB
   // 200 seeds as session.js stores them, with token lengths like the real pool's.
   const seeds = JSON.stringify(Array.from({ length: 200 }, (_, i) => ({ sn: hex(i, 32), userId: String(10_000_000 + i), userToken: hex(i, 64) })));
   const session = JSON.stringify({ userId: "12345678", userToken: hex(1, 64), jwtToken: "e".repeat(600), sn: hex(2, 32), acct: hex(3, 64) });
-  const rotation = JSON.stringify({ sns: Array.from({ length: 6 }, (_, i) => hex(i, 32)), k: hex(9, 16), at: 1790000000000 });
+  // A channel's rotation: 4 tried sns, up to 16 excluded (refused before the carried seed it started on).
+  const sns = (n) => Array.from({ length: n }, (_, i) => hex(i, 32));
+  const rotation = JSON.stringify({ t: sns(4), a: hex(7, 32), k: hex(9, 16), at: 1790000000000, s: 1790000000000, x: sns(16), e: true });
   const misc = {
     seeds, session, pendingRegistration: JSON.stringify({ userId: "1", userToken: hex(1, 64), sn: hex(2, 32), email: "persona.larga@ejemplo.test", at: 1 }),
-    refusedAcct: JSON.stringify({ key: hex(4, 64), at: 1 }), region: '{"blocked":true}', seedsAt: "1790000000000", sharedAccount: "true",
+    refusedAcct: JSON.stringify({ key: hex(4, 64), at: 1 }), liveRotCarried: JSON.stringify({ a: hex(8, 32), at: 1790000000000, r: sns(16) }), region: '{"blocked":true}', seedsAt: "1790000000000", sharedAccount: "true",
   };
   for (let i = 0; i < 12; i++) misc["liveRot:" + "c".repeat(128) + i] = rotation;
   // Wrapper of a value stored with a ttl ({"v":…,"e":…}) and the key itself, per key.

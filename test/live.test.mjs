@@ -485,6 +485,54 @@ test("rotation state is written with a ttl and a full storage never fails the op
   assert.ok(sets.length >= 1 && sets.every((o) => o && o.ttlMs > 0 && o.ttlMs <= 60 * 60_000));
 });
 
+// ---- 0.9.45 (native 2d285106): carried seed, rotation only on a seed session -----------------
+
+test("zapping on a seed: the seed one channel rotated to is where the next channel starts", async () => {
+  const pool = ["sn-own", "a", "b", "c"].map(seed);
+  const queues = { "v4/startPlayLive": [lic(0), lic(1), lic(2)], "v14/getSlbInfo": Array(3).fill(OK_SLB) };
+  const t = setup({ kind: "seed", sn: "sn-own", pool, random: () => 0, queues });
+  await t.live.resolveLive("c");
+  await t.live.resolveLive("c", { retry: { reason: "conflict", attempt: 1 } });
+  await t.live.resolveLive("d"); // no refusal of its own: starts on the carried seed
+  const sns = t.portal.calls.filter((c) => c.path === "v4/startPlayLive").map((c) => c.opts.sn);
+  assert.deepEqual(sns, [undefined, "a", "a"]);
+});
+
+test("a channel started on the carried seed rotates from it and never back to the own session refused elsewhere", async () => {
+  const pool = ["sn-own", "a", "b", "c"].map(seed);
+  const queues = { "v4/startPlayLive": [0, 1, 2, 3].map(lic), "v14/getSlbInfo": Array(4).fill(OK_SLB) };
+  const t = setup({ kind: "seed", sn: "sn-own", pool, random: () => 0, queues });
+  await t.live.resolveLive("c");
+  await t.live.resolveLive("c", { retry: { reason: "conflict", attempt: 1 } }); // c -> a (carried)
+  await t.live.resolveLive("d"); // d on a
+  await t.live.resolveLive("d", { retry: { reason: "conflict", attempt: 1 } }); // a refused on d -> b, never sn-own
+  const sns = t.portal.calls.filter((c) => c.path === "v4/startPlayLive").map((c) => c.opts.sn);
+  assert.deepEqual(sns, [undefined, "a", "a", "b"]);
+});
+
+test("a device that left the seed (linked an account) keeps its own session whatever a rotation left behind", async () => {
+  const pool = ["sn-own", "a", "b"].map(seed);
+  const queues = { "v4/startPlayLive": [lic(0), lic(1), lic(2), lic(3)], "v14/getSlbInfo": Array(4).fill(OK_SLB) };
+  const t = setup({ kind: "seed", sn: "sn-own", pool, random: () => 0, queues });
+  await t.live.resolveLive("c");
+  await t.live.resolveLive("c", { retry: { reason: "conflict", attempt: 1 } });
+  t.session.kindValue = "account";
+  await t.live.resolveLive("c");
+  await t.live.resolveLive("c", { retry: { reason: "conflict", attempt: 2 } }); // no rotation on an account
+  const sns = t.portal.calls.filter((c) => c.path === "v4/startPlayLive").map((c) => c.opts.sn);
+  assert.deepEqual(sns, [undefined, "a", undefined, undefined]);
+});
+
+test("a channel that spent its budget stays on the own session for the window: later conflicts do not rotate again", async () => {
+  const pool = ["sn-own", "a", "b", "c", "d", "e", "f"].map(seed);
+  const queues = { "v4/startPlayLive": [0, 1, 2, 3, 4, 5, 6].map(lic), "v14/getSlbInfo": Array(7).fill(OK_SLB) };
+  const t = setup({ kind: "seed", sn: "sn-own", pool, random: () => 0, queues });
+  await t.live.resolveLive("c");
+  for (let attempt = 1; attempt <= 6; attempt++) await t.live.resolveLive("c", { retry: { reason: "conflict", attempt } });
+  const sns = t.portal.calls.filter((c) => c.path === "v4/startPlayLive").map((c) => c.opts.sn);
+  assert.deepEqual(sns, [undefined, "a", "b", "c", undefined, undefined, undefined]);
+});
+
 // ---- routing from resolve() ---------------------------------------------------------------
 
 test("isChannelRef: a bare channel code is live; magis1, legacy gateway refs and urls are not", () => {
