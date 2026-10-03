@@ -10,6 +10,7 @@ import { makeSettings } from "../src/settings.js";
 import { makeRegistration } from "../src/registration.js";
 import { PASSWORD_SALT, SNTOKEN_SALT } from "../src/config.js";
 import { checkSettingsOutput } from "../sdk/contract.mjs";
+import { shownSentence } from "../sdk/kino-shim.mjs";
 
 const manifest = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
 const md5 = (s) => createHash("md5").update(s).digest("hex");
@@ -18,6 +19,8 @@ const EMAIL = "persona@ejemplo.test";
 const CODE = "482913";
 const STORED = { userId: "u-old", userToken: "tok-old", jwtToken: "", sn: "sn-old" };
 const PENDING_KEY = "pendingRegistration";
+/** What the person reads for `e` (its userMessage when the app's filter lets it through), else null. */
+const shown = (e) => shownSentence(e);
 const reply = (obj) => ({ text: () => JSON.stringify(obj) });
 const hexToText = (hex) => Buffer.from(hex, "hex").toString("utf8");
 
@@ -129,6 +132,7 @@ test("sendCode: a failed save of the pending device is told, never a false \"we 
     assert.equal(e.name, "KinoError_unavailable");
     assert.equal(e.message, "No se pudo guardar el pedido; inténtalo de nuevo");
     assert.ok(!e.message.includes(PW));
+    assert.equal(shown(e), "No pudimos guardar tu pedido. Vuelve a tocar Crear cuenta.");
     return true;
   });
 });
@@ -147,6 +151,7 @@ test("sendCode: a refusal at any step reads the native text and leaves the sessi
     await assert.rejects(w.settings.action("sendCode"), (e) => {
       assert.equal(e.message, "No se pudo enviar el código: revisa el email");
       assert.ok(!e.message.includes(PW));
+      assert.equal(shown(e), "Xuper no pudo enviar el código a ese correo. Revisa que esté bien escrito en Ajustes ▸ Xuper.");
       return true;
     });
     assert.deepEqual(w.stored(), STORED, failing);
@@ -154,6 +159,22 @@ test("sendCode: a refusal at any step reads the native text and leaves the sessi
   }
   const w = world({ routes: goodRoutes({ "v8/active": { userId: "u", userToken: "" } }) });
   await rejects(w.settings.action("sendCode"), "unavailable", "No se pudo enviar el código: revisa el email");
+});
+
+test("every registration failure the person reads passes the app's sentence filter (no generic fallback)", async () => {
+  const cases = [
+    [() => world({ routes: goodRoutes({ "v2/sendEmailVerifyCode": refuse() }) }), "sendCode"],
+    [() => sent({}, { "v2/validateVerifyCode": refuse() }), "register"],
+    [() => sent({}, { "v2/bindEmail": refuse() }), "register"],
+  ];
+  for (const [make, key] of cases) {
+    const w = await make();
+    await assert.rejects(w.settings.action(key), (e) => {
+      assert.equal(e.name, "KinoError_unavailable");
+      assert.equal(typeof shown(e), "string", key + ": " + e.message);
+      return true;
+    });
+  }
 });
 
 test("sendCode: a network failure is the plugin's own unavailable", async () => {
@@ -196,6 +217,7 @@ test("register: a refusal at validate or bind reads the native text; session and
     await assert.rejects(w.settings.action("register"), (e) => {
       assert.equal(e.message, "Código inválido o cuenta ya registrada");
       assert.ok(!e.message.includes(PW) && !e.message.includes(CODE));
+      assert.equal(shown(e), "Xuper no aceptó el código, o ese correo ya tiene cuenta. Pide otro código o toca Iniciar sesión.");
       return true;
     });
     assert.deepEqual(w.stored(), STORED, failing);
@@ -271,10 +293,12 @@ test("slow portal: each step's request is clamped to what is left of the 25 s bu
   assert.deepEqual(reg.requests.map((r) => r.timeoutMs), [10_000, 10_000, 7_000]);
   assert.ok(reg.clock.t - 5_000_000 <= 30_000);
 
-  // a budget that runs out mid-flow ends in the plugin's own unavailable, nothing replaced
+  // a budget that runs out mid-flow replaces nothing; here it runs out at the login AFTER bindEmail,
+  // so the account exists: the person is told to log in, not shown an error
   const dead = world({ routes: goodRoutes(), hosts: ["h1.test"], config: withConfig(), onFetch: (req, clock) => { clock.t += 13_000; return undefined; } });
   dead.base.storage.set(PENDING_KEY, JSON.stringify({ userId: "u", userToken: "t", sn: "s", email: EMAIL }));
-  await rejects(dead.settings.action("register"), "unavailable");
+  assert.equal((await dead.settings.action("register")).message, "Cuenta creada. Toca Iniciar sesión para entrar.");
+  assert.deepEqual(dead.paths(), ["v2/validateVerifyCode", "v2/bindEmail"], "the login was never even asked");
   assert.ok(dead.clock.t - 5_000_000 < 30_000);
   assert.deepEqual(dead.stored(), STORED);
 });
@@ -294,14 +318,13 @@ test("sendCode: a second tap inside 60 s for the same email mints nothing; after
   assert.equal(w.requests.length, 3);
 });
 
-test("register: login failing AFTER bindEmail says the account exists and drops the pending device", async () => {
+test("register: login failing AFTER bindEmail is not an error: the account exists, the person is told to log in", async () => {
   for (const failure of [refuse("x"), new Error("offline"), { userId: "u", userToken: "" }]) {
     const w = await sent({}, { "v8/login": failure });
-    await assert.rejects(w.settings.action("register"), (e) => {
-      assert.equal(e.message, "Cuenta creada. Toca Iniciar sesión para entrar.");
-      assert.ok(e.message.length <= 300);
-      return true;
-    });
+    const out = keep(await w.settings.action("register"));
+    assert.equal(out.message, "Cuenta creada. Toca Iniciar sesión para entrar.");
+    assert.equal(out.refresh, true);
+    assert.deepEqual(out.clearSettings, ["verifyCode"], "the code is spent");
     assert.equal(w.base.storage.get(PENDING_KEY), null);
     assert.deepEqual(w.stored(), STORED);
   }

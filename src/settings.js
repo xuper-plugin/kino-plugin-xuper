@@ -42,6 +42,7 @@ const FILL_EMAIL = `Escribe tu correo en ${SETTINGS_PLACE}.`;
 const BAD_EMAIL = `Escribe un correo válido en ${SETTINGS_PLACE}.`;
 const FILL_CODE = `Escribe el código que te enviamos en ${SETTINGS_PLACE}.`;
 const ASK_CODE_AGAIN = "Pide el código otra vez.";
+const ACCOUNT_CREATED_LOG_IN = "Cuenta creada. Toca Iniciar sesión para entrar.";
 
 export function makeSettings({ kino, session, clock, registration }) {
   // Kino errors (already Spanish, already free of secrets) pass; anything else is a fixed text, so
@@ -152,9 +153,12 @@ export function makeSettings({ kino, session, clock, registration }) {
     const pending = registration.pendingFor(email);
     if (!pending) throw told(kino, "unavailable", "Pide el código otra vez", ASK_CODE_AGAIN);
     const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock.now() + REGISTER_TOTAL_MS };
-    try { await registration.confirmRegistration(pending, code, password, bounds); }
+    let done;
+    try { done = await registration.confirmRegistration(pending, code, password, bounds); }
     catch (e) { throw surface(e); }
-    return { message: "Cuenta creada y sesión iniciada", refresh: true, clearSettings: ["verifyCode"] };
+    // Created but the login after it failed: the account exists, so this is no error (the code is spent).
+    const message = done && done.loggedIn === false ? ACCOUNT_CREATED_LOG_IN : "Cuenta creada y sesión iniciada";
+    return { message, refresh: true, clearSettings: ["verifyCode"] };
   }
 
   const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };

@@ -3530,6 +3530,7 @@ var FILL_EMAIL = `Escribe tu correo en ${SETTINGS_PLACE}.`;
 var BAD_EMAIL = `Escribe un correo v\xE1lido en ${SETTINGS_PLACE}.`;
 var FILL_CODE = `Escribe el c\xF3digo que te enviamos en ${SETTINGS_PLACE}.`;
 var ASK_CODE_AGAIN = "Pide el c\xF3digo otra vez.";
+var ACCOUNT_CREATED_LOG_IN = "Cuenta creada. Toca Iniciar sesi\xF3n para entrar.";
 function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   const surface = (e) => {
     if (isKinoError(e)) return e;
@@ -3625,12 +3626,14 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     const pending = registration.pendingFor(email);
     if (!pending) throw told(kino2, "unavailable", "Pide el c\xF3digo otra vez", ASK_CODE_AGAIN);
     const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock2.now() + REGISTER_TOTAL_MS };
+    let done;
     try {
-      await registration.confirmRegistration(pending, code, password, bounds);
+      done = await registration.confirmRegistration(pending, code, password, bounds);
     } catch (e) {
       throw surface(e);
     }
-    return { message: "Cuenta creada y sesi\xF3n iniciada", refresh: true, clearSettings: ["verifyCode"] };
+    const message = done && done.loggedIn === false ? ACCOUNT_CREATED_LOG_IN : "Cuenta creada y sesi\xF3n iniciada";
+    return { message, refresh: true, clearSettings: ["verifyCode"] };
   }
   const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
   async function action2(key) {
@@ -3681,15 +3684,17 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
 var PENDING_KEY = "pendingRegistration";
 var PENDING_TTL_MS = 30 * 6e4;
 var SEND_FAILED = "No se pudo enviar el c\xF3digo: revisa el email";
-var BOUND_BUT_NOT_IN = "Cuenta creada. Toca Iniciar sesi\xF3n para entrar.";
+var SEND_FAILED_TEXT = `Xuper no pudo enviar el c\xF3digo a ese correo. Revisa que est\xE9 bien escrito en ${SETTINGS_PLACE}.`;
 var NOT_SAVED = "No se pudo guardar el pedido; int\xE9ntalo de nuevo";
+var NOT_SAVED_TEXT = "No pudimos guardar tu pedido. Vuelve a tocar Crear cuenta.";
 var CONFIRM_FAILED = "C\xF3digo inv\xE1lido o cuenta ya registrada";
+var CONFIRM_FAILED_TEXT = "Xuper no acept\xF3 el c\xF3digo, o ese correo ya tiene cuenta. Pide otro c\xF3digo o toca Iniciar sesi\xF3n.";
 var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   const fingerprint = makeFingerprint(kino2);
-  const failure = (e, text2) => {
+  const failure = (e, text2, sentence) => {
     trace(kino2, "register", "fail", { code: errCode(e) });
-    if (e instanceof PortalError) return kino2.error("unavailable", text2);
+    if (e instanceof PortalError) return told(kino2, "unavailable", text2, sentence);
     if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) return e;
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
@@ -3732,10 +3737,10 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
         { email, type: "1", userId: pending.userId, userToken: pending.userToken },
         { baseFields: false, sn, ...bounds }
       );
-      if (!savePending(pending)) throw kino2.error("unavailable", NOT_SAVED);
+      if (!savePending(pending)) throw told(kino2, "unavailable", NOT_SAVED, NOT_SAVED_TEXT);
       return pending;
     } catch (e) {
-      throw failure(e, SEND_FAILED);
+      throw failure(e, SEND_FAILED, SEND_FAILED_TEXT);
     }
   }
   async function confirmRegistration(pending, code, password, bounds = {}) {
@@ -3765,12 +3770,14 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
       await session.adoptSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn, acct: session.accountKey(email, password) });
     } catch (e) {
       if (bound) {
+        trace(kino2, "register", "bound_not_in", { code: errCode(e) });
         dropPending();
-        throw kino2.error("unavailable", BOUND_BUT_NOT_IN);
+        return { loggedIn: false };
       }
-      throw failure(e, CONFIRM_FAILED);
+      throw failure(e, CONFIRM_FAILED, CONFIRM_FAILED_TEXT);
     }
     dropPending();
+    return { loggedIn: true };
   }
   return { sendRegistrationCode, confirmRegistration, pendingFor };
 }

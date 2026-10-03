@@ -1,17 +1,21 @@
 // Creating a Xuper account from Ajustes: a port of the native MagisSession.sendRegistrationCode /
 // confirmRegistration. The code is asked for with a SEPARATE temporary device so the person's own
 // stored session and sn are never touched; only a fully confirmed registration replaces them.
-import { PortalError } from "./portal.js";
+import { PortalError, told, SETTINGS_PLACE } from "./portal.js";
 import { trace, errCode } from "./trace.js";
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom, blank } from "./device.js";
 
 const PENDING_KEY = "pendingRegistration";
 const PENDING_TTL_MS = 30 * 60_000; // the code is useless after a while: the device goes with it
+// `message` (the log) and what the person reads (`userMessage`, worded for the app's sentence filter:
+// without one the app shows its generic "Xuper no está disponible ahora").
 const SEND_FAILED = "No se pudo enviar el código: revisa el email";
-const BOUND_BUT_NOT_IN = "Cuenta creada. Toca Iniciar sesión para entrar.";
+const SEND_FAILED_TEXT = `Xuper no pudo enviar el código a ese correo. Revisa que esté bien escrito en ${SETTINGS_PLACE}.`;
 const NOT_SAVED = "No se pudo guardar el pedido; inténtalo de nuevo";
+const NOT_SAVED_TEXT = "No pudimos guardar tu pedido. Vuelve a tocar Crear cuenta.";
 const CONFIRM_FAILED = "Código inválido o cuenta ya registrada";
+const CONFIRM_FAILED_TEXT = "Xuper no aceptó el código, o ese correo ya tiene cuenta. Pide otro código o toca Iniciar sesión.";
 
 const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
 
@@ -19,9 +23,9 @@ export function makeRegistration({ kino, portal, session, clock }) {
   const fingerprint = makeFingerprint(kino);
 
   // A portal refusal reads the native text; a kino error (network, bounds) passes; a bug is fixed text.
-  const failure = (e, text) => {
+  const failure = (e, text, sentence) => {
     trace(kino, "register", "fail", { code: errCode(e) });
-    if (e instanceof PortalError) return kino.error("unavailable", text);
+    if (e instanceof PortalError) return told(kino, "unavailable", text, sentence);
     if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) return e;
     return kino.error("unavailable", "Xuper no está disponible ahora");
   };
@@ -58,12 +62,16 @@ export function makeRegistration({ kino, portal, session, clock }) {
       await portal.call("v2/sendEmailVerifyCode",
         { email, type: "1", userId: pending.userId, userToken: pending.userToken }, { baseFields: false, sn, ...bounds });
       // The code is out, but without the device the person could never confirm it: say so.
-      if (!savePending(pending)) throw kino.error("unavailable", NOT_SAVED);
+      if (!savePending(pending)) throw told(kino, "unavailable", NOT_SAVED, NOT_SAVED_TEXT);
       return pending;
-    } catch (e) { throw failure(e, SEND_FAILED); }
+    } catch (e) { throw failure(e, SEND_FAILED, SEND_FAILED_TEXT); }
   }
 
-  /** validate -> bind -> login on the pending device; only on full success is the session replaced. */
+  /**
+   * validate -> bind -> login on the pending device; only on full success is the session replaced.
+   * `{ loggedIn: true }`, or `{ loggedIn: false }` when the account WAS created (bound) but the login
+   * after it failed: not an error, the person just logs in with it.
+   */
   async function confirmRegistration(pending, code, password, bounds = {}) {
     await null;
     const { email, userId, userToken, sn } = pending;
@@ -82,10 +90,11 @@ export function makeRegistration({ kino, portal, session, clock }) {
       await session.adoptSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn, acct: session.accountKey(email, password) });
     } catch (e) {
       // The account exists now: the old code is spent, so the pending device is useless.
-      if (bound) { dropPending(); throw kino.error("unavailable", BOUND_BUT_NOT_IN); }
-      throw failure(e, CONFIRM_FAILED);
+      if (bound) { trace(kino, "register", "bound_not_in", { code: errCode(e) }); dropPending(); return { loggedIn: false }; }
+      throw failure(e, CONFIRM_FAILED, CONFIRM_FAILED_TEXT);
     }
     dropPending();
+    return { loggedIn: true };
   }
 
   return { sendRegistrationCode, confirmRegistration, pendingFor };
