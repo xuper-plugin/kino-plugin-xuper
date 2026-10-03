@@ -80,7 +80,7 @@
     "list": { "apiVersion": 4, "defaultMaxEntries": 20, "maxEntries": 50, "maxFields": 4, "fieldTypes": ["text", "url"] },
     "ui": {
       "apiVersion": 6,
-      "maxItems": 8,
+      "maxItems": 16,
       "confirmMaxChars": 120,
       "statusMaxChars": 200,
       "messageMaxChars": 300,

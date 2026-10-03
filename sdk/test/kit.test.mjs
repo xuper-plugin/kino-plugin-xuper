@@ -2609,10 +2609,10 @@ test("section, status and action settings (apiVersion 6)", () => {
   assert.equal(validateManifest(base(4, [action])).message, need("action", "logout"));
   assert.equal(validateManifest(base(6, [{ ...status, required: true }])).message, 'El ajuste "linked" no puede ser obligatorio');
   const values = Array.from({ length: 12 }, (_, i) => ({ key: `v${i}`, label: `V${i}`, type: "text" }));
-  const ui = Array.from({ length: 8 }, (_, i) => ({ key: `s${i}`, label: `S${i}`, type: "section" }));
+  const ui = Array.from({ length: 16 }, (_, i) => ({ key: `s${i}`, label: `S${i}`, type: "section" }));
   assert.equal(validateManifest(base(6, [...values, ...ui])).ok, true);
-  assert.equal(validateManifest(base(6, [...values.slice(0, 11), ...ui, { key: "s9", label: "S9", type: "section" }])).message, "El plugin tiene más de 8 secciones, estados o acciones");
-  assert.equal(validateManifest(base(6, [...values, { key: "v13", label: "V", type: "text" }, ...ui.slice(0, 7)])).message, "El plugin pide más de 12 ajustes");
+  assert.equal(validateManifest(base(6, [...values.slice(0, 11), ...ui, { key: "s17", label: "S17", type: "section" }])).message, "El plugin tiene más de 16 secciones, estados o acciones");
+  assert.equal(validateManifest(base(6, [...values, { key: "v13", label: "V", type: "text" }, ...ui.slice(0, 15)])).message, "El plugin pide más de 12 ajustes");
   assert.deepEqual(requiredExports(["search", "resolve"], [section, status, action]).sort(), ["action", "resolve", "search", "settingsStatus"]);
 });
 
