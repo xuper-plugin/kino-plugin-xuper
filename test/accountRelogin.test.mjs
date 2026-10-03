@@ -125,3 +125,44 @@ test("a live channel on a linked account still dead after the re-logins keeps th
   const w = linked({ "v8/login": () => ({ userId: "u-acct", userToken: "tok-acct" }), "v4/startPlayLive": DEAD });
   await assert.rejects(w.resolve.resolve("cyx-RCNHD"), authWith(ACCOUNT_SESSION_LOST));
 });
+
+// ---- review I1/M1: the SHARED account keeps its old fallback chain and never gets "re-link" sentences ----
+
+const SHARED = { email: "compartida@x.test", password: "stand-in-shared" };
+function onShared(routes) {
+  const w = portalWorld({ hosts: ["a.test"], shared: SHARED, config: { useSharedAccount: true }, seedsText: "[]", routes });
+  w.kino.storage.set("session", JSON.stringify({ ...STORED, userToken: "tok-sh", acct: "shared" }));
+  assert.equal(w.session.usingShared(), true);
+  return w;
+}
+const notAnAccountSentence = (e) => {
+  assert.ok(e.name.startsWith("KinoError_"), e.message);
+  assert.ok(e.message !== ACCOUNT_SESSION_LOST && e.message !== ACCOUNT_IN_USE_ELSEWHERE_TEXT, e.message);
+  return true;
+};
+
+test("shared account: a renewal login answered aaa100083 or \"not logged in\" falls back to the anonymous session, which serves the call", async () => {
+  for (const answer of [ELSEWHERE, DEAD]) {
+    const w = onShared({
+      "v8/login": logins(answer),
+      "v3/searchByName": (bean) => (bean.userToken === "tok-new" ? found : DEAD),
+    });
+    const out = await w.catalog.search(query);
+    assert.equal(out[0].id, "D1", answer.returnCode);
+    assert.equal(w.paths().filter((p) => p === "v8/login").length, 1, "no second login on the shared pair");
+    assert.ok(w.paths().includes("v8/active"), "the anonymous session took over");
+  }
+});
+
+test("own account, same aaa100083 renewal answer: the native account sentence (unchanged)", async () => {
+  const w = linked({ "v8/login": logins(ELSEWHERE), "v3/searchByName": (bean) => (bean.userToken === "tok-new" ? found : DEAD) });
+  await assert.rejects(w.catalog.search(query), authWith(ACCOUNT_IN_USE_ELSEWHERE_TEXT));
+});
+
+test("shared account still dead after its renewal, or answered aaa100083 on content: never a \"re-link\" sentence", async () => {
+  const dead = onShared({ "v8/login": () => ({ userId: "u-sh", userToken: "tok-sh2" }), "v3/searchByName": DEAD });
+  await assert.rejects(dead.catalog.search(query), notAnAccountSentence);
+  assert.equal(dead.paths().filter((p) => p === "v8/login").length, 1, "no extra login on the shared pair");
+  const elsewhere = onShared({ "v8/login": () => ({ userId: "u-sh", userToken: "tok-sh2" }), "v3/searchByName": ELSEWHERE });
+  await assert.rejects(elsewhere.catalog.search(query), notAnAccountSentence);
+});

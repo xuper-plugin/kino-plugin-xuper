@@ -118,11 +118,13 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   // Memory of a refusal expires: a transient portal answer heals by itself.
   const REFUSAL_TTL_MS = 10 * 60_000;
   const LOGIN_COOLDOWN_MS = 60_000;
-  // Answers that are NOT a verdict on the credentials: a geo-block, a portal that answered without a
-  // session, "not logged in" to the login itself (native retries it), or the account open elsewhere.
-  const NOT_A_REFUSAL = new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token",
-    ...SESSION_DEAD, ACCOUNT_IN_USE_ELSEWHERE]);
-  const refusal = (e) => e instanceof PortalError && !NOT_A_REFUSAL.has(e.code);
+  // Answers that are NOT a verdict on the credentials: a geo-block, or a portal that answered without a session.
+  const NOT_A_REFUSAL = new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token"]);
+  // For the person's OWN account also "not logged in" to the login itself (native retries it) and the
+  // account open elsewhere (native says so). The SHARED pair keeps the old chain: those answers count
+  // as a refusal, so the call falls to the anonymous session (and the seed paths) instead.
+  const OWN_NOT_A_REFUSAL = new Set([...NOT_A_REFUSAL, ...SESSION_DEAD, ACCOUNT_IN_USE_ELSEWHERE]);
+  const refusal = (e, key) => e instanceof PortalError && !(key === "shared" ? NOT_A_REFUSAL : OWN_NOT_A_REFUSAL).has(e.code);
   const refusedKey = () => {
     const r = readJson("refusedAcct");
     if (!r || typeof r !== "object" || typeof r.key !== "string" || typeof r.at !== "number") return "";
@@ -254,7 +256,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (acc && !wait) {
       // A rejected credential or a portal down: anonymous is served before serving nothing.
       try { await loginUnlocked(acc.email, acc.password, bounds); clearRefused(key); endCooldown(); return; }
-      catch (e) { if (refusal(e)) setRefused(key); else startCooldown(key); }
+      catch (e) { if (refusal(e, key)) setRefused(key); else startCooldown(key); }
     }
     await ensureAnonymousUnlocked(bounds);
   }
@@ -282,7 +284,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       if (acc) {
         try { await loginUnlocked(acc.email, acc.password, bounds); clearRefused(keyOf(acc)); endCooldown(); }
         catch (e) {
-          if (!refusal(e)) { loginError = e; throw e; }
+          if (!refusal(e, keyOf(acc))) { loginError = e; throw e; }
           setRefused(keyOf(acc)); // refused: the session falls to the anonymous path, as `ensure` does
           await ensureAnonymousUnlocked(bounds);
         }
@@ -373,7 +375,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       await lock(async () => { await loginUnlocked(email, password, bounds); clearRefused(key); endCooldown(); dropLegacy(); });
     } catch (e) {
       if (e instanceof PortalError) {
-        if (refusal(e)) setRefused(key);
+        if (refusal(e, key)) setRefused(key);
         throw kino.error("auth_required", "Credenciales de Xuper inválidas");
       }
       throw e;
@@ -387,7 +389,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     try { await lock(async () => { await loginUnlocked(sharedPair.email, sharedPair.password, bounds); clearRefused("shared"); endCooldown(); }); }
     catch (e) {
       if (e instanceof PortalError) {
-        if (refusal(e)) setRefused("shared");
+        if (refusal(e, "shared")) setRefused("shared");
         throw kino.error("auth_required", "No se pudo activar la cuenta compartida");
       }
       throw e;
@@ -477,9 +479,12 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     // the geo-block's pool download, the reauthentication and the rescue.
     const bounds = typeof deadline === "number" ? { deadline } : {};
     const onSeed = () => { const sn = readSession().sn; return seedPool().some((e) => e.sn === sn); };
+    // The person's OWN linked account (native hasAccountLinked): the extra logins and the account
+    // sentences are for it; the shared pair never asks anyone to re-link it (review I1/M1).
+    const ownLinked = () => account() !== null && !usingShared();
     const settle = (r) => {
       // A linked account's session code that survived the re-logins: the account is what needs the person.
-      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino, { accountLinked: account() !== null });
+      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino, { accountLinked: ownLinked() });
       exhausted = false;
       // A content answer on the device's OWN session is the proof the region does not block it.
       if (regionBlocked() && !onSeed()) setRegion(false);
@@ -510,12 +515,12 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     // The renewal's own login FAILED on a linked account for a reason a retry can fix (native 0.9.46,
     // ERRORES-B30): one more real login, single-flighted; never for a refused credential, never for
     // an account open on another device (a second login only fights the other device).
-    if (SESSION_DEAD.has(result.err.code) && account() && transientLogin(renewal.loginError)) {
+    if (SESSION_DEAD.has(result.err.code) && ownLinked() && transientLogin(renewal.loginError)) {
       renewal = await renew(view().userToken, bounds);
     }
     // The account is open on another device: that, not "not logged in", is what the person must fix.
     const loginError = renewal.loginError;
-    if (loginError instanceof PortalError && loginError.code === ACCOUNT_IN_USE_ELSEWHERE && account()) result = { err: loginError };
+    if (loginError instanceof PortalError && loginError.code === ACCOUNT_IN_USE_ELSEWHERE && ownLinked()) result = { err: loginError };
     if (renewal.ok) {
       const retryToken = view().userToken;
       result = await attempt();
@@ -523,7 +528,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       // A linked account still "not logged in" right after the renewal (a token a concurrent call
       // renewed that was already dead, or a renewal that raced the portal): one more REAL login,
       // single-flighted on the token that just failed, and one more try (native 0.9.45, ERRORES-AKQ).
-      if (account() && SESSION_DEAD.has(result.err.code) && (await renew(retryToken, bounds)).ok) {
+      if (ownLinked() && SESSION_DEAD.has(result.err.code) && (await renew(retryToken, bounds)).ok) {
         result = await attempt();
         if (!result.err) return settle(result);
       }

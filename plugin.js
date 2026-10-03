@@ -392,15 +392,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   };
   const REFUSAL_TTL_MS = 10 * 6e4;
   const LOGIN_COOLDOWN_MS = 6e4;
-  const NOT_A_REFUSAL = /* @__PURE__ */ new Set([
-    GEO_BLOCKED,
-    "snToken_failed",
-    "active_sin_token",
-    "login_sin_token",
-    ...SESSION_DEAD,
-    ACCOUNT_IN_USE_ELSEWHERE
-  ]);
-  const refusal = (e) => e instanceof PortalError && !NOT_A_REFUSAL.has(e.code);
+  const NOT_A_REFUSAL = /* @__PURE__ */ new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token"]);
+  const OWN_NOT_A_REFUSAL = /* @__PURE__ */ new Set([...NOT_A_REFUSAL, ...SESSION_DEAD, ACCOUNT_IN_USE_ELSEWHERE]);
+  const refusal = (e, key) => e instanceof PortalError && !(key === "shared" ? NOT_A_REFUSAL : OWN_NOT_A_REFUSAL).has(e.code);
   const refusedKey = () => {
     const r = readJson("refusedAcct");
     if (!r || typeof r !== "object" || typeof r.key !== "string" || typeof r.at !== "number") return "";
@@ -544,7 +538,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         endCooldown();
         return;
       } catch (e) {
-        if (refusal(e)) setRefused(key);
+        if (refusal(e, key)) setRefused(key);
         else startCooldown(key);
       }
     }
@@ -569,7 +563,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
           clearRefused(keyOf(acc));
           endCooldown();
         } catch (e) {
-          if (!refusal(e)) {
+          if (!refusal(e, keyOf(acc))) {
             loginError = e;
             throw e;
           }
@@ -668,7 +662,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       });
     } catch (e) {
       if (e instanceof PortalError) {
-        if (refusal(e)) setRefused(key);
+        if (refusal(e, key)) setRefused(key);
         throw kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas");
       }
       throw e;
@@ -685,7 +679,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       });
     } catch (e) {
       if (e instanceof PortalError) {
-        if (refusal(e)) setRefused("shared");
+        if (refusal(e, "shared")) setRefused("shared");
         throw kino2.error("auth_required", "No se pudo activar la cuenta compartida");
       }
       throw e;
@@ -766,8 +760,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       const sn = readSession().sn;
       return seedPool().some((e) => e.sn === sn);
     };
+    const ownLinked = () => account() !== null && !usingShared();
     const settle = (r) => {
-      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino2, { accountLinked: account() !== null });
+      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino2, { accountLinked: ownLinked() });
       exhausted = false;
       if (regionBlocked() && !onSeed()) setRegion(false);
       return r.value;
@@ -797,16 +792,16 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       }
     }
     let renewal = await renew(tokenUsed, bounds);
-    if (SESSION_DEAD.has(result.err.code) && account() && transientLogin(renewal.loginError)) {
+    if (SESSION_DEAD.has(result.err.code) && ownLinked() && transientLogin(renewal.loginError)) {
       renewal = await renew(view().userToken, bounds);
     }
     const loginError = renewal.loginError;
-    if (loginError instanceof PortalError && loginError.code === ACCOUNT_IN_USE_ELSEWHERE && account()) result = { err: loginError };
+    if (loginError instanceof PortalError && loginError.code === ACCOUNT_IN_USE_ELSEWHERE && ownLinked()) result = { err: loginError };
     if (renewal.ok) {
       const retryToken = view().userToken;
       result = await attempt();
       if (!result.err) return settle(result);
-      if (account() && SESSION_DEAD.has(result.err.code) && (await renew(retryToken, bounds)).ok) {
+      if (ownLinked() && SESSION_DEAD.has(result.err.code) && (await renew(retryToken, bounds)).ok) {
         result = await attempt();
         if (!result.err) return settle(result);
       }
