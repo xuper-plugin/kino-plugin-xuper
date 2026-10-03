@@ -484,7 +484,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const ownLinked = () => account() !== null && !usingShared();
     const settle = (r) => {
       // A linked account's session code that survived the re-logins: the account is what needs the person.
-      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino, { accountLinked: ownLinked() });
+      // The shared pair's (even refused: the person chose it) is the generic `unavailable`, never a re-link sentence.
+      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino, { accountLinked: ownLinked(), sharedAccount: sharedConfigured() });
       exhausted = false;
       // A content answer on the device's OWN session is the proof the region does not block it.
       if (regionBlocked() && !onSeed()) setRegion(false);
@@ -553,7 +554,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       const rescued = await seedFallback(block, typeof deadline === "number" ? deadline : startedAt + SEED_FALLBACK_DEFAULT_MS);
       // Not `settle`: a per-call seed says nothing about the stored session, so `exhausted` stays.
       if (rescued) {
-        if (rescued.err) throw mapPortalError(rescued.err.code, rescued.err.message, kino);
+        if (rescued.err) throw mapPortalError(rescued.err.code, rescued.err.message, kino, { sharedAccount: true });
         return rescued.value;
       }
     }

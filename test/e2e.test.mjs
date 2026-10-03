@@ -460,7 +460,7 @@ test("portal return codes map to kino errors, and the kino error passes the expo
 test("a gone series (portal100006) says so through the bundle: the chapter on resolve, the series on episodes", async () => {
   const gone = { returnCode: "portal100006", errorMessage: "剧集不存在" };
   const s = await start({ routes: { "v10/startPlayVOD": gone, "v4/getItemData": gone } });
-  const notFound = (text) => (e) => { assert.equal(e.name, "KinoError_not_found"); assert.equal(e.message, text); return true; };
+  const notFound = (text) => (e) => { assert.equal(e.name, "KinoError_not_found"); assert.equal(e.userMessage, text); return true; };
   await assert.rejects(s.plugin.resolve("magis1:movie:0:M1"), notFound("Este capítulo ya no está disponible."));
   await assert.rejects(s.plugin.episodes("magis1:teleplay:0:SERIE"), notFound("Esta serie ya no está disponible."));
 });

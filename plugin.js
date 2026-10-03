@@ -119,8 +119,9 @@ var PortalError = class extends Error {
     this.message = message || code;
   }
 };
-var ACCOUNT_SESSION_LOST = "Tu sesi\xF3n de Xuper se cerr\xF3 y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes, Cuenta.";
-var ACCOUNT_IN_USE_ELSEWHERE_TEXT = "Tu cuenta de Xuper se abri\xF3 en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vinc\xFAlala de nuevo en Ajustes, Cuenta.";
+var SETTINGS_PLACE = "Ajustes \u25B8 Plugins \u25B8 Xuper";
+var ACCOUNT_SESSION_LOST = `Tu sesi\xF3n de Xuper se cerr\xF3 y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en ${SETTINGS_PLACE}.`;
+var ACCOUNT_IN_USE_ELSEWHERE_TEXT = `Tu cuenta de Xuper se abri\xF3 en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vinc\xFAlala de nuevo en ${SETTINGS_PLACE}.`;
 var ACCOUNT_IN_USE_ELSEWHERE = "aaa100083";
 var SESSION_DEAD_CODES = /* @__PURE__ */ new Set(["aaa100027", "aaa100028"]);
 function accountProblemMessage(code) {
@@ -130,21 +131,26 @@ function accountProblemMessage(code) {
 }
 var EPISODE_GONE = "Este cap\xEDtulo ya no est\xE1 disponible.";
 var SERIES_GONE = "Esta serie ya no est\xE1 disponible.";
-function mapPortalError(code, message, kino2, { accountLinked = false, goneMessage = EPISODE_GONE } = {}) {
+var told = (kino2, code, message, sentence) => kino2.error(code, message, { userMessage: sentence });
+var GENERIC = "Xuper no est\xE1 disponible ahora";
+function mapPortalError(code, message, kino2, { accountLinked = false, sharedAccount = false, goneMessage = EPISODE_GONE } = {}) {
   const msg = typeof message === "string" ? message : "";
   const accountText = accountLinked ? accountProblemMessage(code) : null;
-  if (accountText) return kino2.error("auth_required", accountText);
-  if (code === "portal100006") return kino2.error("not_found", goneMessage);
+  if (accountText) return told(kino2, "auth_required", `cuenta propia: ${code}`, accountText);
+  if (code === "portal100006") return told(kino2, "not_found", `portal100006: ${goneMessage === SERIES_GONE ? "serie" : "cap\xEDtulo"} borrado`, goneMessage);
   if (code === "portal100004" || msg.includes("\u4E0D\u5B58\u5728")) {
     return kino2.error("not_found", "No se encontr\xF3 en Xuper");
   }
   if (code === "portal100024") {
     return kino2.error("geo_blocked", "Este contenido no est\xE1 disponible en tu regi\xF3n");
   }
-  if (code === "aaa100027" || code === "aaa100028") {
+  if (sharedAccount && (SESSION_DEAD_CODES.has(code) || code === ACCOUNT_IN_USE_ELSEWHERE)) {
+    return kino2.error("unavailable", `${GENERIC} (shared session: ${code})`);
+  }
+  if (SESSION_DEAD_CODES.has(code)) {
     return kino2.error("auth_required", "Configura Xuper en Ajustes \u25B8 Plugins");
   }
-  return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
+  return kino2.error("unavailable", GENERIC);
 }
 var CALL_BUDGET_MS = {
   home: 2e4,
@@ -764,7 +770,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     };
     const ownLinked = () => account() !== null && !usingShared();
     const settle = (r) => {
-      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino2, { accountLinked: ownLinked() });
+      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino2, { accountLinked: ownLinked(), sharedAccount: sharedConfigured() });
       exhausted = false;
       if (regionBlocked() && !onSeed()) setRegion(false);
       return r.value;
@@ -825,7 +831,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (allowSeeds && blockedOrDead(result.err) && usingShared()) {
       const rescued = await seedFallback(block, typeof deadline === "number" ? deadline : startedAt + SEED_FALLBACK_DEFAULT_MS);
       if (rescued) {
-        if (rescued.err) throw mapPortalError(rescued.err.code, rescued.err.message, kino2);
+        if (rescued.err) throw mapPortalError(rescued.err.code, rescued.err.message, kino2, { sharedAccount: true });
         return rescued.value;
       }
     }
@@ -1764,7 +1770,7 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
     try {
       raw = await portalChapters(magis.contentId, deadline);
     } catch (e) {
-      if (isKinoError(e) && e.message === EPISODE_GONE) throw kino2.error("not_found", SERIES_GONE);
+      if (isKinoError(e) && e.userMessage === EPISODE_GONE) throw mapPortalError("portal100006", "", kino2, { goneMessage: SERIES_GONE });
       throw e;
     }
     const { extra, series } = await enrich(raw, { deadline });
@@ -2899,7 +2905,9 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
       play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" }, deadline - SLB_RESERVE_MS);
     } catch (e) {
       const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
-      if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.message))) throw kino2.error("auth_required", TEXT.noAccount);
+      if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.userMessage))) {
+        throw kino2.error("auth_required", "el canal necesita una cuenta (aaa100028)", { userMessage: TEXT.noAccount });
+      }
       throw e;
     }
     const signal = signalFrom(play);

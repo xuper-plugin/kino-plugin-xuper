@@ -12,7 +12,7 @@ import { encode, encodeChapter } from "../src/refs.js";
 const GONE = { returnCode: "portal100006", errorMessage: "剧集不存在" };
 const goneWith = (text) => (e) => {
   assert.equal(e.name, "KinoError_not_found", e.message);
-  assert.equal(e.message, text);
+  assert.equal(e.userMessage, text);
   return true;
 };
 
@@ -25,8 +25,8 @@ test("mapPortalError: portal100006 is not_found with the chapter sentence by def
   const kino = fakeKino();
   const chapter = mapPortalError("portal100006", "剧集不存在", kino);
   assert.equal(chapter.name, "KinoError_not_found");
-  assert.equal(chapter.message, EPISODE_GONE);
-  assert.equal(mapPortalError("portal100006", "剧集不存在", kino, { goneMessage: SERIES_GONE }).message, SERIES_GONE);
+  assert.equal(chapter.userMessage, EPISODE_GONE);
+  assert.equal(mapPortalError("portal100006", "剧集不存在", kino, { goneMessage: SERIES_GONE }).userMessage, SERIES_GONE);
   assert.equal(mapPortalError("portal100004", "不存在", kino).message, "No se encontró en Xuper");
 });
 
@@ -47,5 +47,5 @@ test("listing the chapters of a gone series says the series is no longer availab
 
 test("a live channel keeps its own not-found sentence", async () => {
   const w = portalWorld({ hosts: ["a.test"], routes: { "v4/startPlayLive": GONE } });
-  await assert.rejects(w.resolve.resolve("cyx-RCNHD"), (e) => e.name === "KinoError_not_found" && e.message !== EPISODE_GONE);
+  await assert.rejects(w.resolve.resolve("cyx-RCNHD"), (e) => e.name === "KinoError_not_found" && e.userMessage !== EPISODE_GONE);
 });

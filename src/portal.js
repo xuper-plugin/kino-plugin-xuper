@@ -20,18 +20,20 @@ export class PortalError extends Error {
   }
 }
 
-// What a linked account's dead session (after every re-login) or `aaa100083` (the account logged in
-// on another device) tells the person: the account, not Xuper or the title, is what needs them.
-// Word for word the native MagisSession.accountProblemMessage (main 2d285106), which the app shows
-// as it is instead of the code's generic line.
+// What the person's OWN linked account's dead session (after every re-login) or `aaa100083` (the
+// account logged in on another device) tells them, as the error's `userMessage`: the account, not
+// Xuper or the title, is what needs them. The native MagisSession.accountProblemMessage sentences,
+// pointing to the plugin's own settings tab instead of the app's old account screen. The SHARED
+// account never gets them: nobody can re-link it (Ruling R33: it falls to anonymous / seeds).
+export const SETTINGS_PLACE = "Ajustes ▸ Plugins ▸ Xuper";
 export const ACCOUNT_SESSION_LOST =
-  "Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes, Cuenta.";
+  `Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en ${SETTINGS_PLACE}.`;
 export const ACCOUNT_IN_USE_ELSEWHERE_TEXT =
   "Tu cuenta de Xuper se abrió en otro dispositivo, y solo puede usarse en uno a la vez. " +
-  "Vuelve a intentarlo, o vincúlala de nuevo en Ajustes, Cuenta.";
+  `Vuelve a intentarlo, o vincúlala de nuevo en ${SETTINGS_PLACE}.`;
 export const ACCOUNT_IN_USE_ELSEWHERE = "aaa100083";
 export const SESSION_DEAD_CODES = new Set(["aaa100027", "aaa100028"]);
-/** The account sentence for `code` on a linked account, or null. */
+/** The account sentence for `code` on the person's own linked account, or null. */
 export function accountProblemMessage(code) {
   if (SESSION_DEAD_CODES.has(code)) return ACCOUNT_SESSION_LOST;
   if (code === ACCOUNT_IN_USE_ELSEWHERE) return ACCOUNT_IN_USE_ELSEWHERE_TEXT;
@@ -39,31 +41,40 @@ export function accountProblemMessage(code) {
 }
 
 // `portal100006` ("剧集不存在"): the series behind a chapter is gone (native 0.9.45, ERRORES-AO3, a
-// "Seguir viendo" card). Word for word the native XuperErrorMapping sentences.
+// "Seguir viendo" card). Word for word the native XuperErrorMapping sentences, as `userMessage`.
 export const EPISODE_GONE = "Este capítulo ya no está disponible.";
 /** [EPISODE_GONE] when what was asked is the series' chapter list rather than one chapter. */
 export const SERIES_GONE = "Esta serie ya no está disponible.";
 
+/** A kino error whose `userMessage` is `sentence` (what the person reads); `message` is for the log. */
+export const told = (kino, code, message, sentence) => kino.error(code, message, { userMessage: sentence });
+
+const GENERIC = "Xuper no está disponible ahora";
+
 /**
  * `goneMessage`: what a `portal100006` says ([EPISODE_GONE] for a playback, [SERIES_GONE] for a listing).
- * `accountLinked`: a linked account's session code (still dead after the re-logins, or open on
- * another device) gets the account sentence instead of the portal's text.
+ * `accountLinked`: the person's own account's session code (still dead after the re-logins, or open
+ * on another device) gets the account sentence. `sharedAccount`: the shared pair's session codes
+ * are the generic `unavailable` (nothing the person can re-link).
  */
-export function mapPortalError(code, message, kino, { accountLinked = false, goneMessage = EPISODE_GONE } = {}) {
+export function mapPortalError(code, message, kino, { accountLinked = false, sharedAccount = false, goneMessage = EPISODE_GONE } = {}) {
   const msg = typeof message === "string" ? message : "";
   const accountText = accountLinked ? accountProblemMessage(code) : null;
-  if (accountText) return kino.error("auth_required", accountText);
-  if (code === "portal100006") return kino.error("not_found", goneMessage);
+  if (accountText) return told(kino, "auth_required", `cuenta propia: ${code}`, accountText);
+  if (code === "portal100006") return told(kino, "not_found", `portal100006: ${goneMessage === SERIES_GONE ? "serie" : "capítulo"} borrado`, goneMessage);
   if (code === "portal100004" || msg.includes("不存在")) {
     return kino.error("not_found", "No se encontró en Xuper");
   }
   if (code === "portal100024") {
     return kino.error("geo_blocked", "Este contenido no está disponible en tu región");
   }
-  if (code === "aaa100027" || code === "aaa100028") {
+  if (sharedAccount && (SESSION_DEAD_CODES.has(code) || code === ACCOUNT_IN_USE_ELSEWHERE)) {
+    return kino.error("unavailable", `${GENERIC} (shared session: ${code})`);
+  }
+  if (SESSION_DEAD_CODES.has(code)) {
     return kino.error("auth_required", "Configura Xuper en Ajustes ▸ Plugins");
   }
-  return kino.error("unavailable", "Xuper no está disponible ahora");
+  return kino.error("unavailable", GENERIC);
 }
 
 // The app's time cap per call (guide: 20 s for resolve/home/browse/episodes, 15 s for search), minus

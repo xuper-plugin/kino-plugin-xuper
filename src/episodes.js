@@ -175,7 +175,7 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }
       raw = await portalChapters(magis.contentId, deadline);
     } catch (e) {
       // The chapter list of a gone series is the series being gone, not one chapter (native goneMessage).
-      if (isKinoError(e) && e.message === EPISODE_GONE) throw kino.error("not_found", SERIES_GONE);
+      if (isKinoError(e) && e.userMessage === EPISODE_GONE) throw mapPortalError("portal100006", "", kino, { goneMessage: SERIES_GONE });
       throw e;
     }
     const { extra, series } = await enrich(raw, { deadline });

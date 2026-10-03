@@ -231,11 +231,11 @@ test("empty pool that the refresh fills: the downloaded seed answers", async () 
   assert.equal(t.stored().acct, "shared");
 });
 
-test("all seeds fail: at most 3 distinct ones are tried, then the original error", async () => {
+test("all seeds fail: at most 3 distinct ones are tried, then the original error (the shared account's: generic unavailable)", async () => {
   const dup = [...SEEDS, SEEDS[0], SEEDS[1], SEEDS[0]];
   const t = harness({ seeds: dup, routes: routesWith({ "v4/getItemData": DEAD }) });
   const chapters = makePortalChapters({ kino: t.kino, portal: t.portal, session: t.session, clock: t.clock });
-  await assert.rejects(chapters("SERIE"), kinoError("auth_required"));
+  await assert.rejects(chapters("SERIE"), kinoError("unavailable"));
   const tried = t.seedRequests("v4/getItemData").map((r) => r.bean.sn);
   assert.equal(tried.length, 3);
   assert.equal(new Set(tried).size, 3, "distinct");

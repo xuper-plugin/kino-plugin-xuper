@@ -33,15 +33,15 @@ function logins(...answers) {
 
 const authWith = (text) => (e) => {
   assert.equal(e.name, "KinoError_auth_required", e.message);
-  assert.equal(e.message, text);
+  assert.equal(e.userMessage, text);
   return true;
 };
 
-test("the native account sentences, word for word", () => {
+test("the native account sentences, pointing to the plugin's own settings tab", () => {
   assert.equal(ACCOUNT_SESSION_LOST,
-    "Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes, Cuenta.");
+    "Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes ▸ Plugins ▸ Xuper.");
   assert.equal(ACCOUNT_IN_USE_ELSEWHERE_TEXT,
-    "Tu cuenta de Xuper se abrió en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vincúlala de nuevo en Ajustes, Cuenta.");
+    "Tu cuenta de Xuper se abrió en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vincúlala de nuevo en Ajustes ▸ Plugins ▸ Xuper.");
 });
 
 test("mapPortalError: with a linked account the session codes and aaa100083 ask to re-link; without one they keep the old mapping", () => {
@@ -49,12 +49,12 @@ test("mapPortalError: with a linked account the session codes and aaa100083 ask 
   for (const code of ["aaa100027", "aaa100028"]) {
     const e = mapPortalError(code, "未登录", kino, { accountLinked: true });
     assert.equal(e.name, "KinoError_auth_required");
-    assert.equal(e.message, ACCOUNT_SESSION_LOST);
+    assert.equal(e.userMessage, ACCOUNT_SESSION_LOST);
     assert.equal(mapPortalError(code, "未登录", kino).message, "Configura Xuper en Ajustes ▸ Plugins");
   }
   const elsewhere = mapPortalError("aaa100083", "x", kino, { accountLinked: true });
   assert.equal(elsewhere.name, "KinoError_auth_required");
-  assert.equal(elsewhere.message, ACCOUNT_IN_USE_ELSEWHERE_TEXT);
+  assert.equal(elsewhere.userMessage, ACCOUNT_IN_USE_ELSEWHERE_TEXT);
   assert.equal(mapPortalError("aaa100083", "x", kino).name, "KinoError_unavailable");
 });
 
@@ -117,7 +117,13 @@ test("a content call answering aaa100083 on a linked account says the account is
 
 test("without an account, \"not logged in\" keeps its old message (the seed rescue owns that case)", async () => {
   const w = portalWorld({ hosts: ["a.test"], seedsText: "[]", routes: { "v3/searchByName": DEAD } });
-  await assert.rejects(w.catalog.search(query), authWith("Configura Xuper en Ajustes ▸ Plugins"));
+  // No sentence of its own: the person reads Kino's line for auth_required.
+  await assert.rejects(w.catalog.search(query), (e) => {
+    assert.equal(e.name, "KinoError_auth_required");
+    assert.equal(e.message, "Configura Xuper en Ajustes ▸ Plugins");
+    assert.equal(e.userMessage, undefined);
+    return true;
+  });
   assert.equal(w.paths().filter((p) => p === "v8/login").length, 0);
 });
 
@@ -137,7 +143,7 @@ function onShared(routes) {
 }
 const notAnAccountSentence = (e) => {
   assert.ok(e.name.startsWith("KinoError_"), e.message);
-  assert.ok(e.message !== ACCOUNT_SESSION_LOST && e.message !== ACCOUNT_IN_USE_ELSEWHERE_TEXT, e.message);
+  for (const t of [e.message, e.userMessage]) assert.ok(t !== ACCOUNT_SESSION_LOST && t !== ACCOUNT_IN_USE_ELSEWHERE_TEXT, e.message);
   return true;
 };
 

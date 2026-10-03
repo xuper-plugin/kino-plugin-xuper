@@ -74,9 +74,10 @@ function setup({ queues = {}, kind = "own", sn = "sn-own", pool = [], ensureErro
   return { kino, portal, session, clock, events, live };
 }
 
+// `message`: what the person reads, the error's userMessage when it carries one.
 const rejectsWith = (promise, code, message) => assert.rejects(promise, (e) => {
   assert.equal(e.code, code);
-  if (message !== undefined) assert.equal(e.message, message);
+  if (message !== undefined) assert.equal(e.userMessage ?? e.message, message);
   return true;
 });
 

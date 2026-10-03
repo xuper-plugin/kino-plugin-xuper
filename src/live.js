@@ -134,7 +134,9 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
       const notLoggedIn = (e instanceof PortalError && e.code === NOT_LOGGED_IN)
         || (isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN);
       // A linked account's sentence (still dead after the re-logins, or open elsewhere) stays as it is.
-      if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.message))) throw kino.error("auth_required", TEXT.noAccount);
+      if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.userMessage))) {
+        throw kino.error("auth_required", "el canal necesita una cuenta (aaa100028)", { userMessage: TEXT.noAccount });
+      }
       throw e;
     }
     const signal = signalFrom(play);

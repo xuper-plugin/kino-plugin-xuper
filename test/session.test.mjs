@@ -447,7 +447,7 @@ test("a surviving non-dead error is mapped to a Spanish kino error", async () =>
   portal.queue("v8/active", act("T3"));
   await assert.rejects(
     session.withValidSession(async () => { throw new PortalError("portal100006", "剧集不存在"); }),
-    (e) => e.code === "not_found" && e.message === "Este capítulo ya no está disponible.");
+    (e) => e.code === "not_found" && e.userMessage === "Este capítulo ya no está disponible.");
 });
 
 // ---- region flag -----------------------------------------------------------------------------
