@@ -3,11 +3,14 @@
 // its license, by title) and `v14/getSlbInfo` (the CDN and the free tier's Content-Auth, by SESSION:
 // the same for every title, so it is cached in memory for as long as it keeps working).
 // Unlike the native bridge, which kept the headers aside, the plugin RETURNS them in `Stream.headers`.
+// The other copies the same two answers name (other tracks of the title, the CDN's spared_addr, other
+// free cfl vod CDNs) travel as `Stream.alternatives`, best first, for the app to try when one cannot play.
 import { PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { UA_CDN, FIXED_MAC } from "./config.js";
 import { decode, isChannelRef } from "./refs.js";
 import { findChapter } from "./episodes.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
+import { trace } from "./trace.js";
 
 const SLB_DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime
 // Time kept back for each portal call that still has to follow (play -> getSlbInfo; chapters -> play).
@@ -15,6 +18,7 @@ const FOLLOW_UP_RESERVE_MS = 3_000;
 const AUTH_MARGIN_S = 300;
 const EXPIRED = /expired=(\d+)/;
 const MAX_SUBTITLES = 30; // SDK cap
+const MAX_ALTERNATIVES = 8; // SDK cap (contract.json output.maxAlternatives)
 const INT = /^[+-]?\d+$/;
 const DIGITS = /^[0-9]+$/;
 
@@ -41,19 +45,19 @@ export function portalDurationMs(raw) {
   return parts.reduce((acc, p) => acc * 60 + Number(p), 0) * 1000;
 }
 
-/** The track most likely to play anywhere: h264 first, then mp4; stable (the portal's first of equals wins). */
-function bestMedia(play) {
+// h264 first, then mp4 (MagisResolve.bestMedia): lower plays on more devices.
+const mediaScore = (m) => (optStringStrict(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optStringStrict(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
+
+/** Every track of the title, the one most likely to play anywhere first; stable (the portal's first of equals wins). */
+function rankedMedia(play) {
   const episode = isObject(play) ? objects(play.episodeList)[0] : undefined;
-  if (!episode) return null;
+  if (!episode) return [];
   const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList));
-  let best = null;
-  let bestScore = Infinity;
-  for (const m of candidates) {
-    const score = (optStringStrict(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optStringStrict(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
-    if (score < bestScore) { best = m; bestScore = score; }
-  }
-  return best;
+  return candidates.map((m, i) => ({ m, i, s: mediaScore(m) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.m);
 }
+
+/** A track's own license, or "" (MagisResolve: `licenseList[0].license`). */
+const licenseOf = (m) => optStringStrict(objects(m.licenseList)[0]?.license);
 
 /** `subtitleList[].file[0].url`: a language the portal lists but never uploaded is dropped. */
 function readSubtitles(play) {
@@ -70,18 +74,32 @@ function readSubtitles(play) {
   return out.slice(0, MAX_SUBTITLES);
 }
 
-/** The VOD CDN and the free tier's Content-Auth, or null. */
-function vodCdn(slb) {
+/**
+ * Every VOD CDN with a free cfl Content-Auth, in portal order: `{ bases, auth }`, `bases` its main_addr then its
+ * spared_addr (the portal's spare for the same CDN; its Content-Auth names both), blank or repeated ones left out.
+ */
+function vodCdns(slb) {
+  const out = [];
   for (const cdn of objects(slb.cdn_list)) {
     if (optStringStrict(cdn.tag) !== "vod") continue;
     for (const u of objects(cdn.url_list)) {
       const url = optStringStrict(u.url);
       if ((isCfl(url) || optStringStrict(u.sign_type) === "cfl") && optStringStrict(u.tag) === "free") {
-        return { base: withScheme(optStringStrict(cdn.main_addr)), auth: url };
+        const bases = [withScheme(optStringStrict(cdn.main_addr))];
+        const spare = optStringStrict(cdn.spared_addr);
+        if (notBlank(spare) && !bases.includes(withScheme(spare.trim()))) bases.push(withScheme(spare.trim()));
+        out.push({ bases, auth: url });
+        break;
       }
     }
   }
-  return null;
+  return out;
+}
+
+/** The VOD CDN and the free tier's Content-Auth (the first of vodCdns), or null. */
+function vodCdn(slb) {
+  const first = vodCdns(slb)[0];
+  return first ? { base: first.bases[0], auth: first.auth } : null;
 }
 
 /**
@@ -152,29 +170,56 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
       );
       // getSlbInfo follows: the play (and its seed attempts) stop early enough to leave it time.
     }, { seedFallback: true, deadline: deadline - FOLLOW_UP_RESERVE_MS });
-    const best = bestMedia(play);
+    const tracks = rankedMedia(play);
+    const best = tracks[0];
     if (!best) throw unavailable("Xuper devolvió sin media reproducible");
-    const license = optStringStrict(objects(best.licenseList)[0]?.license);
+    const license = licenseOf(best);
     if (!notBlank(license)) throw unavailable("Xuper devolvió sin licenseList");
 
-    const cdn = vodCdn(await sessionSlb(played && played.sn ? played : null, deadline));
-    if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
+    const cdns = vodCdns(await sessionSlb(played && played.sn ? played : null, deadline));
+    if (cdns.length === 0) throw unavailable("Xuper no expuso CDN de vod con token libre");
 
-    // `ts` iff the portal says so; asking for `.mp4` otherwise is all that can be done.
-    const ext = optStringStrict(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
+    // Every copy the portal offers, best first: the best track on each server (main_addr, spared_addr,
+    // the next free cfl vod CDN), then the next track the same way. The first is `url`, the rest the
+    // app's alternatives. Each server keeps its own Content-Auth, each track its own license.
+    const copies = [];
+    const seen = new Set();
+    const seenTracks = new Set();
+    for (const track of tracks) {
+      const id = optStringStrict(track.contentId);
+      const trackLicense = track === best ? license : licenseOf(track);
+      if (track !== best && (!notBlank(id) || !notBlank(trackLicense) || seenTracks.has(id))) continue;
+      seenTracks.add(id);
+      // `ts` iff the portal says so; asking for `.mp4` otherwise is all that can be done.
+      const ext = optStringStrict(track.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
+      for (const cdn of cdns) {
+        for (const base of cdn.bases) {
+          const url = `${base}/vod/${id}_media.${ext}`;
+          if (seen.has(url)) continue;
+          seen.add(url);
+          copies.push({
+            url,
+            mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
+            headers: {
+              "Content-Auth": cdn.auth, // the querystring verbatim: VOD is not re-signed
+              "Content-License": trackLicense,
+              "User-Agent": UA_CDN,
+              App: config.appId,
+              "App-Version": config.apkVersion,
+            },
+          });
+        }
+      }
+    }
+    const [first, ...others] = copies;
+    const alternatives = others.slice(0, MAX_ALTERNATIVES);
+    if (alternatives.length > 0) trace(kino, "resolve", "alts", { n: alternatives.length, tracks: seenTracks.size, cdns: cdns.length });
     return {
-      url: `${cdn.base}/vod/${optStringStrict(best.contentId)}_media.${ext}`,
-      mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
-      headers: {
-        "Content-Auth": cdn.auth, // the querystring verbatim: VOD is not re-signed
-        "Content-License": license,
-        "User-Agent": UA_CDN,
-        App: config.appId,
-        "App-Version": config.apkVersion,
-      },
+      ...first,
       subtitles: readSubtitles(play),
       // A chapter's own declared duration wins (the portal sends it empty for most series).
       durationMs: chapter ? portalDurationMs(chapter.duration) : portalDurationMs(best.duration),
+      ...(alternatives.length > 0 ? { alternatives } : {}),
     };
   }
 

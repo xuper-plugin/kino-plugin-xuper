@@ -2466,6 +2466,7 @@ var FOLLOW_UP_RESERVE_MS = 3e3;
 var AUTH_MARGIN_S = 300;
 var EXPIRED = /expired=(\d+)/;
 var MAX_SUBTITLES = 30;
+var MAX_ALTERNATIVES = 8;
 var INT7 = /^[+-]?\d+$/;
 var DIGITS = /^[0-9]+$/;
 function isCfl(url) {
@@ -2484,21 +2485,14 @@ function portalDurationMs(raw) {
   if (parts.length > 3 || parts.some((p) => !DIGITS.test(p))) return 0;
   return parts.reduce((acc, p) => acc * 60 + Number(p), 0) * 1e3;
 }
-function bestMedia(play) {
+var mediaScore = (m) => (optStringStrict(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optStringStrict(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
+function rankedMedia(play) {
   const episode = isObject(play) ? objects(play.episodeList)[0] : void 0;
-  if (!episode) return null;
+  if (!episode) return [];
   const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList));
-  let best = null;
-  let bestScore = Infinity;
-  for (const m of candidates) {
-    const score = (optStringStrict(m.encodeFormat).toLowerCase() === "h264" ? 0 : 2) + (optStringStrict(m.videoFormat).toLowerCase() === "mp4" ? 0 : 1);
-    if (score < bestScore) {
-      best = m;
-      bestScore = score;
-    }
-  }
-  return best;
+  return candidates.map((m, i) => ({ m, i, s: mediaScore(m) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.m);
 }
+var licenseOf = (m) => optStringStrict(objects(m.licenseList)[0]?.license);
 function readSubtitles(play) {
   const episode = objects(play.episodeList)[0];
   const out = [];
@@ -2511,17 +2505,26 @@ function readSubtitles(play) {
   }
   return out.slice(0, MAX_SUBTITLES);
 }
-function vodCdn(slb) {
+function vodCdns(slb) {
+  const out = [];
   for (const cdn of objects(slb.cdn_list)) {
     if (optStringStrict(cdn.tag) !== "vod") continue;
     for (const u of objects(cdn.url_list)) {
       const url = optStringStrict(u.url);
       if ((isCfl(url) || optStringStrict(u.sign_type) === "cfl") && optStringStrict(u.tag) === "free") {
-        return { base: withScheme(optStringStrict(cdn.main_addr)), auth: url };
+        const bases = [withScheme(optStringStrict(cdn.main_addr))];
+        const spare = optStringStrict(cdn.spared_addr);
+        if (notBlank(spare) && !bases.includes(withScheme(spare.trim()))) bases.push(withScheme(spare.trim()));
+        out.push({ bases, auth: url });
+        break;
       }
     }
   }
-  return null;
+  return out;
+}
+function vodCdn(slb) {
+  const first = vodCdns(slb)[0];
+  return first ? { base: first.bases[0], auth: first.auth } : null;
 }
 function slbLifetime(slb, nowMs) {
   const text2 = optStringStrict(slb.invalidTime);
@@ -2576,27 +2579,51 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
         viewOpts(v)
       );
     }, { seedFallback: true, deadline: deadline - FOLLOW_UP_RESERVE_MS });
-    const best = bestMedia(play);
+    const tracks = rankedMedia(play);
+    const best = tracks[0];
     if (!best) throw unavailable("Xuper devolvi\xF3 sin media reproducible");
-    const license = optStringStrict(objects(best.licenseList)[0]?.license);
+    const license = licenseOf(best);
     if (!notBlank(license)) throw unavailable("Xuper devolvi\xF3 sin licenseList");
-    const cdn = vodCdn(await sessionSlb(played && played.sn ? played : null, deadline));
-    if (!cdn) throw unavailable("Xuper no expuso CDN de vod con token libre");
-    const ext = optStringStrict(best.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
+    const cdns = vodCdns(await sessionSlb(played && played.sn ? played : null, deadline));
+    if (cdns.length === 0) throw unavailable("Xuper no expuso CDN de vod con token libre");
+    const copies = [];
+    const seen = /* @__PURE__ */ new Set();
+    const seenTracks = /* @__PURE__ */ new Set();
+    for (const track of tracks) {
+      const id = optStringStrict(track.contentId);
+      const trackLicense = track === best ? license : licenseOf(track);
+      if (track !== best && (!notBlank(id) || !notBlank(trackLicense) || seenTracks.has(id))) continue;
+      seenTracks.add(id);
+      const ext = optStringStrict(track.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
+      for (const cdn of cdns) {
+        for (const base of cdn.bases) {
+          const url = `${base}/vod/${id}_media.${ext}`;
+          if (seen.has(url)) continue;
+          seen.add(url);
+          copies.push({
+            url,
+            mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
+            headers: {
+              "Content-Auth": cdn.auth,
+              // the querystring verbatim: VOD is not re-signed
+              "Content-License": trackLicense,
+              "User-Agent": UA_CDN,
+              App: config.appId,
+              "App-Version": config.apkVersion
+            }
+          });
+        }
+      }
+    }
+    const [first, ...others] = copies;
+    const alternatives = others.slice(0, MAX_ALTERNATIVES);
+    if (alternatives.length > 0) trace(kino2, "resolve", "alts", { n: alternatives.length, tracks: seenTracks.size, cdns: cdns.length });
     return {
-      url: `${cdn.base}/vod/${optStringStrict(best.contentId)}_media.${ext}`,
-      mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
-      headers: {
-        "Content-Auth": cdn.auth,
-        // the querystring verbatim: VOD is not re-signed
-        "Content-License": license,
-        "User-Agent": UA_CDN,
-        App: config.appId,
-        "App-Version": config.apkVersion
-      },
+      ...first,
       subtitles: readSubtitles(play),
       // A chapter's own declared duration wins (the portal sends it empty for most series).
-      durationMs: chapter2 ? portalDurationMs(chapter2.duration) : portalDurationMs(best.duration)
+      durationMs: chapter2 ? portalDurationMs(chapter2.duration) : portalDurationMs(best.duration),
+      ...alternatives.length > 0 ? { alternatives } : {}
     };
   }
   async function resolve2(ref, options) {

@@ -476,6 +476,107 @@ test("the kit accepts the stream; it has a downloadable shape (progressive file,
   }
 });
 
+// ---- alternatives: the other copies the portal itself offers -----------------------------------
+// startPlayVOD lists every track of a title (totalMovieList[].movieList[], each with its own contentId,
+// codec, container and license) and getSlbInfo every vod CDN (main_addr plus spared_addr, each free cfl
+// entry with its own Content-Auth). The best track on the first CDN stays `url`; the rest, best first,
+// are `alternatives` the app tries when that one cannot play. Nothing is invented: no extra portal call.
+
+const AUTH = (t) => `cdn_type=1&sign_type=cfl&token=${t}&expired=${FAR}`;
+const vodCdnOf = (mainAddr, token, spare = undefined) =>
+  ({ tag: "vod", main_addr: mainAddr, ...(spare !== undefined ? { spared_addr: spare } : {}), url_list: [{ tag: "free", url: AUTH(token) }, { tag: "short", url: AUTH(token + "S") }] });
+const headersFor = (auth, license) => ({ "Content-Auth": auth, "Content-License": license, "User-Agent": UA_CDN, App: "app.id", "App-Version": "49902" });
+
+test("alternatives: another track of the title (an h265 ts behind the h264 mp4) is offered with its own license and mime", async () => {
+  const movies = [media("HEVC", "ts", "h265", { licenseList: [{ license: "L-HEVC" }] }), media("AVC", "mp4", "h264", { licenseList: [{ license: "L-AVC" }] })];
+  const out = await setup({ queues: movieQueues(movies) }).resolve(MOVIE);
+  assert.equal(out.url, "https://cdn.example.com/vod/AVC_media.mp4");
+  assert.deepEqual(out.alternatives, [
+    { url: "https://cdn.example.com/vod/HEVC_media.ts", mime: "video/mp2t", headers: headersFor(AUTH("ABC"), "L-HEVC") },
+  ]);
+});
+
+test("alternatives: the same file on the CDN's spared_addr and on another free cfl vod CDN, each with that CDN's own Content-Auth", async () => {
+  const answer = { invalidTime: "14400", cdn_list: [
+    { tag: "vod", main_addr: "https://other.example.com", url_list: [{ tag: "free", url: "sign_type=cs&token=CS" }] },
+    vodCdnOf("http://one.example.com", "ONE", "http://spare.example.com"),
+    { tag: "live", main_addr: "http://live.example.com", url_list: [{ tag: "free", url: AUTH("LIVE") }] },
+    vodCdnOf("two.example.com/", "TWO"),
+  ] };
+  const out = await setup({ queues: movieQueues([media("M1", "ts", "h265")], answer) }).resolve(MOVIE);
+  assert.equal(out.url, "http://one.example.com/vod/M1_media.ts");
+  assert.deepEqual(out.headers, headersFor(AUTH("ONE"), "LIC123"));
+  assert.deepEqual(out.alternatives, [
+    { url: "http://spare.example.com/vod/M1_media.ts", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") },
+    { url: "https://two.example.com/vod/M1_media.ts", mime: "video/mp2t", headers: headersFor(AUTH("TWO"), "LIC123") },
+  ]);
+});
+
+test("alternatives: best track on every server first, then the next track on every server", async () => {
+  const answer = { invalidTime: "14400", cdn_list: [vodCdnOf("http://one.example.com", "ONE"), vodCdnOf("http://two.example.com", "TWO")] };
+  const movies = [media("B", "ts", "h265", { licenseList: [{ license: "L-B" }] }), media("A", "mp4", "h264", { licenseList: [{ license: "L-A" }] })];
+  const out = await setup({ queues: movieQueues(movies, answer) }).resolve(MOVIE);
+  assert.equal(out.url, "http://one.example.com/vod/A_media.mp4");
+  assert.deepEqual(out.alternatives.map((a) => [a.url, a.headers["Content-Auth"], a.headers["Content-License"]]), [
+    ["http://two.example.com/vod/A_media.mp4", AUTH("TWO"), "L-A"],
+    ["http://one.example.com/vod/B_media.ts", AUTH("ONE"), "L-B"],
+    ["http://two.example.com/vod/B_media.ts", AUTH("TWO"), "L-B"],
+  ]);
+});
+
+test("alternatives: the captured shape (one track, one cfl CDN whose spare is its main) offers none, and the stream has no alternatives key", async () => {
+  const answer = { invalidTime: "14400", cdn_list: [
+    { tag: "vod", main_addr: "x.example.com", spared_addr: "y.example.com", url_list: [{ tag: "free", url: "sign_type=cs&token=CS" }] },
+    { tag: "vod", main_addr: "g.example.com", spared_addr: "g.example.com", url_list: [{ tag: "free", url: "sign_type=goog&token=G" }] },
+    vodCdnOf("http://one.example.com", "ONE", "http://one.example.com"),
+  ] };
+  const out = await setup({ queues: movieQueues([media("M1", "ts", "h265")], answer) }).resolve(MOVIE);
+  assert.equal(out.url, "http://one.example.com/vod/M1_media.ts");
+  assert.equal("alternatives" in out, false);
+  // A blank spare and a spare that only differs by a trailing slash or a missing scheme add nothing either.
+  for (const spare of ["", "  ", "http://one.example.com/", "one.example.com"]) {
+    const o = await setup({ queues: movieQueues([media("M1", "ts", "h265")], { invalidTime: "14400", cdn_list: [vodCdnOf("http://one.example.com", "ONE", spare)] }) }).resolve(MOVIE);
+    assert.equal("alternatives" in o, spare === "one.example.com", JSON.stringify(spare));
+  }
+});
+
+test("alternatives: a track without a license or a contentId is never offered; a repeated contentId is offered once", async () => {
+  const movies = [
+    media("BEST", "mp4", "h264"),
+    media("NOLIC", "ts", "h265", { licenseList: [] }),
+    media("BLANK", "ts", "h265", { licenseList: [{ license: " " }] }),
+    { videoFormat: "ts", encodeFormat: "h265", licenseList: [{ license: "L" }] },
+    media("TWIN", "ts", "h265", { licenseList: [{ license: "L-T1" }] }),
+    media("TWIN", "ts", "h265", { licenseList: [{ license: "L-T2" }] }),
+  ];
+  const out = await setup({ queues: movieQueues(movies) }).resolve(MOVIE);
+  assert.deepEqual(out.alternatives.map((a) => [a.url, a.headers["Content-License"]]), [["https://cdn.example.com/vod/TWIN_media.ts", "L-T1"]]);
+});
+
+test("alternatives: at most 8, and the kit keeps every one with zero drops", async () => {
+  const cdns = Array.from({ length: 5 }, (_, i) => vodCdnOf(`http://c${i}.example.com`, `T${i}`, `http://s${i}.example.com`));
+  const movies = [media("A", "mp4", "h264"), media("B", "ts", "h265", { licenseList: [{ license: "L-B" }] })];
+  const out = await setup({ queues: movieQueues(movies, { invalidTime: "14400", cdn_list: cdns }) }).resolve(MOVIE);
+  assert.equal(out.alternatives.length, 8);
+  assert.ok(out.alternatives.every((a) => a.url !== out.url));
+  assert.equal(new Set(out.alternatives.map((a) => a.url)).size, 8);
+  const checked = checkOutput("resolve", out, manifest);
+  assert.deepEqual(checked.drops, []);
+  assert.equal(checked.value.alternatives.length, 8);
+  assert.deepEqual(checked.value.alternatives[0].headers, out.alternatives[0].headers);
+});
+
+test("alternatives: the SLB is still asked once (cached) and a series' chapter gets them too", async () => {
+  const answer = { invalidTime: "14400", cdn_list: [vodCdnOf("http://one.example.com", "ONE"), vodCdnOf("http://two.example.com", "TWO")] };
+  const queues = seriesQueues([chapter(1)], { "v14/getSlbInfo": [answer] });
+  queues["v10/startPlayVOD"] = [play([media("E1", "ts", "h265")]), play([media("E1", "ts", "h265")])];
+  const t = setup({ queues });
+  const out = await t.resolve("magis1:teleplay:1:SERIE");
+  assert.deepEqual(out.alternatives.map((a) => a.url), ["http://two.example.com/vod/E1_media.ts"]);
+  await t.resolve("magis1:teleplay:1:SERIE");
+  assert.equal(t.portal.times("v14/getSlbInfo"), 1);
+});
+
 // ---- parity with the device's captured resolutions --------------------------------------------
 // resolve-1..6 were captured on a real device with the native implementation; they are git-excluded
 // (real titles, hosts and tokens) and read by absolute path, never copied here. The device's
