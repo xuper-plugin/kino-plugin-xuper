@@ -17,7 +17,7 @@ import { contrast, deltaE, formatRatio, luminance, resolvePalette } from "../pal
 import { consentLines, validate } from "../validate.mjs";
 import { TABLES } from "../guide-tables.mjs";
 import { scaffold } from "../init.mjs";
-import { call, parseArgs } from "../run.mjs";
+import { adultLines, call, parseArgs } from "../run.mjs";
 import { decodeCipherKey, normalizeBinding, seal, sealTyped } from "../seal.mjs";
 import { ADULT_GROUPS, loadPlaylist, normaliseName, parseM3u, parseXmltv, parseXmltvTime, summarisePlaylist } from "../live-playlist.mjs";
 
@@ -293,6 +293,13 @@ test("kino.error's userMessage: carried as the app carries it, shown only when t
   }
   for (const ok of ["Este capítulo ya no está disponible.", "El servidor no respondió, intenta en unos minutos."]) {
     assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: ok })), ok, ok);
+  }
+  // Task 14: "verifica" alone and "punto es" are prose; a verification code is still refused.
+  for (const ok of ["Verifica tu conexión e intenta de nuevo.", "En este punto es mejor esperar."]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: ok })), ok, ok);
+  }
+  for (const bad of ["Escribe el código de verificación que te llegó.", "Escribe tu verification code aquí.", "Entra a mipagina punto com ahora."]) {
+    assert.equal(shownSentence(kino.error("not_found", "x", { userMessage: bad })), null, bad);
   }
   for (const name of ["KINØ", "Cuevana3", "M3U"]) assert.match(errorReport(e, name), /userMessage no se muestra/, name);
   assert.match(errorReport(e, "Cuevana 3"), /Mensaje de Cuevana 3: /);
@@ -604,8 +611,15 @@ test("checkOutput keeps a live item only for an apiVersion 2 plugin, and never i
   assert.ok(v1.drops.some((d) => d.includes("c1") && d.includes("live")));
   const v2 = checkOutput("search", items, { ...JSON.parse(manifest({ apiVersion: 2 })), capabilities: ["search", "resolve"] });
   assert.deepEqual(v2.value.items.map((i) => [i.id, i.kind, i.runtimeMinutes]), [["c1", "live", 0], ["m", "movie", 90]]);
+  // Below apiVersion 6 a channel never stays in a Home row (output.homeLiveApiVersion); from 6 it does.
   const home = checkOutput("home", [{ id: "vivo", title: "En vivo", items }], { ...JSON.parse(manifest({ apiVersion: 2 })), capabilities: ["home", "resolve"] });
-  assert.deepEqual(home.value[0].items.map((i) => i.kind), ["live", "movie"]);
+  assert.deepEqual(home.value[0].items.map((i) => i.kind), ["movie"]);
+  assert.ok(home.drops.some((d) => d.includes("c1") && d.includes("apiVersion 6")));
+  const home6 = checkOutput("home", [{ id: "vivo", title: "En vivo", items }], { ...JSON.parse(manifest({ apiVersion: 6 })), capabilities: ["home", "resolve"] });
+  assert.deepEqual(home6.value[0].items.map((i) => i.kind), ["live", "movie"]);
+  const onlyLive = [{ id: "vivo", title: "En vivo", items: [items[0]] }];
+  assert.equal(checkOutput("home", onlyLive, { ...JSON.parse(manifest({ apiVersion: 5 })), capabilities: ["home", "resolve"] }).value.length, 0);
+  assert.equal(contract.output.homeLiveApiVersion, 6);
   assert.deepEqual(contract.output.itemKinds, ["movie", "series", "live"]);
   assert.equal(contract.output.liveKindApiVersion, 2);
 });
@@ -3059,17 +3073,66 @@ test("apiVersion 5 manifests read as Kino 0.9.45 and 0.9.46 read them: every api
   assert.notEqual(stream.signing, true);
 });
 
-// apiVersion 5 shipped in Kino 0.9.45 (signature.fromApp); 6 first ships in 0.9.47 (0.9.46 is built without it).
+// apiVersion 5 shipped in Kino 0.9.45 (signature.fromApp); 6 first ships in 0.9.50 (nothing ships until the Xuper removal is done).
 test("each apiVersion above 4 names the Kino it first ships in, and validate's note reads it", async () => {
   assert.equal(contract.manifest.signature.fromApp, "0.9.45");
-  assert.deepEqual(contract.apiVersionFromApp, { "6": "0.9.47" });
+  assert.deepEqual(contract.apiVersionFromApp, { "6": "0.9.50" });
   const dir = mkdtempSync(join(tmpdir(), "kino-from-app-"));
   try {
     writeFileSync(join(dir, "plugin.js"), "export async function search(){ return { items: [] } }\nexport async function resolve(){ return { url: 'https://example.com/a.m3u8' } }");
     writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6 }));
-    assert.deepEqual((await validate(dir)).notes, ["apiVersion 6: requiere Kino 0.9.47 o superior; las versiones anteriores lo rechazan con «Este plugin necesita una versión más nueva de Kino»"]);
+    assert.deepEqual((await validate(dir)).notes, ["apiVersion 6: requiere Kino 0.9.50 o superior; las versiones anteriores lo rechazan con «Este plugin necesita una versión más nueva de Kino»"]);
     writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 5 }));
     assert.deepEqual((await validate(dir)).notes, ["apiVersion 5: requiere Kino 0.9.45 o superior; las versiones anteriores lo rechazan con «Este plugin necesita una versión más nueva de Kino»"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("checkOutput: adult entries are dropped below apiVersion 6 and kept, marked, from 6", () => {
+  const v5 = validateManifest(manifest({ apiVersion: 5, capabilities: ["home", "resolve"] })).manifest;
+  const v6 = validateManifest(manifest({ apiVersion: 6, capabilities: ["home", "resolve"] })).manifest;
+  const rows = [{ id: "r", title: "R", items: [{ id: "a", title: "A", kind: "movie", ref: "a", adult: true }] }];
+  // Its only item dropped, the row is no row at all (as in the app).
+  assert.equal(checkOutput("home", rows, v5).value.length, 0);
+  assert.equal(checkOutput("home", rows, v6).value[0].items[0].adult, true);
+  assert.equal(contract.output.adultApiVersion, 6);
+  assert.equal(contract.live.adultApiVersion, 6);
+});
+
+test("checkOutput: adult live categories, channels and category tiles follow the same gate", () => {
+  const live = (apiVersion) => ({ ...JSON.parse(manifest({ apiVersion })), capabilities: ["home", "resolve", "channels"] });
+  const cats = [{ id: "x", title: "18+", adult: true }, { id: "n", title: "Noticias" }];
+  assert.deepEqual(checkOutput("liveCategories", cats, live(5)).value.categories.map((c) => c.id), ["n"]);
+  assert.deepEqual(checkOutput("liveCategories", cats, live(6)).value.categories.map((c) => [c.id, c.adult === true]), [["x", true], ["n", false]]);
+  const channels = [{ id: "c1", title: "Uno", ref: "r1", adult: true }, { id: "c2", title: "Dos", ref: "r2" }];
+  assert.deepEqual(checkOutput("liveChannels", channels, live(5)).value.items.map((c) => c.id), ["c2"]);
+  assert.deepEqual(checkOutput("liveChannels", channels, live(6)).value.items.map((c) => [c.id, c.adult === true]), [["c1", true], ["c2", false]]);
+  const tiles = [{ id: "x", title: "18+", ref: "rx", adult: true }, { id: "n", title: "Acción", ref: "rn" }];
+  const browse = (apiVersion) => ({ ...JSON.parse(manifest({ apiVersion })), capabilities: ["home", "browse", "resolve"] });
+  assert.deepEqual(checkOutput("categories", tiles, browse(5)).value.map((c) => c.id), ["n"]);
+  assert.deepEqual(checkOutput("categories", tiles, browse(6)).value.map((c) => [c.id, c.adult === true]), [["x", true], ["n", false]]);
+});
+
+test("run.mjs marks each kept 18+ entry with [18+], wherever the answer holds it", () => {
+  const m = validateManifest(manifest({ apiVersion: 6, capabilities: ["home", "resolve"] })).manifest;
+  const rows = checkOutput("home", [{ id: "r", title: "R", items: [
+    { id: "a", title: "Adulto", kind: "movie", ref: "a", adult: true }, { id: "b", title: "Uno", kind: "movie", ref: "b" }] }], m).value;
+  assert.deepEqual(adultLines(rows), ["[18+] Adulto (Kino lo muestra solo con el código 18+ desbloqueado)"]);
+  assert.deepEqual(adultLines({ categories: [{ id: "x", title: "18+", adult: true }], playlists: [] }), ["[18+] 18+ (Kino lo muestra solo con el código 18+ desbloqueado)"]);
+  assert.deepEqual(adultLines({ items: [{ id: "c", title: "Canal" }], next: null }), []);
+});
+
+test("run.mjs prints [18+] before an adult entry it kept", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kino-adult-"));
+  try {
+    writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6 }));
+    writeFileSync(join(dir, "plugin.js"), `export async function search(){ return [{ id: "a", ref: "a", title: "Adulto", kind: "movie", adult: true }] }
+export async function resolve(){ return { url: "https://example.com/a.m3u8" } }`);
+    const r = runCli([dir, "search", "x"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /\[18\+\] Adulto/);
+    assert.equal(JSON.parse(r.stdout).items[0].adult, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

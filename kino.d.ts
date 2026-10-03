@@ -50,7 +50,7 @@ interface KinoItem {
   quality?: string;
   /** At most 3, each at most 20 characters; shown as chips. */
   badges?: string[];
-  /** true: never shown (no plugin section behind the 18+ lock exists yet). */
+  /** apiVersion 6: true = an 18+ entry, shown only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos). Below apiVersion 6 it is dropped. */
   adult?: boolean;
 }
 
@@ -62,6 +62,11 @@ type KinoGenre =
 interface KinoRow {
   id: string;
   title: string;
+  /**
+   * Items of kind "live" (channels) stay in a Home row from apiVersion 6, as channel cards with the "En vivo" badge
+   * that open like a channel from En vivo (a 18+ one only while the person's code is unlocked); below 6 they are
+   * dropped from Home. A row left with nothing to show is not shown.
+   */
   items: KinoItem[];
   ref?: string;
   /**
@@ -204,6 +209,8 @@ interface KinoLiveCategory {
    * the list is ignored. Kino versions before this field ignore it.
    */
   genre?: KinoGenre;
+  /** apiVersion 6: true = an 18+ entry, shown only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos). Below apiVersion 6 it is dropped. Every channel listed in it is 18+ too. */
+  adult?: boolean;
 }
 
 /**
@@ -250,6 +257,8 @@ interface KinoLiveChannel {
   logo?: string;
   /** 1..9999. */
   number?: number;
+  /** apiVersion 6: true = an 18+ entry, shown only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos). Below apiVersion 6 it is dropped. */
+  adult?: boolean;
 }
 
 interface KinoLiveChannelPage {
@@ -301,6 +310,8 @@ interface KinoCategory {
   art?: string;
   /** At most 4096 characters. */
   ref: string;
+  /** apiVersion 6: true = an 18+ entry, shown only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos). Below apiVersion 6 it is dropped. */
+  adult?: boolean;
 }
 
 /** Your module's exports. `resolve` is required, and at least one of `search`/`home`. */

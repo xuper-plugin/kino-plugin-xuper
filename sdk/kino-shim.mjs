@@ -60,10 +60,10 @@ const letters = (text, one) => [...text.normalize("NFD").replace(/\p{M}+/gu, "")
   .map((c) => (c === "1" ? one : c === "0" ? "o" : c)).filter((c) => c >= "a" && c <= "z").join("");
 const kinoSkeleton = (text) => letters([...text].map((c) => ("lL!¡|".includes(c) ? "i" : c)).join(""), "i");
 const DOMAIN_RES = [/[\p{L}\p{N}][.]\p{L}/u, /\s[.]/u, /[.]\s+[a-z]{2,6}(?!\p{L})/u];
-const LONG_STEMS = ["contrasen", "passw", "passc", "credencial", "daviplata", "whatsapp", "telegram", "transfer", "consign", "tarjeta", "deposit", "verificat"];
+const LONG_STEMS = ["contrasen", "passw", "passc", "credencial", "daviplata", "whatsapp", "telegram", "transfer", "consign", "tarjeta", "deposit", "verificati"];
 const WORD_STEMS = ["abon", "recarg", "clave", "token", "cedula"];
 const WORDS = new Set(["pin", "pins", "cvv", "cvc", "otp", "www", "dot", "arroba"]);
-const TLDS = "com|net|org|co|app|dev|io|tv|me|xyz|info|site|online|click|link|lat|la|es|mx|ar|cl|pe|us|biz|club|live|shop|store|top|vip|cc|gg|to|ws|ly";
+const TLDS = "com|net|org|co|app|dev|io|tv|xyz|info|site|online|click|link|lat|mx|ar|cl|pe|us|biz|club|live|shop|store|top|vip|cc|gg|ws|ly";
 const SPELLED_DOMAIN_RE = new RegExp(`(?:punto|dot)(?:${TLDS})$`);
 // Runs of 3+ one-letter words read as one word ("N e q u i").
 const collapseSpelled = (words) => {

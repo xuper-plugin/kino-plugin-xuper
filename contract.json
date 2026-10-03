@@ -2,7 +2,7 @@
   "$comment": "Kino plugin contract, apiVersion 1 to 6. The single source of truth for every number and rule a plugin meets. The app checks each value against its own code, and a test in the app pins this file to it; sdk/validate.mjs, sdk/run.mjs and the guide's tables read this file.",
   "apiVersion": 6,
   "maxApiVersion": 6,
-  "apiVersionFromApp": { "6": "0.9.47" },
+  "apiVersionFromApp": { "6": "0.9.50" },
   "capabilities": {
     "names": ["search", "home", "browse", "episodes", "resolve", "download", "drm", "channels", "migrate"],
     "required": ["resolve"],
@@ -134,7 +134,9 @@
     "drm": { "field": "drm", "types": ["widevine"] },
     "itemKinds": ["movie", "series", "live"],
     "migrateKinds": ["movie", "series", "episode", "live"],
-    "liveKindApiVersion": 2
+    "liveKindApiVersion": 2,
+    "adultApiVersion": 6,
+    "homeLiveApiVersion": 6
   },
   "live": {
     "apiVersion": 3,
@@ -146,6 +148,7 @@
     "maxGuideEntriesPerChannel": 100,
     "maxChannelNumber": 9999,
     "maxPlaylists": 10,
+    "adultApiVersion": 6,
     "defaultRefreshHours": 12,
     "minRefreshHours": 1,
     "maxRefreshHours": 168,

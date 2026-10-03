@@ -65,6 +65,22 @@ export function signExportProblem(value, plugin) {
   return value && value.signing && typeof plugin.sign !== "function" ? NO_SIGN_EXPORT : null;
 }
 
+/**
+ * One `[18+] <title>` line per entry of a checked answer marked `adult` (apiVersion 6): rows' and pages' items,
+ * category tiles, live categories and channels. Kino lists those only while the person's 18+ code is unlocked.
+ */
+export function adultLines(value) {
+  const out = [];
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (v === null || typeof v !== "object") return;
+    if (v.adult === true) out.push(`[18+] ${v.title} (Kino lo muestra solo con el código 18+ desbloqueado)`);
+    for (const k of ["items", "rows", "categories"]) if (Array.isArray(v[k])) walk(v[k]);
+  };
+  walk(value);
+  return out;
+}
+
 function fail(message) {
   stderr(message);
   return 2;
@@ -198,6 +214,7 @@ async function main() {
     }
     const { value, drops } = checked;
     drops.forEach((d) => stderr(`[dropped by Kino] ${d}`));
+    adultLines(value).forEach((l) => stderr(l));
     const noSign = fn === "resolve" ? signExportProblem(value, plugin) : null;
     if (noSign) { stderr(`✗ ${noSign}`); return 1; }
     process.stdout.write(JSON.stringify(value, null, 2) + "\n");

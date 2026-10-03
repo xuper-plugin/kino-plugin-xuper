@@ -156,7 +156,7 @@ names the field.
 | `id` | Required. `^[a-z0-9][a-z0-9-]{1,39}$` (2 to 40 lowercase letters, digits or hyphens, not starting with a hyphen). Not one of `magis`, `ditu`, `live`, `local`, `unknown`, `plugin`. It is the plugin's identity: never change it once people have installed it. |
 | `name` | Required. 1 to 40 characters. |
 | `version` | Required. `MAJOR.MINOR.PATCH` and nothing else (no `-beta`, no `+build`), each number up to 6 digits and without leading zeros. |
-| `apiVersion` | Required. `1` to `6`. `5` adds only the author's [signature](#signed-plugins-apiversion-5-kino-0945) (Kino 0.9.45); `6` adds typed and larger sealed secrets, `migrate`, request-signed streams, the settings form's `section`/`status`/`action`, `debug`, `section`, `categories` and `theme` (Kino 0.9.47). A higher number than Kino supports is refused with "Este plugin necesita una versión más nueva de Kino". Declare the lowest number that has what you use, so your plugin also runs on older Kino builds. |
+| `apiVersion` | Required. `1` to `6`. `5` adds only the author's [signature](#signed-plugins-apiversion-5-kino-0945) (Kino 0.9.45); `6` adds typed and larger sealed secrets, `migrate`, request-signed streams, the settings form's `section`/`status`/`action`, `debug`, `section`, `categories`, `theme` and [18+ entries](#what-you-return) shown behind the person's 18+ code (Kino 0.9.50). A higher number than Kino supports is refused with "Este plugin necesita una versión más nueva de Kino". Declare the lowest number that has what you use, so your plugin also runs on older Kino builds. |
 | `entry` | Required. Relative path of the JavaScript file: letters, digits, `.`, `_`, `-` and `/` only, no `..`, at most 200 characters, ends in `.js`. The file is at most 1 MB. |
 | `signature` | Optional, from apiVersion 5: `{ "authorKey": …, "value": … }`, written by `sdk/seal.mjs --sign` — your signature over the entry file. See [Signed plugins](#signed-plugins-apiversion-5-kino-0945). |
 | `hosts` | Required. At least 1 entry, with no upper limit from Kino 0.9.45 (only the manifest's 16 KB bounds it); Kino 0.9.44 and older refuse more than 20, and `sdk/validate.mjs` warns "Más de 20 hosts: Kino 0.9.44 o anterior rechaza este plugin; necesita Kino 0.9.45 o superior". From apiVersion 2 it may be empty, `[]`, when the plugin has a `url` setting: see [The person's own servers](#the-persons-own-servers). Each a lowercase DNS name (`archive.org`), `*.` plus a DNS name (`*.archive.org`), or (apiVersion 2 only) an object `{ "host": "…", "insecureHttp": true }` (below). Host names only: no scheme, port or path. No bare `*`, no IP addresses, no `localhost`, nothing ending in `.local`, `.lan`, `.internal`, `.localhost` or `.home.arpa`, and at least one dot. **`*.x` covers subdomains only, not `x` itself**: if you need both, list both. |
@@ -422,8 +422,12 @@ and an update that newly declares it waits for the person's approval ([section 8
 
 ### Live channels (apiVersion 2)
 
-With `"apiVersion": 2` an item may be a live channel: `kind: "live"`, in any `home` row, `browse`
-page or `search` result, next to your movies and series. Nothing to declare beyond the version.
+With `"apiVersion": 2` an item may be a live channel: `kind: "live"`, in a `browse` page or `search`
+result, next to your movies and series. Nothing to declare beyond the version. In a `home` row a
+channel stays only from `"apiVersion": 6`: it shows as a channel card with the "En vivo" badge and
+opens like a channel from En vivo (a row of channels on Home is just a `home` row whose items are
+`kind: "live"`); below 6 Kino drops it from Home. An `adult: true` channel follows the same 18+ lock
+as any 18+ item, and a row left with nothing to show is not shown.
 
 ```js
 export async function home() {
@@ -704,7 +708,8 @@ export async function categories() {
 At most 24 tiles, shown in your order; `title` at most 40 characters, `ref` at most 4,096, `art` an
 image URL (the Images rule of [section 4](#what-you-return): `http` or `https`, not checked against `hosts`). They appear in Categorías as one group named after your plugin, and each
 tile opens `browse(ref, null)`, paged like any `browse`. If `categories()` fails or times out you
-simply contribute no group. 20 s per call.
+simply contribute no group. 20 s per call. A tile with `adult: true` is shown only while the person's
+18+ code is unlocked on that device, like any [18+ entry](#what-you-return); a group left with only such tiles is not shown.
 
 **Your colors.** `"theme"` takes up to five colors, each `#RRGGBB`, each optional:
 
@@ -1067,10 +1072,10 @@ all or nothing.
 | `seasons` (in the `episodes` result) | Optional; at most 50. Each needs an `id` (same pattern as an item id; a repeated one is dropped), a non-empty `ref` of at most 4096 characters and a non-blank `title` (up to 200 characters), or it is dropped. `number` from 1 to 999 and `current` a boolean; a wrong one is ignored, not the season. Anything that is not a list is ignored. |
 | `id` | `^[A-Za-z0-9._~-]{1,128}$`. Anything else drops the item, so if your source's own ids have other characters (spaces, `/`, `:`, `%`), derive a stable id yourself, such as a slug. Repeated ids in one list are dropped. |
 | `ref` | A non-empty string of at most 4096 characters. |
-| `kind` | `"movie"`, `"series"` or (apiVersion 2) `"live"`. A `series` item from a plugin that does not declare `episodes` is dropped: it could never be opened; a `live` item from an apiVersion 1 plugin is dropped too (see [Live channels](#live-channels-apiversion-2)). |
+| `kind` | `"movie"`, `"series"` or (apiVersion 2) `"live"`; a `live` item stays in a `home` row only from apiVersion 6 (below it, it is dropped from Home). A `series` item from a plugin that does not declare `episodes` is dropped: it could never be opened; a `live` item from an apiVersion 1 plugin is dropped too (see [Live channels](#live-channels-apiversion-2)). |
 | Text fields | `title` is required and non-blank, up to 200 characters. `overview` up to 2000; `lang` and `quality` up to 20 (for example `"es"`, `"1080p"`); `year` up to 10 (a number is accepted and converted). Longer text is cut; the text of `SeriesInfo` and `Episode` is cut the same way (200 characters for titles, 2000 for overviews). |
 | Extra item fields | All optional; a wrong one is ignored, not the item. `genres` at most 5, each at most 30 characters; `badges` (shown as chips, e.g. `"HD"`, `"Latino"`) at most 3 of at most 20; `rating` from 0 to 10; `runtimeMinutes` from 1 to 1000; `ids.tmdb` a positive integer (Kino uses it to match your title with TMDB, to find it again from search, and to enrich its info page -- see below); `ids.imdb` matches `^tt\d{5,10}$` (also enriches a movie's info page when you have no `ids.tmdb`). An episode's `airDate` is `YYYY-MM-DD`. |
-| `adult` | An item with `adult: true` is dropped: Kino has no place behind its 18+ lock for plugin titles yet. |
+| `adult` | From apiVersion 6, `adult: true` marks an 18+ entry: Kino shows it only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos), and hides it again when they lock it; below apiVersion 6 it is dropped. It applies on Home, in search, "Ver más", your section and Categorías. |
 | Images | `poster`, `backdrop` and `still` must be `http` or `https` URLs of at most 2048 characters, or they are ignored. Images are loaded by Kino directly and are **not** checked against `hosts` (they are display only), and Kino does not send your headers or cookies with them. This is the one exception to the host rule, with one limit: an image on the home network, a private or reserved IP address, or a local name (`localhost`, `.local`, `.lan`, …) is ignored too, unless it is on a server the person typed in your settings. A public IPv4 address is fine. |
 
 **`ids.tmdb` enriches the info page, not only matching.** When TMDB has this exact title (matched by
@@ -1247,7 +1252,7 @@ The rules:
 - `guide` is optional. Kino keeps entries for the channels it asked for, with `end` after `start`,
   inside the window, at most 100 per channel and one per start time. A `guide` that fails or is not
   exported is simply not asked again for 30 minutes: your channels still list.
-- An `adult: true` category or channel is dropped.
+- `adult: true` on a category or a channel: from apiVersion 6, `adult: true` marks an 18+ entry: Kino shows it only while the person's 18+ code is unlocked on that device (Ajustes ▸ Adultos), and hides it again when they lock it; below apiVersion 6 it is dropped. Every channel of an 18+ category counts as 18+, and an 18+ channel never enters "Recientes".
 
 ### Errors people understand
 
@@ -1303,7 +1308,8 @@ detail is):
   date with its year), and no digit glued to a letter (`en 5 minutos` is fine, `5minutos` is not);
 - no domain: a dot glued to a letter (`site.app`), a dot after a space (`site .app`), a dot followed
   by a lowercase word of 2 to 6 letters (`site. app`), `www`, or `punto`/`dot` glued to or followed
-  by a domain ending (`punto com`, `puntodev`; "a punto de volver" is fine);
+  by a domain ending (`punto com`, `puntodev`; "a punto de volver" and "en este punto es mejor" are fine:
+  `es`, `la`, `me` and `to` are not read as endings);
 - it never spells Kino: read with `1`, `l`, `!`, `¡` as `i`, `0` as `o` and every non-letter dropped,
   it holds no `kino` anywhere (so avoid a word like "Kinoshita");
 - it asks for no credentials, money or contact outside Kino, read word by word (a word split on
@@ -1311,7 +1317,8 @@ detail is):
   pagues, págalo; "página" is fine),
   `abon…`, `recarg…`, `transfer…`, `consign…`, `deposit…`, `contraseñ…`, `passw…`, `clave…`,
   `credencial…`, `token…`, `tarjeta`, `PIN`, Nequi, Daviplata, WhatsApp, Telegram, a `código` that
-  came by SMS or is a verification code: your own settings are the only place for those (`recarg…`
+  came by SMS or is a verification code (`verification…`; "Verifica tu conexión" is fine): your own
+  settings are the only place for those (`recarg…`
   also refuses "Recarga la lista": say "Vuelve a cargar");
 - it holds none of the passwords the person typed in your settings (checked against your plugin's
   stored values; while they can't be read, the sentence is not shown), nor any sealed secret's value.
@@ -2009,7 +2016,7 @@ To stay out of the search while keeping the topic, set `"discoverable": false`;
   a plugin's stream can also be sent to a Chromecast or a DLNA TV. Kino picks the lightest route: a
   file (mp4, webm) with no `headers` goes straight to the TV (relayed through the phone if the TV fails
   it); one with `headers`, and every HLS stream (a Chromecast needs CORS on it), is relayed through the
-  phone; a request-signed one too, from Kino 0.9.47 (see
+  phone; a request-signed one too, from Kino 0.9.50 (see
   [Signing every request](#signing-every-request-signing-apiversion-6)). DRM (`drm`), DASH, a
   progressive MPEG-TS or an unknown format is not offered. A `live` item's card
   says "EN VIVO" and plays on tap, with no info page; a channel never enters "Continuar viendo" or

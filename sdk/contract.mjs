@@ -380,7 +380,7 @@ function strings(v, max, maxChars) {
   return out;
 }
 
-function items(list, max, { allowSeries, allowLive, servers }, drop) {
+function items(list, max, { allowSeries, allowLive, allowAdult, servers }, drop) {
   const out = [];
   const seen = new Set();
   (Array.isArray(list) ? list : []).forEach((x, i) => {
@@ -395,7 +395,10 @@ function items(list, max, { allowSeries, allowLive, servers }, drop) {
     if (x.kind === "series" && !allowSeries) return drop(`item ${id}: series without the episodes capability`);
     // Silently, like any invalid item: an apiVersion 1 plugin never declared it could go live.
     if (x.kind === "live" && !allowLive) return drop(`item ${id}: live needs apiVersion ${o().liveKindApiVersion}`);
-    if (x.adult === true) return drop(`item ${id}: adult, dropped`);
+    // Below apiVersion 6 (output.adultApiVersion) an adult title never reaches a screen; from 6 it is kept and
+    // marked, and Kino lists it only while the person's 18+ code is unlocked.
+    const adult = x.adult === true;
+    if (adult && !allowAdult) return drop(`item ${id}: adult, dropped`);
     if (seen.has(id)) return;
     seen.add(id);
     const ids = x.ids && typeof x.ids === "object" ? x.ids : {};
@@ -411,6 +414,7 @@ function items(list, max, { allowSeries, allowLive, servers }, drop) {
       tmdb: Number.isInteger(ids.tmdb) && ids.tmdb > 0 ? ids.tmdb : 0,
       imdb: typeof ids.imdb === "string" && re(o().imdbPattern).test(ids.imdb) ? ids.imdb : "",
       badges: strings(x.badges, o().maxBadges, o().maxBadgeChars),
+      ...(adult ? { adult: true } : {}),
     });
   });
   return out;
@@ -439,7 +443,15 @@ function rows(value, ctx, drop) {
     if (!re(o().itemIdPattern).test(id)) return drop(`home: row ${i} has an invalid id`);
     const title = text(r.title, o().maxTitleChars);
     if (!title) return drop(`home: row ${id} has no title`);
-    const list = items(r.items, o().maxRowItems, ctx, drop);
+    let list = items(r.items, o().maxRowItems, ctx, drop);
+    // Below apiVersion 6 (output.homeLiveApiVersion) a channel is not a Home card: it lives in En vivo.
+    if (ctx.homeLive === false) {
+      list = list.filter((x) => {
+        if (x.kind !== "live") return true;
+        drop(`home: row ${id} item ${x.id}: live in a Home row needs apiVersion ${o().homeLiveApiVersion}`);
+        return false;
+      });
+    }
     if (!list.length) return;
     if (seen.has(id)) return drop(`home: duplicate row ${id} dropped`);
     seen.add(id);
@@ -496,9 +508,11 @@ function categories(value, ctx, drop) {
     if (!title) return drop(`categories: ${id} has no title`);
     const ref = typeof c.ref === "string" ? c.ref : "";
     if (!ref || ref.length > o().maxRefChars) return drop(`categories: ${id} has no valid ref`);
+    const adult = c.adult === true;
+    if (adult && !ctx.allowAdult) return drop(`categories: ${id} adult, dropped`);
     if (seen.has(id)) return drop(`categories: duplicate ${id} dropped`);
     seen.add(id);
-    out.push({ id, title, art: image(c.art, ctx.servers) || null, ref });
+    out.push({ id, title, art: image(c.art, ctx.servers) || null, ref, ...(adult ? { adult: true } : {}) });
   });
   return out;
 }
@@ -799,11 +813,12 @@ function liveCategories(value, ctx, drop) {
     if (!re(o().itemIdPattern).test(id)) return drop(`liveCategories: #${i} has an invalid id`);
     const title = text(c.title, o().maxTitleChars);
     if (!title) return drop(`liveCategories: ${id} has no title`);
-    if (c.adult === true) return drop(`liveCategories: ${id} adult, dropped`);
+    const adult = c.adult === true;
+    if (adult && !ctx.allowAdult) return drop(`liveCategories: ${id} adult, dropped`);
     if (seen.has(id)) return drop(`liveCategories: duplicate ${id} dropped`);
     seen.add(id);
     const cc = typeof c.country === "string" ? c.country.trim().toUpperCase() : "";
-    categories.push({ id, title, country: /^[A-Z]{2}$/.test(cc) ? cc : "", genre: genreOf(c.genre) });
+    categories.push({ id, title, country: /^[A-Z]{2}$/.test(cc) ? cc : "", genre: genreOf(c.genre), ...(adult ? { adult: true } : {}) });
   });
   return { categories, playlists };
 }
@@ -829,7 +844,8 @@ function liveChannels(value, ctx, drop) {
     if (id.startsWith(live().reservedIdPrefix)) return drop(`liveChannels: ${id} uses a reserved id`);
     const title = text(c.title, o().maxTitleChars);
     if (!title) return drop(`liveChannels: ${id} has no title`);
-    if (c.adult === true) return drop(`liveChannels: ${id} adult, dropped`);
+    const adult = c.adult === true;
+    if (adult && !ctx.allowAdult) return drop(`liveChannels: ${id} adult, dropped`);
     const ref = typeof c.ref === "string" ? c.ref : "";
     if (ref.length > o().maxRefChars) return drop(`liveChannels: ${id} has an invalid ref`);
     let checked = null;
@@ -845,7 +861,7 @@ function liveChannels(value, ctx, drop) {
     seen.add(id);
     const number = Number.isInteger(c.number) && c.number >= 1 && c.number <= live().maxChannelNumber ? c.number : 0;
     const categoryId = typeof c.categoryId === "string" && re(o().itemIdPattern).test(c.categoryId) ? c.categoryId : "";
-    out.push({ id, title, ref, logo: image(c.logo, ctx.servers), number, categoryId, stream: checked });
+    out.push({ id, title, ref, logo: image(c.logo, ctx.servers), number, categoryId, stream: checked, ...(adult ? { adult: true } : {}) });
   });
   return { items: out, next };
 }
@@ -994,15 +1010,18 @@ export function checkOutput(fn, value, manifest, servers = [], { liveChannel = f
     allowNext: manifest.capabilities.includes("browse"),
     // Live channels are apiVersion 2: a v1 plugin's live item is dropped like any invalid one.
     allowLive: Number.isInteger(manifest.apiVersion) && manifest.apiVersion >= o().liveKindApiVersion,
+    // 18+ entries are apiVersion 6: kept and marked (shown behind the person's 18+ code); below it, dropped.
+    allowAdult: Number.isInteger(manifest.apiVersion) && manifest.apiVersion >= o().adultApiVersion,
     servers,
   };
+  const liveAdult = Number.isInteger(manifest.apiVersion) && manifest.apiVersion >= live().adultApiVersion;
   const json = JSON.stringify(value === undefined ? null : value);
   if (json.length > o().maxResultChars) throw new Error("respuesta del plugin demasiado grande (más de 2 millones de caracteres)");
   const parsed = JSON.parse(json);
   switch (fn) {
     case "search": return { value: page(parsed, o().maxSearchItems, ctx, drop), drops };
     case "browse": return { value: page(parsed, o().maxBrowseItems, { ...ctx, allowNext: true }, drop), drops };
-    case "home": return { value: rows(parsed, ctx, drop), drops };
+    case "home": return { value: rows(parsed, { ...ctx, homeLive: Number.isInteger(manifest.apiVersion) && manifest.apiVersion >= o().homeLiveApiVersion }, drop), drops };
     case "section": return { value: section(parsed, ctx, drop), drops };
     case "categories": return { value: categories(parsed, ctx, drop), drops };
     case "episodes": return { value: episodes(parsed, drop, servers), drops };
@@ -1017,8 +1036,8 @@ export function checkOutput(fn, value, manifest, servers = [], { liveChannel = f
       if (Object.entries(headers).some(([k, v]) => k.includes("__kinoSecret_") || v.includes("__kinoSecret_"))) throw new Error("sign no puede devolver datos sellados");
       return { value: { headers }, drops };
     }
-    case "liveCategories": return { value: liveCategories(parsed, { manifest, servers }, drop), drops };
-    case "liveChannels": return { value: liveChannels(parsed, { manifest, servers, allowDrm: manifest.capabilities.includes("drm") }, drop), drops };
+    case "liveCategories": return { value: liveCategories(parsed, { manifest, servers, allowAdult: liveAdult }, drop), drops };
+    case "liveChannels": return { value: liveChannels(parsed, { manifest, servers, allowDrm: manifest.capabilities.includes("drm"), allowAdult: liveAdult }, drop), drops };
     case "guide": return { value: guide(parsed, drop), drops };
     case "migrate": return migrateAnswer(parsed, migrateInput || { kind: "title" });
     default: throw new Error(`unknown function ${fn}`);
