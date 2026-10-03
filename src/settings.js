@@ -20,6 +20,8 @@ const SEND_CODE_TOTAL_MS = 25_000; // cap 30 s
 const RESEND_WAIT_MS = 60_000;
 const REGISTER_REQUEST_MS = 10_000; // three portal calls: validate, bind, login
 const REGISTER_TOTAL_MS = 25_000;
+const LOGOUT_REQUEST_MS = 10_000; // log out, then reactivate the anonymous session
+const LOGOUT_TOTAL_MS = 25_000; // cap 30 s
 
 const SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
 
@@ -81,7 +83,7 @@ export function makeSettings({ kino, session, clock, registration }) {
   }
 
   async function logout() {
-    try { await session.logout(); }
+    try { await session.logout({ timeoutMs: LOGOUT_REQUEST_MS, deadline: clock.now() + LOGOUT_TOTAL_MS }); }
     catch (e) { throw surface(e); }
     // The app clears these only if this action succeeded; session.logout() runs first on purpose.
     return { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password", "useSharedAccount"] };

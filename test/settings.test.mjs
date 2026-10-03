@@ -455,6 +455,12 @@ test("slow portal: validateSettings throws unavailable inside 20 s, failover inc
   assert.equal(w.kino.storage.get("session"), before);
 });
 
+test("slow portal: the logout action ends inside 30 s (log out, reactivate, pool download)", async () => {
+  const w = slowWorld({ onFetch: hang(12_000) });
+  await assert.rejects(w.settings.action("logout"), (e) => e.name === "KinoError_unavailable");
+  assert.ok(w.elapsed() < 30_000, `elapsed ${w.elapsed()}`);
+});
+
 test("slow portal: the login action throws unavailable inside 30 s", async () => {
   const w = slowWorld({ onFetch: hang(12_000), config: { email: "ana@x.test", password: PW } });
   await assert.rejects(w.settings.action("login"), (e) => e.name === "KinoError_unavailable" && !e.message.includes(PW));

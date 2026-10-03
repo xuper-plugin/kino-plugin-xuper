@@ -2912,6 +2912,8 @@ var SEND_CODE_TOTAL_MS = 25e3;
 var RESEND_WAIT_MS = 6e4;
 var REGISTER_REQUEST_MS = 1e4;
 var REGISTER_TOTAL_MS = 25e3;
+var LOGOUT_REQUEST_MS = 1e4;
+var LOGOUT_TOTAL_MS = 25e3;
 var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
 var str4 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
@@ -2960,7 +2962,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   }
   async function logout() {
     try {
-      await session.logout();
+      await session.logout({ timeoutMs: LOGOUT_REQUEST_MS, deadline: clock2.now() + LOGOUT_TOTAL_MS });
     } catch (e) {
       throw surface(e);
     }
