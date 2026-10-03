@@ -24,7 +24,7 @@ export function makeCrypto(kino) {
         });
         if (typeof b64 !== "string" || b64 === "") throw new Error("empty");
         return toHex(b64);
-      } catch (e) { throw fail("cifrar"); }
+      } catch (_) { throw fail("cifrar"); }
     },
     decryptBlob(wire) {
       try {
@@ -33,7 +33,7 @@ export function makeCrypto(kino) {
         });
         if (typeof text !== "string" || text === "") throw new Error("empty");
         return text;
-      } catch (e) { throw fail("descifrar"); }
+      } catch (_) { throw fail("descifrar"); }
     },
   };
 }

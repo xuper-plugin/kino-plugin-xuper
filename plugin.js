@@ -19,7 +19,7 @@ function makeCrypto(kino2) {
         });
         if (typeof b64 !== "string" || b64 === "") throw new Error("empty");
         return toHex(b64);
-      } catch (e) {
+      } catch (_) {
         throw fail("cifrar");
       }
     },
@@ -32,7 +32,7 @@ function makeCrypto(kino2) {
         });
         if (typeof text2 !== "string" || text2 === "") throw new Error("empty");
         return text2;
-      } catch (e) {
+      } catch (_) {
         throw fail("descifrar");
       }
     }
