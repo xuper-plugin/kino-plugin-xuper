@@ -71,8 +71,14 @@ export function digestHex(bytes) {
   const total = new Uint8Array(len + 1 + padLen + 8);
   total.set(bytes, 0);
   total[len] = 0x80;
-  const bits = BigInt(len) * 8n;
-  for (let i = 0; i < 8; i++) total[len + 1 + padLen + i] = Number((bits >> BigInt(8 * i)) & 0xffn);
+  // The 64-bit little-endian bit length as two 32-bit words: low = (len * 8)
+  // mod 2^32, high = len / 2^29 (the bits that shift out of the low word). Plain numbers on purpose.
+  const low = (len % 0x20000000) * 8;
+  const high = Math.floor(len / 0x20000000);
+  for (let i = 0; i < 4; i++) {
+    total[len + 1 + padLen + i] = (low >>> (8 * i)) & 0xff;
+    total[len + 5 + padLen + i] = (high >>> (8 * i)) & 0xff;
+  }
   for (let off = 0; off < total.length; off += 64) compress(state, total, off);
   let out = "";
   for (const w of state) for (let i = 0; i < 4; i++) out += ((w >>> (8 * i)) & 0xff).toString(16).padStart(2, "0");

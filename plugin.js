@@ -2465,8 +2465,12 @@ function digestHex(bytes) {
   const total = new Uint8Array(len + 1 + padLen + 8);
   total.set(bytes, 0);
   total[len] = 128;
-  const bits = BigInt(len) * 8n;
-  for (let i = 0; i < 8; i++) total[len + 1 + padLen + i] = Number(bits >> BigInt(8 * i) & 0xffn);
+  const low = len % 536870912 * 8;
+  const high = Math.floor(len / 536870912);
+  for (let i = 0; i < 4; i++) {
+    total[len + 1 + padLen + i] = low >>> 8 * i & 255;
+    total[len + 5 + padLen + i] = high >>> 8 * i & 255;
+  }
   for (let off = 0; off < total.length; off += 64) compress(state, total, off);
   let out = "";
   for (const w of state) for (let i = 0; i < 4; i++) out += (w >>> 8 * i & 255).toString(16).padStart(2, "0");

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { digestHex, signO3 } from "../src/tweakedMd5.js";
 
 // Captured from the real app (same vectors as the native TweakedMd5Test).
@@ -52,4 +53,9 @@ test("the literal K table is the sine definition except the four tweaked steps",
   assert.equal(K[45], 0xe6bd99e5);
   assert.equal(K[54], 0xffecc47d);
   assert.equal(K[62], 0x2da7d2bb);
+});
+
+test("the signing code needs no BigInt (one less engine feature to trust on the device's QuickJS)", () => {
+  const source = readFileSync(new URL("../src/tweakedMd5.js", import.meta.url), "utf8");
+  assert.ok(!/BigInt|\d+n\b/.test(source), "BigInt in src/tweakedMd5.js");
 });
