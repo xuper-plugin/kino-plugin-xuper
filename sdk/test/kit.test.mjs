@@ -33,8 +33,8 @@ test("contract.json is the one the app pins", () => {
   assert.equal(contract.apiVersion, 6);
   // apiVersion 5 stays what Kino 0.9.45 made it: the author-signed entry, nothing else.
   assert.equal(contract.manifest.signature.apiVersion, 5);
-  assert.deepEqual(contract.capabilities.names, ["search", "home", "browse", "episodes", "resolve", "download", "drm", "channels", "migrate"]);
-  assert.deepEqual(contract.capabilities.declarative, ["download", "drm"]);
+  assert.deepEqual(contract.capabilities.names, ["search", "home", "browse", "episodes", "resolve", "download", "drm", "channels", "migrate", "scopedSearch"]);
+  assert.deepEqual(contract.capabilities.declarative, ["download", "drm", "scopedSearch"]);
   assert.deepEqual(contract.permissions, []);
 });
 
@@ -3173,4 +3173,46 @@ export async function resolve(){ return { url: "https://example.com/a.m3u8" } }`
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- Task 14c: scopedSearch (search inside a "Ver más" page) ----
+
+test("scopedSearch: apiVersion 6, only with search, and nothing more to export", () => {
+  const ok = validateManifest(manifest({ apiVersion: 6, capabilities: ["search", "browse", "resolve", "scopedSearch"] }));
+  assert.ok(ok.ok);
+  assert.deepEqual(requiredExports(ok.manifest.capabilities).sort(), ["browse", "resolve", "search"]);
+  assert.deepEqual(validateManifest(manifest({ apiVersion: 5, capabilities: ["search", "browse", "resolve", "scopedSearch"] })),
+    { ok: false, field: "capabilities", message: "Esta capacidad necesita apiVersion 6" });
+  assert.deepEqual(validateManifest(manifest({ apiVersion: 6, capabilities: ["home", "browse", "resolve", "scopedSearch"] })),
+    { ok: false, field: "capabilities", message: 'La capacidad "scopedSearch" necesita también "search"' });
+  assert.deepEqual(contract.capabilities.needsApproval.includes("scopedSearch"), false);
+});
+
+test("validate() warns when scopedSearch is declared but search() never reads query.within", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "kino-scoped-"));
+  const warning = 'Declara "scopedSearch" pero search() no lee query.within: Kino le pide buscar dentro de una página "Ver más" y recibiría la búsqueda completa (responde null si no puede buscar en esa página)';
+  try {
+    writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6, capabilities: ["search", "browse", "resolve", "scopedSearch"] }));
+    const rest = "\nexport async function browse(){ return { items: [] } }\nexport async function resolve(){ return { url: 'https://example.com/a' } }";
+    writeFileSync(join(dir, "plugin.js"), "export async function search(query){ return [] }" + rest);
+    const ignoring = await validate(dir);
+    assert.deepEqual(ignoring.problems, []);
+    assert.ok(ignoring.notes.includes(warning), ignoring.notes.join("\n"));
+    writeFileSync(join(dir, "plugin.js"), "export async function search(query){ if (query.within) return null; return [] }" + rest);
+    assert.ok(!(await validate(dir)).notes.includes(warning));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("run.mjs --within sends the browse ref as the app's scoped search does", async () => {
+  const { opts } = parseArgs(["--within", "row-7", "./p", "search", "matrix"]);
+  assert.equal(opts.within, "row-7");
+  const plugin = { search: async (q) => q };
+  const q = await call(plugin, "search", ["matrix"], { within: "row-7" });
+  assert.equal(q.q, "matrix");
+  assert.equal(q.within, "row-7");
+  assert.equal(q.type, "any");
+  assert.equal((await call(plugin, "search", ["matrix"], {})).within, undefined);
+  assert.throws(() => parseArgs(["--within"]), /--within needs/);
 });

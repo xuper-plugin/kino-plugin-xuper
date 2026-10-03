@@ -66,6 +66,26 @@ function projectItem(item, nowMs) {
   return out;
 }
 
+// Lowercase, no accents, words only: "¡Pequeña Miss!" -> "pequena miss".
+const plainWords = (text) => String(text).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * A row's items matching [q], ranked like the global search: a title holding every word of the query (part of a word
+ * counts, as a typed query is often unfinished) or one kino.rank.filterRelevant keeps, then kino.rank.sortBySimilarity.
+ */
+export function rankWithin(kino, pool, q) {
+  const words = plainWords(q).split(" ").filter((w) => w !== "");
+  const forms = [q];
+  const titlesOf = (item) => [item.title];
+  const relevant = new Set(kino.rank.filterRelevant(pool, forms, titlesOf));
+  const hits = pool.filter((item) => {
+    if (relevant.has(item)) return true;
+    const title = plainWords(item.title);
+    return words.length > 0 && words.every((w) => title.includes(w));
+  });
+  return kino.rank.sortBySimilarity(hits, forms, titlesOf);
+}
+
 /** Classified rows as home rows: `ref` is the row id, empty rows dropped, SDK caps applied. */
 export function projectRows(rows, nowMs) {
   const out = [];
@@ -256,7 +276,39 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     return next < row.all.length ? { items, next: String(next) } : { items };
   }
 
-  const { search } = makeSearch({ kino, portal, session, clock, tmdb });
+  const { search: globalSearch } = makeSearch({ kino, portal, session, clock, tmdb });
+
+  // Kino's scopedSearch (apiVersion 6): `within` is the browse ref of a "Ver más" page. Those rows are Xuper's own
+  // classification across the portal's sections (type x genre, featured), so no portal column matches one and its
+  // searchByName cannot be restricted to it: the row's tree (Home's cache, no new storage key) is filtered here and
+  // ranked like the global search, inside the search's own budget. The 18+ tile is searched only when asked (its
+  // movies stay marked adult); an unknown row is not_found, like browse.
+  async function searchWithin(query) {
+    const q = typeof query.q === "string" ? query.q.trim() : "";
+    if (q === "") return { items: [] };
+    const within = query.within;
+    const adult = within === ADULT_REF;
+    let pool;
+    if (adult) {
+      pool = await adultMovies(callDeadline(clock, CALL_BUDGET_MS.search));
+    } else {
+      const row = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : undefined;
+      if (!row) throw kino.error("not_found", "No se encontró esa lista");
+      pool = row.all;
+    }
+    const ranked = rankWithin(kino, pool, q);
+    const offset = offsetOf(query.cursor);
+    const nowMs = clock.now();
+    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null)
+      .map((i) => (adult ? { ...i, adult: true } : i));
+    const next = offset + BROWSE_PAGE;
+    return next < ranked.length ? { items, next: String(next) } : { items };
+  }
+
+  async function search(query) {
+    if (query !== null && typeof query === "object" && query.within !== undefined && query.within !== null) return searchWithin(query);
+    return globalSearch(query);
+  }
 
   // The chapter list is shared with resolve, which looks a chapter up by its number.
   const portalChapters = makePortalChapters({ kino, portal, session, clock });

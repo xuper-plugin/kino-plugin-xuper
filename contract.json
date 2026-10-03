@@ -4,11 +4,13 @@
   "maxApiVersion": 6,
   "apiVersionFromApp": { "6": "0.9.50" },
   "capabilities": {
-    "names": ["search", "home", "browse", "episodes", "resolve", "download", "drm", "channels", "migrate"],
+    "names": ["search", "home", "browse", "episodes", "resolve", "download", "drm", "channels", "migrate", "scopedSearch"],
     "required": ["resolve"],
     "atLeastOneOf": ["search", "home"],
-    "declarative": ["download", "drm"],
-    "apiVersions": { "download": 2, "drm": 2, "channels": 3, "migrate": 6 },
+    "declarative": ["download", "drm", "scopedSearch"],
+    "apiVersions": { "download": 2, "drm": 2, "channels": 3, "migrate": 6, "scopedSearch": 6 },
+    "requires": { "scopedSearch": "search" },
+    "requiresMessage": "La capacidad \"{capability}\" necesita también \"{requires}\"",
     "needsApproval": ["download", "drm", "channels", "migrate"],
     "exports": { "channels": ["liveCategories", "liveChannels"] },
     "optionalExports": { "channels": ["guide"], "resolve": ["sign"] }
@@ -169,7 +171,8 @@
   "search": {
     "types": ["movie", "series", "any"],
     "maxAltTitles": 5,
-    "maxAltTitleChars": 200
+    "maxAltTitleChars": 200,
+    "scoped": { "capability": "scopedSearch", "apiVersion": 6, "field": "within", "debounceMs": 400, "local": { "minMatches": 24, "maxExtraPages": 10, "maxExtraItems": 300 } }
   },
   "timeoutsMs": {
     "load": 10000,

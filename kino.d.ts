@@ -1,4 +1,4 @@
-// TypeScript declarations for Kino plugins (apiVersion 1 to 6; apiVersion 5 only adds the manifest's signature, 6 the plain-plugin SDK: typed and larger secrets, migrate, signed streams, the settings form, debug, telemetry, section, categories and theme). Reference them from plugin.js
+// TypeScript declarations for Kino plugins (apiVersion 1 to 6; apiVersion 5 only adds the manifest's signature, 6 the plain-plugin SDK: typed and larger secrets, migrate, signed streams, the settings form, debug, telemetry, section, categories, theme and scopedSearch). Reference them from plugin.js
 // with `/// <reference path="./kino.d.ts" />` for editor help; Kino itself runs plain JavaScript.
 // The numbers in the comments come from contract.json, which is authoritative. The app checks that
 // every `kino` member declared here exists in its runtime and nothing else does (KinoDtsTest).
@@ -18,6 +18,12 @@ interface KinoSearchQuery {
   /** Other known titles, at most 5, each at most 200 characters. */
   altTitles: string[];
   cursor: string | null;
+  /**
+   * apiVersion 6, capability "scopedSearch": the browse `ref` of the "Ver más" page the person searches inside (a Home
+   * row, a section row, a category), exactly as you gave it; absent on a plain search. Return null when you cannot
+   * search there: Kino then filters the page's loaded titles itself.
+   */
+  within?: string;
 }
 
 interface KinoItem {
@@ -322,7 +328,8 @@ interface KinoPlugin {
   section?(arg: { tab: string | null }): Promise<KinoSectionAnswer>;
   /** apiVersion 6, optional, needs `browse`: up to 24 tiles in Categorías, in your order. 20 s per call. */
   categories?(arg: null): Promise<KinoCategory[]>;
-  search?(query: KinoSearchQuery): Promise<KinoItem[] | KinoPage>;
+  /** With `query.within` (capability "scopedSearch", apiVersion 6): null = "can't search inside this page". 15 s per call. */
+  search?(query: KinoSearchQuery): Promise<KinoItem[] | KinoPage | null>;
   home?(): Promise<KinoRow[]>;
   browse?(ref: string, cursor: string | null): Promise<KinoPage>;
   episodes?(ref: string): Promise<KinoEpisodes>;

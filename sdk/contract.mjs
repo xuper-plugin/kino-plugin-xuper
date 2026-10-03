@@ -141,6 +141,9 @@ export function validateManifest(text, { knownPermissions = contract.permissions
   if (!contract.capabilities.atLeastOneOf.some((c) => caps.includes(c))) {
     return bad("capabilities", `El plugin debe declarar "${contract.capabilities.atLeastOneOf.join('" o "')}"`);
   }
+  // A capability that rides on another (scopedSearch on search): refused without it.
+  const lacking = Object.entries(contract.capabilities.requires || {}).find(([c, needs]) => caps.includes(c) && !caps.includes(needs));
+  if (lacking) return bad("capabilities", contract.capabilities.requiresMessage.replace("{capability}", lacking[0]).replace("{requires}", lacking[1]));
   let liveStreamHostsAny = false;
   // Below its apiVersion the field is unknown and ignored like any other (v1/v2 stay as they were).
   if (o.liveStreamHosts !== undefined && o.apiVersion >= m.liveStreamHosts.apiVersion) {

@@ -9,7 +9,14 @@ import { contextAgeS } from "./liveSign.js";
 import { trace, traced, report, errCode, makeSignStats } from "./trace.js";
 
 
-export async function search(query) { await null; return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query))); }
+// With `within` (Kino's scopedSearch, apiVersion 6) it searches inside one "Ver más" page; its lines say so, never the query.
+export async function search(query) {
+  await null;
+  let scoped = false;
+  // An argument that throws on first touch fails inside guarded (the Spanish unavailable), never here.
+  try { scoped = query !== null && typeof query === "object" && query.within !== undefined && query.within !== null; } catch (_) { scoped = false; }
+  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {});
+}
 export async function home() { await null; return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home())); }
 export async function browse(ref, cursor) { await null; return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor))); }
 // apiVersion 6: Xuper's own section (one tab per root) and its Categorías tiles, over Home's trees.

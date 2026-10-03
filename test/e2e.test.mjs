@@ -233,6 +233,17 @@ test("home and browse: four roots through getNextColumns, rows pass the kit, bro
   clean(checkOutput("browse", page, manifest));
 });
 
+test("scopedSearch: search({ q, within: <a row> }) answers from that row's tree, kit-clean, never asking searchByName", async () => {
+  const s = await start({ routes: homeRoutes() });
+  const rows = await s.plugin.home();
+  const row = rows.find((r) => r.ref && r.items.length > 0);
+  const title = row.items[0].title;
+  const out = await s.plugin.search({ q: title, type: "any", season: 0, episode: 0, tmdbId: 0, year: 0, originalTitle: "", altTitles: [], cursor: null, within: row.ref });
+  assert.ok(out.items.some((i) => i.id === row.items[0].id));
+  clean(checkOutput("search", out, manifest));
+  assert.ok(!s.paths().includes("v3/searchByName"));
+});
+
 test("episodes: a series ref lists its chapters", async () => {
   const s = await start({ routes: vodRoutes() });
   const out = await s.plugin.episodes("magis1:teleplay:0:SERIE");

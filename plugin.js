@@ -2120,6 +2120,19 @@ function projectItem(item, nowMs) {
   if (item.shelvedAtMs > 0 && nowMs - item.shelvedAtMs <= NEW_WINDOW_MS) out.badges = ["NUEVO"];
   return out;
 }
+var plainWords = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function rankWithin(kino2, pool, q) {
+  const words = plainWords(q).split(" ").filter((w) => w !== "");
+  const forms = [q];
+  const titlesOf = (item) => [item.title];
+  const relevant = new Set(kino2.rank.filterRelevant(pool, forms, titlesOf));
+  const hits = pool.filter((item) => {
+    if (relevant.has(item)) return true;
+    const title2 = plainWords(item.title);
+    return words.length > 0 && words.every((w) => title2.includes(w));
+  });
+  return kino2.rank.sortBySimilarity(hits, forms, titlesOf);
+}
 function projectRows(rows, nowMs) {
   const out = [];
   for (const r of rows) {
@@ -2283,7 +2296,31 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const next = offset + BROWSE_PAGE;
     return next < row2.all.length ? { items, next: String(next) } : { items };
   }
-  const { search: search2 } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb });
+  const { search: globalSearch } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb });
+  async function searchWithin(query) {
+    const q = typeof query.q === "string" ? query.q.trim() : "";
+    if (q === "") return { items: [] };
+    const within = query.within;
+    const adult = within === ADULT_REF;
+    let pool;
+    if (adult) {
+      pool = await adultMovies(callDeadline(clock2, CALL_BUDGET_MS.search));
+    } else {
+      const row2 = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : void 0;
+      if (!row2) throw kino2.error("not_found", "No se encontr\xF3 esa lista");
+      pool = row2.all;
+    }
+    const ranked = rankWithin(kino2, pool, q);
+    const offset = offsetOf(query.cursor);
+    const nowMs = clock2.now();
+    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null).map((i) => adult ? { ...i, adult: true } : i);
+    const next = offset + BROWSE_PAGE;
+    return next < ranked.length ? { items, next: String(next) } : { items };
+  }
+  async function search2(query) {
+    if (query !== null && typeof query === "object" && query.within !== void 0 && query.within !== null) return searchWithin(query);
+    return globalSearch(query);
+  }
   const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
   const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
   const rows = (budgetMs) => buildRows(budgetMs);
@@ -3833,7 +3870,13 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
 // src/plugin.js
 async function search(query) {
   await null;
-  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)));
+  let scoped = false;
+  try {
+    scoped = query !== null && typeof query === "object" && query.within !== void 0 && query.within !== null;
+  } catch (_) {
+    scoped = false;
+  }
+  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {});
 }
 async function home() {
   await null;

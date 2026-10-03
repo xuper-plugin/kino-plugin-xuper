@@ -30,6 +30,9 @@ import { fingerprint, normalizeBinding, verifyEntry } from "./seal.mjs";
 // are present.
 const refused = (problems) => ({ ok: false, problems, drops: [], output: null, consent: [], notes: [] });
 
+/** The note for a plugin that declares scopedSearch while its entry never reads `query.within`. */
+export const SCOPED_IGNORED = 'Declara "scopedSearch" pero search() no lee query.within: Kino le pide buscar dentro de una página "Ver más" y recibiría la búsqueda completa (responde null si no puede buscar en esa página)';
+
 /**
  * The consent sheet's lines beyond the host list, as the app's PluginConsent.extraLines builds them
  * for a first install. `danger` lines are drawn in red.
@@ -110,6 +113,11 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   }
   const entry = join(dir, m.entry);
   if (!existsSync(entry)) return { ...refused([`entry ${m.entry} not found`]), consent: consentLines(m), notes };
+  // scopedSearch (apiVersion 6): Kino calls search() with `within`, the "Ver más" page's browse ref. An entry that never
+  // names `within` answers the whole catalog's search there. A warning only: a plugin may read it some other way.
+  if (m.capabilities.includes(contract.search.scoped.capability) && !new RegExp(`\\b${contract.search.scoped.field}\\b`).test(readFileSync(entry, "utf8"))) {
+    notes.push(SCOPED_IGNORED);
+  }
   if (statSync(entry).size > contract.manifest.entryMaxBytes) problems.push(`${m.entry} is bigger than ${kb(contract.manifest.entryMaxBytes)}: Kino refuses it`);
   if (m.signature) {
     authorFingerprint = fingerprint(Buffer.from(m.signature.authorKey, "hex"));

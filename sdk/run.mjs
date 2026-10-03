@@ -5,6 +5,7 @@
 //   node sdk/run.mjs ./plugin.js search '{"q":"dragnet","type":"series","year":1951}'
 //   node sdk/run.mjs ./plugin.js home
 //   node sdk/run.mjs ./plugin.js browse '<ref>' ['<cursor>']
+//   node sdk/run.mjs --within '<browse ref>' ./plugin.js search "matrix"   (apiVersion 6, scopedSearch: search inside a "Ver más" page)
 //   node sdk/run.mjs ./plugin.js episodes '<series ref>'
 //   node sdk/run.mjs ./plugin.js resolve '<ref>'
 //   node sdk/run.mjs ./plugin.js sign '{"url":"https://…/seg.ts","kind":"segment","ref":"<ref>","context":"<signContext>"}'   (apiVersion 6)
@@ -32,6 +33,7 @@
 //   --retry conflict:1     resolve only: call resolve(ref, { retry: { reason: "conflict", attempt: 1 } })  (apiVersion 6);
 //                          conflict:1:409 also passes the origin's HTTP status (401, 403 or 409)
 //   --live                 resolve only: the ref is a live channel's (liveStreamHosts "any" applies)
+//   --within <browse ref>  search only: Kino's scoped search ({ q, type: "any", within, cursor }); null = "can't search there"
 // The first argument is the plugin's entry file or the folder that holds kino-plugin.json. The
 // result goes to stdout as JSON; everything else (kino.log, console.*, dropped entries, errors)
 // goes to stderr.
@@ -88,7 +90,7 @@ function fail(message) {
 }
 
 export function parseArgs(argv) {
-  const opts = { config: {}, record: null, replay: null, raw: false, epg: null, live: false, retry: null };
+  const opts = { config: {}, record: null, replay: null, raw: false, epg: null, live: false, retry: null, within: null };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -102,6 +104,11 @@ export function parseArgs(argv) {
     else if (a === "--raw") opts.raw = true;
     else if (a === "--epg") opts.epg = argv[++i];
     else if (a === "--live") opts.live = true;
+    else if (a === "--within") {
+      const ref = argv[++i];
+      if (ref === undefined || ref === "") throw new Error("--within needs the browse ref of a \"Ver más\" page");
+      opts.within = ref;
+    }
     else if (a === "--retry") {
       const [reason, attempt, status, extra] = (argv[++i] || "").split(":");
       const r = contract.output.retry;
@@ -180,6 +187,9 @@ async function main() {
     return fail(`${fn === "sign" ? "sign" : "--retry"} needs apiVersion ${contract.output.signing.apiVersion} in kino-plugin.json`);
   }
   if (opts.retry && fn !== "resolve") return fail("--retry only applies to resolve");
+  if (opts.within !== null && fn !== "search") return fail("--within only applies to search");
+  const scoped = contract.search.scoped;
+  if (opts.within !== null && !manifest.capabilities.includes(scoped.capability)) return fail(`--within needs "${scoped.capability}" in capabilities (apiVersion ${scoped.apiVersion})`);
   // sign() runs in its own lane inside the app: no network, storage, cookies or sleep.
   globalThis.kino = fn === "sign" ? signingLane(kino) : kino;
 
@@ -198,6 +208,12 @@ async function main() {
     if (SETTINGS_FUNCTIONS.includes(fn) && !opts.raw) {
       // What the app keeps of the answer (status lines, the action's line, the save's verdict).
       process.stdout.write(JSON.stringify(checkSettingsOutput(fn, out, manifest, undefined, (d) => stderr(`[dropped by Kino] ${d}`)), null, 2) + "\n");
+      return 0;
+    }
+    // A scoped search's null: "I can't search inside this page", and Kino filters the page's titles itself.
+    if (opts.within !== null && out === null) {
+      process.stdout.write("null\n");
+      stderr("null: Kino filtra él mismo los títulos ya cargados de esa página (nivel 1)");
       return 0;
     }
     if (opts.raw) {
@@ -310,6 +326,8 @@ export async function call(plugin, fn, rest, opts = {}) {
   }
   if (fn !== "search") return plugin[fn](arg);
   const query = { q: "", type: process.env.KINO_TYPE || "any", season: 0, episode: 0, tmdbId: 0, year: 0, originalTitle: "", altTitles: [], cursor: null };
+  // Kino's scoped search (apiVersion 6): always type "any", the "Ver más" page's ref as `within`.
+  if (opts.within) Object.assign(query, { type: "any", [contract.search.scoped.field]: opts.within });
   if (arg.trimStart().startsWith("{")) {
     try { Object.assign(query, JSON.parse(arg)); }
     catch (e) { throw new Error(`the search argument starts with { but is not valid JSON: ${e.message}`); }
