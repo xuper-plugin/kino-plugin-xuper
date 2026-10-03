@@ -119,8 +119,19 @@ var PortalError = class extends Error {
     this.message = message || code;
   }
 };
-function mapPortalError(code, message, kino2) {
+var ACCOUNT_SESSION_LOST = "Tu sesi\xF3n de Xuper se cerr\xF3 y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes, Cuenta.";
+var ACCOUNT_IN_USE_ELSEWHERE_TEXT = "Tu cuenta de Xuper se abri\xF3 en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vinc\xFAlala de nuevo en Ajustes, Cuenta.";
+var ACCOUNT_IN_USE_ELSEWHERE = "aaa100083";
+var SESSION_DEAD_CODES = /* @__PURE__ */ new Set(["aaa100027", "aaa100028"]);
+function accountProblemMessage(code) {
+  if (SESSION_DEAD_CODES.has(code)) return ACCOUNT_SESSION_LOST;
+  if (code === ACCOUNT_IN_USE_ELSEWHERE) return ACCOUNT_IN_USE_ELSEWHERE_TEXT;
+  return null;
+}
+function mapPortalError(code, message, kino2, { accountLinked = false } = {}) {
   const msg = typeof message === "string" ? message : "";
+  const accountText = accountLinked ? accountProblemMessage(code) : null;
+  if (accountText) return kino2.error("auth_required", accountText);
   if (code === "portal100004" || msg.includes("\u4E0D\u5B58\u5728")) {
     return kino2.error("not_found", "No se encontr\xF3 en Xuper");
   }
@@ -378,7 +389,14 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   };
   const REFUSAL_TTL_MS = 10 * 6e4;
   const LOGIN_COOLDOWN_MS = 6e4;
-  const NOT_A_REFUSAL = /* @__PURE__ */ new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token"]);
+  const NOT_A_REFUSAL = /* @__PURE__ */ new Set([
+    GEO_BLOCKED,
+    "snToken_failed",
+    "active_sin_token",
+    "login_sin_token",
+    ...SESSION_DEAD,
+    ACCOUNT_IN_USE_ELSEWHERE
+  ]);
   const refusal = (e) => e instanceof PortalError && !NOT_A_REFUSAL.has(e.code);
   const refusedKey = () => {
     const r = readJson("refusedAcct");
@@ -534,11 +552,12 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (prev.sn === "" && prev.userToken === "") return;
     writeSession({ ...prev, userId: "", userToken: "", jwtToken: "", acct: "" });
   }
-  const reauthenticate = (stale, bounds = {}) => lock(async () => {
+  const renew = (stale, bounds = {}) => lock(async () => {
     const current = readSession().userToken;
-    if (!blank2(current) && current !== stale) return true;
-    if (timeLeft(bounds) < MIN_REQUEST_MS) return false;
+    if (!blank2(current) && current !== stale) return { ok: true, loginError: null };
+    if (timeLeft(bounds) < MIN_REQUEST_MS) return { ok: false, loginError: null };
     forgetToken();
+    let loginError = null;
     try {
       const acc = configuredAccount();
       if (acc) {
@@ -547,16 +566,20 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
           clearRefused(keyOf(acc));
           endCooldown();
         } catch (e) {
-          if (!refusal(e)) throw e;
+          if (!refusal(e)) {
+            loginError = e;
+            throw e;
+          }
           setRefused(keyOf(acc));
           await ensureAnonymousUnlocked(bounds);
         }
       } else await ensureAnonymousUnlocked(bounds);
-      return true;
+      return { ok: true, loginError: null };
     } catch (_) {
-      return false;
+      return { ok: false, loginError };
     }
   });
+  const transientLogin = (e) => e !== null && (e instanceof PortalError ? SESSION_DEAD.has(e.code) : isKinoError(e));
   const switchToBackup = (stale) => lock(async () => {
     const pool = seedPool();
     if (pool.length === 0) return false;
@@ -741,7 +764,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       return seedPool().some((e) => e.sn === sn);
     };
     const settle = (r) => {
-      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino2);
+      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino2, { accountLinked: account() !== null });
       exhausted = false;
       if (regionBlocked() && !onSeed()) setRegion(false);
       return r.value;
@@ -770,9 +793,20 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         if (!result.err) return settle(result);
       }
     }
-    if (await reauthenticate(tokenUsed, bounds)) {
+    let renewal = await renew(tokenUsed, bounds);
+    if (SESSION_DEAD.has(result.err.code) && account() && transientLogin(renewal.loginError)) {
+      renewal = await renew(view().userToken, bounds);
+    }
+    const loginError = renewal.loginError;
+    if (loginError instanceof PortalError && loginError.code === ACCOUNT_IN_USE_ELSEWHERE && account()) result = { err: loginError };
+    if (renewal.ok) {
+      const retryToken = view().userToken;
       result = await attempt();
       if (!result.err) return settle(result);
+      if (account() && SESSION_DEAD.has(result.err.code) && (await renew(retryToken, bounds)).ok) {
+        result = await attempt();
+        if (!result.err) return settle(result);
+      }
     }
     if (SESSION_DEAD.has(result.err.code) && !account()) {
       setRegion(true);
@@ -2734,6 +2768,7 @@ var DEFAULT_TTL_S = 300;
 var MIN_EXPIRES_S = 30;
 var MAX_EXPIRES_S = 86400;
 var MAX_ALTERNATE_HOSTS = 6;
+var ACCOUNT_SENTENCES = /* @__PURE__ */ new Set([ACCOUNT_SESSION_LOST, ACCOUNT_IN_USE_ELSEWHERE_TEXT]);
 var NOT_LOGGED_IN = "aaa100028";
 var INT8 = /^[+-]?\d+$/;
 var ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/;
@@ -2833,7 +2868,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
       play = await call("v4/startPlayLive", { channelCode: code, columnId: 0, type: "1" }, deadline - SLB_RESERVE_MS);
     } catch (e) {
       const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
-      if (notLoggedIn) throw kino2.error("auth_required", TEXT.noAccount);
+      if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.message))) throw kino2.error("auth_required", TEXT.noAccount);
       throw e;
     }
     const signal = signalFrom(play);

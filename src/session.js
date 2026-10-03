@@ -1,6 +1,6 @@
 // Session lifecycle against the Magis portal: mint/reactivate a device, login, reauth, seed pool
 // rescue. Port of the native MagisSession (native-magis.md §2.2-§2.8).
-import { PortalError, mapPortalError } from "./portal.js";
+import { PortalError, mapPortalError, ACCOUNT_IN_USE_ELSEWHERE } from "./portal.js";
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom } from "./device.js";
 import { isKinoError } from "./util.js";
@@ -118,8 +118,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   // Memory of a refusal expires: a transient portal answer heals by itself.
   const REFUSAL_TTL_MS = 10 * 60_000;
   const LOGIN_COOLDOWN_MS = 60_000;
-  // Answers that are NOT a verdict on the credentials: a geo-block, or a portal that answered without a session.
-  const NOT_A_REFUSAL = new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token"]);
+  // Answers that are NOT a verdict on the credentials: a geo-block, a portal that answered without a
+  // session, "not logged in" to the login itself (native retries it), or the account open elsewhere.
+  const NOT_A_REFUSAL = new Set([GEO_BLOCKED, "snToken_failed", "active_sin_token", "login_sin_token",
+    ...SESSION_DEAD, ACCOUNT_IN_USE_ELSEWHERE]);
   const refusal = (e) => e instanceof PortalError && !NOT_A_REFUSAL.has(e.code);
   const refusedKey = () => {
     const r = readJson("refusedAcct");
@@ -265,27 +267,32 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   // ---- single-flight helpers ----
   // Each login kills the previous token: when a burst failed on the same stale token, the stored
-  // token no longer being it means someone already renewed.
-  const reauthenticate = (stale, bounds = {}) => lock(async () => {
+  // token no longer being it means someone already renewed. Answers `{ ok, loginError }`:
+  // `loginError` is the account login's failure when that is why the renewal failed.
+  const renew = (stale, bounds = {}) => lock(async () => {
     const current = readSession().userToken;
-    if (!blank(current) && current !== stale) return true;
+    if (!blank(current) && current !== stale) return { ok: true, loginError: null };
     // No time left in the calling export: the stored token is left as it is for the next call.
-    if (timeLeft(bounds) < MIN_REQUEST_MS) return false;
+    if (timeLeft(bounds) < MIN_REQUEST_MS) return { ok: false, loginError: null };
     forgetToken();
+    let loginError = null;
     try {
       // Reauthentication retries even an account refused before (the retry is rare and bounded).
       const acc = configuredAccount();
       if (acc) {
         try { await loginUnlocked(acc.email, acc.password, bounds); clearRefused(keyOf(acc)); endCooldown(); }
         catch (e) {
-          if (!refusal(e)) throw e;
+          if (!refusal(e)) { loginError = e; throw e; }
           setRefused(keyOf(acc)); // refused: the session falls to the anonymous path, as `ensure` does
           await ensureAnonymousUnlocked(bounds);
         }
       } else await ensureAnonymousUnlocked(bounds);
-      return true;
-    } catch (_) { return false; }
+      return { ok: true, loginError: null };
+    } catch (_) { return { ok: false, loginError }; }
   });
+  // A login that failed for a reason a second try can fix: no answer at all (network, a kino error),
+  // or the portal answering "not logged in" to the login itself (native isTransientLoginFailure).
+  const transientLogin = (e) => e !== null && (e instanceof PortalError ? SESSION_DEAD.has(e.code) : isKinoError(e));
 
   const switchToBackup = (stale) => lock(async () => {
     const pool = seedPool();
@@ -471,7 +478,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const bounds = typeof deadline === "number" ? { deadline } : {};
     const onSeed = () => { const sn = readSession().sn; return seedPool().some((e) => e.sn === sn); };
     const settle = (r) => {
-      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino);
+      // A linked account's session code that survived the re-logins: the account is what needs the person.
+      if (r.err) throw mapPortalError(r.err.code, r.err.message, kino, { accountLinked: account() !== null });
       exhausted = false;
       // A content answer on the device's OWN session is the proof the region does not block it.
       if (regionBlocked() && !onSeed()) setRegion(false);
@@ -498,9 +506,27 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     }
 
     // Tried BEFORE the pool re-download: a token that merely expired just re-mints.
-    if (await reauthenticate(tokenUsed, bounds)) {
+    let renewal = await renew(tokenUsed, bounds);
+    // The renewal's own login FAILED on a linked account for a reason a retry can fix (native 0.9.46,
+    // ERRORES-B30): one more real login, single-flighted; never for a refused credential, never for
+    // an account open on another device (a second login only fights the other device).
+    if (SESSION_DEAD.has(result.err.code) && account() && transientLogin(renewal.loginError)) {
+      renewal = await renew(view().userToken, bounds);
+    }
+    // The account is open on another device: that, not "not logged in", is what the person must fix.
+    const loginError = renewal.loginError;
+    if (loginError instanceof PortalError && loginError.code === ACCOUNT_IN_USE_ELSEWHERE && account()) result = { err: loginError };
+    if (renewal.ok) {
+      const retryToken = view().userToken;
       result = await attempt();
       if (!result.err) return settle(result);
+      // A linked account still "not logged in" right after the renewal (a token a concurrent call
+      // renewed that was already dead, or a renewal that raced the portal): one more REAL login,
+      // single-flighted on the token that just failed, and one more try (native 0.9.45, ERRORES-AKQ).
+      if (account() && SESSION_DEAD.has(result.err.code) && (await renew(retryToken, bounds)).ok) {
+        result = await attempt();
+        if (!result.err) return settle(result);
+      }
     }
 
     if (SESSION_DEAD.has(result.err.code) && !account()) {

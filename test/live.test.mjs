@@ -9,7 +9,7 @@ import { makeLive, bareHost } from "../src/live.js";
 import { isChannelRef } from "../src/refs.js";
 import { makeResolve } from "../src/resolve.js";
 import { makeSession } from "../src/session.js";
-import { PortalError } from "../src/portal.js";
+import { PortalError, ACCOUNT_SESSION_LOST } from "../src/portal.js";
 import { signRequest } from "../src/liveSign.js";
 import { signO3 } from "../src/tweakedMd5.js";
 
@@ -318,20 +318,22 @@ test("aaa100028 on startPlayLive is auth_required with the live text, and no CDN
   assert.equal(t.portal.times("v14/getSlbInfo"), 0);
 });
 
-test("with the real session: aaa100028 that survives the relogin is the live auth_required", async () => {
+test("with the real session: aaa100028 that survives both re-logins on a linked account asks to re-link it (native MagisLive)", async () => {
   const kino = fakeKino({ config: { email: "a@b.test", password: "pw" } });
+  const dead = () => new PortalError("aaa100028", "未登录！");
   const portal = fakePortal({
-    "v4/startPlayLive": [new PortalError("aaa100028", "未登录！"), new PortalError("aaa100028", "未登录！")],
-    "v8/login": [{ userId: "u-own", userToken: "t2", jwtToken: "" }],
+    "v4/startPlayLive": [dead, dead, dead],
+    "v8/login": [{ userId: "u-own", userToken: "t2", jwtToken: "" }, { userId: "u-own", userToken: "t3", jwtToken: "" }],
   });
   const clock = { now: () => NOW };
   const session = makeSession({ kino, portal, clock, random: () => 0 });
   // The stored token belongs to the saved account (an `acct`-less one would be re-logged first).
   kino.storage.set("session", JSON.stringify({ userId: "u-own", userToken: "t-own", jwtToken: "", sn: "sn-own", acct: session.accountKey("a@b.test", "pw") }));
   const live = makeLive({ kino, portal, session, clock, config: { apkVersion: "49902" }, random: () => 0 });
-  await rejectsWith(live.resolveLive("c"), "auth_required", NO_ACCOUNT_TEXT);
-  assert.deepEqual(portal.calls.map((c) => c.path), ["v4/startPlayLive", "v8/login", "v4/startPlayLive"]);
+  await rejectsWith(live.resolveLive("c"), "auth_required", ACCOUNT_SESSION_LOST);
+  assert.deepEqual(portal.calls.map((c) => c.path), ["v4/startPlayLive", "v8/login", "v4/startPlayLive", "v8/login", "v4/startPlayLive"]);
   assert.equal(portal.calls[2].opts.userToken, "t2", "the retry runs with the renewed token");
+  assert.equal(portal.calls[4].opts.userToken, "t3", "and the extra login's token");
 });
 
 // ---- retry: expired and conflict ----------------------------------------------------------

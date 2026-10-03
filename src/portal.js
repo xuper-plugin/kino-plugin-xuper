@@ -20,8 +20,32 @@ export class PortalError extends Error {
   }
 }
 
-export function mapPortalError(code, message, kino) {
+// What a linked account's dead session (after every re-login) or `aaa100083` (the account logged in
+// on another device) tells the person: the account, not Xuper or the title, is what needs them.
+// Word for word the native MagisSession.accountProblemMessage (main 2d285106), which the app shows
+// as it is instead of the code's generic line.
+export const ACCOUNT_SESSION_LOST =
+  "Tu sesión de Xuper se cerró y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en Ajustes, Cuenta.";
+export const ACCOUNT_IN_USE_ELSEWHERE_TEXT =
+  "Tu cuenta de Xuper se abrió en otro dispositivo, y solo puede usarse en uno a la vez. " +
+  "Vuelve a intentarlo, o vincúlala de nuevo en Ajustes, Cuenta.";
+export const ACCOUNT_IN_USE_ELSEWHERE = "aaa100083";
+export const SESSION_DEAD_CODES = new Set(["aaa100027", "aaa100028"]);
+/** The account sentence for `code` on a linked account, or null. */
+export function accountProblemMessage(code) {
+  if (SESSION_DEAD_CODES.has(code)) return ACCOUNT_SESSION_LOST;
+  if (code === ACCOUNT_IN_USE_ELSEWHERE) return ACCOUNT_IN_USE_ELSEWHERE_TEXT;
+  return null;
+}
+
+/**
+ * `accountLinked`: a linked account's session code (still dead after the re-logins, or open on
+ * another device) gets the account sentence instead of the portal's text.
+ */
+export function mapPortalError(code, message, kino, { accountLinked = false } = {}) {
   const msg = typeof message === "string" ? message : "";
+  const accountText = accountLinked ? accountProblemMessage(code) : null;
+  if (accountText) return kino.error("auth_required", accountText);
   if (code === "portal100004" || msg.includes("不存在")) {
     return kino.error("not_found", "No se encontró en Xuper");
   }

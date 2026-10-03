@@ -3,7 +3,9 @@
 // an old host answers 403. The answer is a request-signed HLS stream: `sign()` (liveSign.js) builds
 // the CDN headers per request from the signContext; the other CDNs of the same answer go out as
 // `alternateHosts`, so the app's proxy fails over between them as the native proxy did.
-import { PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS } from "./portal.js";
+import {
+  PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS, ACCOUNT_SESSION_LOST, ACCOUNT_IN_USE_ELSEWHERE_TEXT,
+} from "./portal.js";
 import { isCfl, slbBean } from "./resolve.js";
 import { buildSignContext, tokenOf } from "./liveSign.js";
 import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
@@ -13,6 +15,7 @@ const DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime (nati
 const MIN_EXPIRES_S = 30; // SDK range of expiresInSeconds
 const MAX_EXPIRES_S = 86400;
 const MAX_ALTERNATE_HOSTS = 6; // SDK cap
+const ACCOUNT_SENTENCES = new Set([ACCOUNT_SESSION_LOST, ACCOUNT_IN_USE_ELSEWHERE_TEXT]);
 const NOT_LOGGED_IN = "aaa100028"; // a channel that genuinely needs a real account
 const INT = /^[+-]?\d+$/;
 const ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/; // SDK alternateHosts pattern
@@ -130,7 +133,8 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
       // aaa100028 after withValidSession's retries: THIS channel needs a (re)linked account.
       const notLoggedIn = (e instanceof PortalError && e.code === NOT_LOGGED_IN)
         || (isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN);
-      if (notLoggedIn) throw kino.error("auth_required", TEXT.noAccount);
+      // A linked account's sentence (still dead after the re-logins, or open elsewhere) stays as it is.
+      if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.message))) throw kino.error("auth_required", TEXT.noAccount);
       throw e;
     }
     const signal = signalFrom(play);
