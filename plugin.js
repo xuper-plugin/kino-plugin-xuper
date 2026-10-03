@@ -116,7 +116,7 @@ var PortalError = class extends Error {
     super(message || code);
     this.name = "PortalError";
     this.code = code;
-    this.message = message || "";
+    this.message = message || code;
   }
 };
 function mapPortalError(code, message, kino2) {
@@ -234,8 +234,12 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
           const inner = JSON.parse(crypto.decryptBlob(answer.data));
           if (!isObject(inner)) throw new Error("datos del portal no son un objeto");
           answer = { ok: inner };
-        } else {
+        } else if (isObject(answer.data)) {
+          answer = { ok: answer.data };
+        } else if (answer.data === void 0 || answer.data === null || answer.data === "") {
           answer = { ok: answer };
+        } else {
+          throw new Error("datos del portal de un tipo inesperado");
         }
       } catch (e) {
         lastError = e;

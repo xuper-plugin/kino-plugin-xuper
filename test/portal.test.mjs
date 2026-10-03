@@ -238,3 +238,41 @@ test("opts.deadline shortens a request and stops failover once passed", async ()
   await assert.rejects(second.portal.call("x", {}, { deadline: second.clock.now() - 1 }), (e) => e.name === "KinoError_unavailable");
   assert.equal(second.calls.length, 0, "a passed deadline starts no request");
 });
+
+// ---- the answer's `data` and an error without text (app triage #8) ------------------------------
+
+test("a PortalError the portal sent without text carries its code as the message", async () => {
+  for (const em of [undefined, "", "   ", 7]) {
+    const { portal } = setup({ hosts: ["h1.test"], script: () => reply({ returnCode: "aaa100099", ...(em === undefined ? {} : { errorMessage: em }) }) });
+    await assert.rejects(portal.call("x", {}), (e) => {
+      assert.ok(e instanceof PortalError);
+      assert.equal(e.code, "aaa100099");
+      assert.equal(e.message, "aaa100099");
+      return true;
+    });
+  }
+  assert.equal(new PortalError("c1").message, "c1");
+  assert.equal(new PortalError("c1", "texto").message, "texto");
+});
+
+test("`data`: a string is decrypted, absent/null/empty is the whole answer, an object is the answer itself", async () => {
+  const { portal } = setup({ hosts: ["h1.test"], script: (h, c) => reply(answers.shift()) });
+  const answers = [
+    { returnCode: "0", v: 1 },
+    { returnCode: "0", data: null, v: 2 },
+    { returnCode: "0", data: "", v: 3 },
+    { returnCode: "0", data: { inner: 4 } },
+  ];
+  assert.deepEqual(await portal.call("x", {}), { returnCode: "0", v: 1 });
+  assert.deepEqual(await portal.call("x", {}), { returnCode: "0", data: null, v: 2 });
+  assert.deepEqual(await portal.call("x", {}), { returnCode: "0", data: "", v: 3 });
+  assert.deepEqual(await portal.call("x", {}), { inner: 4 }, "an unencrypted object is the data, not the envelope");
+});
+
+test("`data` of any other type is not an answer: the next host is asked", async () => {
+  for (const data of [5, true, ["a"]]) {
+    const { portal, calls } = setup({ script: (host) => (host === "h1.test" ? reply({ returnCode: "0", data }) : reply({ returnCode: "0", v: 9 })) });
+    assert.deepEqual(await portal.call("x", {}), { returnCode: "0", v: 9 }, JSON.stringify(data));
+    assert.equal(calls.length, 2);
+  }
+});

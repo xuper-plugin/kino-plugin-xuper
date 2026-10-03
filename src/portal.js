@@ -12,10 +12,11 @@ const CONTACT_FAILED = "No se pudo contactar a Xuper; intenta de nuevo en un mom
 /** The portal answered with a non-zero returnCode: final, never retried on another host. */
 export class PortalError extends Error {
   constructor(code, message) {
+    // No text from the portal: the code is the message (never an empty one).
     super(message || code);
     this.name = "PortalError";
     this.code = code;
-    this.message = message || "";
+    this.message = message || code;
   }
 }
 
@@ -147,8 +148,12 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
           const inner = JSON.parse(crypto.decryptBlob(answer.data));
           if (!isObject(inner)) throw new Error("datos del portal no son un objeto");
           answer = { ok: inner };
+        } else if (isObject(answer.data)) {
+          answer = { ok: answer.data }; // sent unencrypted: still the data, not the envelope
+        } else if (answer.data === undefined || answer.data === null || answer.data === "") {
+          answer = { ok: answer }; // an answer with no data (sendEmailVerifyCode, loginOut...)
         } else {
-          answer = { ok: answer };
+          throw new Error("datos del portal de un tipo inesperado"); // this host's answer is no good
         }
       } catch (e) {
         lastError = e;
