@@ -1,11 +1,31 @@
 // src/crypto.js
-var HEX = /^(?:[0-9a-f]{2})+$/;
 var toHex = (s) => Array.from(new TextEncoder().encode(s), (b) => b.toString(16).padStart(2, "0")).join("");
+var HEX_VALUE = (() => {
+  const t = new Int8Array(128).fill(-1);
+  for (let i = 0; i < 10; i++) t[48 + i] = i;
+  for (let i = 0; i < 6; i++) t[97 + i] = 10 + i;
+  return t;
+})();
+var CHUNK = 4096;
 function fromHex(h) {
-  if (typeof h !== "string" || !HEX.test(h)) throw new Error("not hex");
-  const out = new Uint8Array(h.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.substr(i * 2, 2), 16);
-  return new TextDecoder("utf-8", { fatal: true }).decode(out);
+  if (typeof h !== "string" || h.length === 0 || h.length % 2 !== 0) throw new Error("not hex");
+  const parts = [];
+  const buf = new Uint8Array(CHUNK);
+  let n = 0;
+  for (let i = 0; i < h.length; i += 2) {
+    const a = h.charCodeAt(i), b = h.charCodeAt(i + 1);
+    const hi = a < 128 ? HEX_VALUE[a] : -1, lo = b < 128 ? HEX_VALUE[b] : -1;
+    if (hi < 0 || lo < 0) throw new Error("not hex");
+    const byte = hi << 4 | lo;
+    if (byte > 127) throw new Error("not ascii");
+    buf[n++] = byte;
+    if (n === CHUNK) {
+      parts.push(String.fromCharCode.apply(null, buf));
+      n = 0;
+    }
+  }
+  if (n > 0) parts.push(String.fromCharCode.apply(null, buf.subarray(0, n)));
+  return parts.join("");
 }
 function makeCrypto(kino2) {
   const fail = (what) => kino2.error("unavailable", "el portal no se pudo " + what);
@@ -109,7 +129,7 @@ function intOrNull(v) {
 
 // src/trace.js
 var MAX_LINE_CHARS = 160;
-var NAME = /^[a-z][a-z0-9_]{0,23}$/;
+var NAME = /^[a-z][a-z0-9_-]{0,23}$/;
 var KEY = /^[a-z][a-zA-Z0-9]{0,11}$/;
 var SENSITIVE_KEY = /pass|token|secret|cred|auth|bearer|cookie|session|key|mail|host|url|^sn$|user|license|sign/i;
 var VALUE = /^[A-Za-z0-9_\/-]{1,32}$/;
@@ -224,9 +244,49 @@ var viewOpts = ({ userId, userToken, sn, deadline }) => ({
   ...typeof sn === "string" && sn !== "" ? { sn } : {},
   ...typeof deadline === "number" ? { deadline } : {}
 });
-function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) {
+function shapeOf(s) {
+  if (typeof s !== "string") return "none";
+  if (s === "") return "empty";
+  const first = s.charCodeAt(0);
+  if (first === 31) return "gzip";
+  const t = s.trimStart();
+  if (t === "") return "blank";
+  if (t[0] === "<") return "html";
+  if (t[0] === "{" || t[0] === "[") return "json";
+  let hex = true, upperHex = false, b64 = true, wrapped = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    const digit = c >= 48 && c <= 57, lower = c >= 97 && c <= 122, upper = c >= 65 && c <= 90;
+    const newline = c === 10 || c === 13;
+    if (newline) wrapped = true;
+    if (!(digit || c >= 97 && c <= 102)) {
+      if (c >= 65 && c <= 70) upperHex = true;
+      else hex = false;
+    }
+    if (!(digit || lower || upper || c === 43 || c === 47 || c === 61 || c === 45 || c === 95 || newline)) b64 = false;
+    if (!hex && !b64) return "text";
+  }
+  if (hex) return (upperHex ? "hex-upper" : "hex") + (s.length % 2 === 0 ? "" : "-odd");
+  return wrapped ? "b64-ws" : "b64";
+}
+function contentClass(res) {
+  const h = res !== null && typeof res === "object" && res.headers !== null && typeof res.headers === "object" ? res.headers : null;
+  const ct = h && typeof h["content-type"] === "string" ? h["content-type"].toLowerCase() : "";
+  if (ct === "") return "none";
+  if (ct.includes("json")) return "json";
+  if (ct.includes("html")) return "html";
+  if (ct.startsWith("text/")) return "text";
+  return "other";
+}
+function gzipped(res, text2) {
+  const h = res !== null && typeof res === "object" && res.headers !== null && typeof res.headers === "object" ? res.headers : null;
+  const enc = h && typeof h["content-encoding"] === "string" ? h["content-encoding"].toLowerCase() : "";
+  return enc.includes("gzip") || typeof text2 === "string" && text2.charCodeAt(0) === 31;
+}
+function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, modeOf = () => "?" }) {
   let preferredHost = null;
   let lastCallMs = null;
+  const decryptFails = /* @__PURE__ */ new Map();
   const hostOrder = () => {
     const hosts2 = config.hosts || [];
     if (preferredHost === null) return hosts2;
@@ -294,15 +354,19 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
         requestMs = Math.min(perRequest, remaining > 1 ? Math.ceil(left / remaining) : left);
       }
       let answer;
+      let stage = "fetch";
+      let res = null, bodyText = null;
       try {
-        const res = await kino2.fetch(`https://${host}/api/portalCore/${path}`, {
+        res = await kino2.fetch(`https://${host}/api/portalCore/${path}`, {
           method: "POST",
           headers,
           body: wire,
           cookies: false,
           timeoutMs: requestMs
         });
-        answer = JSON.parse(res.text());
+        stage = "body";
+        bodyText = res.text();
+        answer = JSON.parse(bodyText);
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
         if (i > 0) trace(kino2, "portal", "failover", { path, to: i });
         preferredHost = host;
@@ -312,7 +376,10 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
           const em = answer.errorMessage;
           answer = { portalFailure: new PortalError(code, typeof em === "string" && em.trim() ? em : "") };
         } else if (typeof answer.data === "string" && answer.data !== "") {
-          const inner = JSON.parse(crypto.decryptBlob(answer.data));
+          stage = "data";
+          const plain2 = crypto.decryptBlob(answer.data);
+          stage = "inner";
+          const inner = JSON.parse(plain2);
           if (!isObject(inner)) throw new Error("datos del portal no son un objeto");
           answer = { ok: inner };
         } else if (isObject(answer.data)) {
@@ -320,13 +387,16 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
         } else if (answer.data === void 0 || answer.data === null || answer.data === "") {
           answer = { ok: answer };
         } else {
+          stage = "data";
           throw new Error("datos del portal de un tipo inesperado");
         }
       } catch (e) {
         lastError = e;
         trace(kino2, "portal", "host_fail", { path, i, why: errCode(e) });
+        if (stage !== "fetch") decryptFail(path, i, stage, res, bodyText, answer, e);
         continue;
       }
+      decryptFails.delete(path);
       if (answer.portalFailure) {
         trace(kino2, "portal", "rc", { path, code: answer.portalFailure.code });
         throw answer.portalFailure;
@@ -335,6 +405,33 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider }) 
     }
     if (order.length > 0) trace(kino2, "portal", "all_fail", { path, n: order.length });
     throw kino2.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
+  }
+  function decryptFail(path, i, at, res, bodyText, answer, e) {
+    try {
+      const attempt = (decryptFails.get(path) || 0) + 1;
+      decryptFails.set(path, attempt);
+      const data = at === "body" || !isObject(answer) ? void 0 : answer.data;
+      let mode = "?";
+      try {
+        mode = String(modeOf());
+      } catch (_) {
+      }
+      trace(kino2, "portal", "decrypt-fail", {
+        path,
+        i,
+        at,
+        status: res !== null && typeof res === "object" && typeof res.status === "number" ? res.status : -1,
+        ctype: contentClass(res),
+        len: typeof bodyText === "string" ? bodyText.length : -1,
+        shape: shapeOf(at === "body" ? bodyText : data),
+        dlen: typeof data === "string" ? data.length : -1,
+        gzip: gzipped(res, bodyText),
+        mode,
+        attempt,
+        why: errCode(e)
+      });
+    } catch (_) {
+    }
   }
   return { call };
 }
@@ -1017,6 +1114,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     withValidSession,
     current: readSession,
     kind,
+    mode,
     accountState,
     accountKey,
     usingShared,
@@ -3299,7 +3397,7 @@ function getDeps() {
   const crypto = makeCrypto(kino);
   const config = { hosts, appId: APP_ID, apkVersion: APK_VERSION };
   let session = null;
-  const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
+  const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn, modeOf: () => session.mode() });
   session = makeSession({ kino, portal, clock, shared: { email: SHARED_EMAIL, password: SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino, clock });
   const live2 = makeLiveCatalog({ kino, portal, session, clock });

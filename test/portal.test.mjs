@@ -276,3 +276,88 @@ test("`data` of any other type is not an answer: the next host is asked", async 
     assert.equal(calls.length, 2);
   }
 });
+
+// The decrypt-fail breadcrumb (device diagnostics for the getLiveData decrypt failures): the shape of
+// what came back, never its content, a host or a secret.
+function setupLogged({ script, mode = "seed" } = {}) {
+  const lines = [];
+  const calls = [];
+  let now = 1000;
+  const base = fakeKino({
+    fetch: async (url, opts) => { const host = new URL(url).host; calls.push(host); return script(host); },
+  });
+  const kino = Object.freeze({ ...base, sleep: async (ms) => { now += ms; }, log: (...a) => lines.push(a.map(String).join(" ")) });
+  const crypto = makeCrypto(kino);
+  const portal = makePortal({
+    kino, crypto, clock: { now: () => now }, snProvider: () => "SN-SECRET-123", modeOf: () => mode,
+    config: { hosts: ["h1.test", "h2.test"], appId: "app-1", apkVersion: "9.9" },
+  });
+  return { portal, lines, calls, crypto };
+}
+const withMeta = (text, { status = 200, headers = {} } = {}) => ({ status, headers, text: () => text });
+const fails = (lines) => lines.filter((l) => l.startsWith("xuper:portal decrypt-fail "));
+
+test("decrypt-fail: undecryptable data names its shape, host index, status and mode, then the next host answers", async () => {
+  const BODY_DATA = "deadbeef".repeat(4); // valid hex, not a 3DES blob of the stand-in key
+  const { portal, lines, crypto } = setupLogged({
+    script: (h) => (h === "h1.test"
+      ? withMeta(JSON.stringify({ returnCode: "0", data: BODY_DATA }), { headers: { "content-type": "application/json;charset=utf-8" } })
+      : withMeta(JSON.stringify({ returnCode: "0", data: crypto.encryptBody('{"channelList":[]}') }))),
+  });
+  assert.deepEqual(await portal.call("v6/getLiveData", {}), { channelList: [] });
+  const f = fails(lines);
+  assert.equal(f.length, 1);
+  assert.match(f[0], /^xuper:portal decrypt-fail path=v6\/getLiveData i=0 at=data status=200 ctype=json len=\d+ shape=hex dlen=32 gzip=0 mode=seed attempt=1 why=unavailable$/);
+  for (const l of lines) {
+    assert.ok(!l.includes("h1.test") && !l.includes("h2.test") && !l.includes("deadbeef") && !l.includes("SN-SECRET"), l);
+    assert.ok(!l.includes("000102030405060708090a0b0c0d0e0f1011121314151617"), "never the key");
+  }
+});
+
+test("decrypt-fail: an HTML page, an empty 200 and a gzip body each say what they were; attempts count up", async () => {
+  const bodies = [
+    withMeta("<html><body>blocked in your country</body></html>", { status: 403, headers: { "content-type": "text/html" } }),
+    withMeta("", { status: 200 }),
+    withMeta("\u001f\u008b\u0008binary", { status: 200, headers: { "content-encoding": "gzip" } }),
+    withMeta("not json at all", { status: 502, headers: { "content-type": "text/plain" } }),
+  ];
+  let k = 0;
+  const { portal, lines } = setupLogged({ mode: "anon", script: () => bodies[k++] });
+  await assert.rejects(portal.call("v6/getLiveData", {}), (e) => e.code === "unavailable");
+  await assert.rejects(portal.call("v6/getLiveData", {}), (e) => e.code === "unavailable");
+  const f = fails(lines);
+  assert.equal(f.length, 4);
+  assert.match(f[0], / i=0 at=body status=403 ctype=html len=\d+ shape=html dlen=-1 gzip=0 mode=anon attempt=1 /);
+  assert.match(f[1], / i=1 at=body status=200 ctype=none len=0 shape=empty dlen=-1 gzip=0 mode=anon attempt=2 /);
+  assert.match(f[2], / at=body status=200 ctype=none len=\d+ shape=gzip dlen=-1 gzip=1 mode=anon attempt=3 /);
+  assert.match(f[3], / at=body status=502 ctype=text len=15 shape=text dlen=-1 gzip=0 mode=anon attempt=4 /);
+  for (const l of lines) assert.ok(!/blocked|country|h[12]\.test|not json/.test(l), l);
+});
+
+test("decrypt-fail: base64 sent where hex was expected, and a network failure writes no shape line", async () => {
+  let k = 0;
+  const { portal, lines } = setupLogged({
+    script: () => {
+      if (k++ === 0) return withMeta(JSON.stringify({ returnCode: "0", data: "QUJDRA==\nRUZH" }));
+      throw new Error("fetch https://h2.test failed");
+    },
+  });
+  await assert.rejects(portal.call("v6/getLiveData", {}), (e) => e.code === "unavailable");
+  const f = fails(lines);
+  assert.equal(f.length, 1);
+  assert.match(f[0], / at=data .* shape=b64-ws dlen=13 /);
+});
+
+test("shapeOf: hex, upper hex, odd hex, base64, json, html, empty, gzip, text", async () => {
+  const { shapeOf } = await import("../src/portal.js");
+  assert.equal(shapeOf("abcdef01"), "hex");
+  assert.equal(shapeOf("ABCDEF01"), "hex-upper");
+  assert.equal(shapeOf("abc"), "hex-odd");
+  assert.equal(shapeOf("QUJD+/=="), "b64");
+  assert.equal(shapeOf(' {"a":1}'), "json");
+  assert.equal(shapeOf("<!doctype html>"), "html");
+  assert.equal(shapeOf(""), "empty");
+  assert.equal(shapeOf("\u001f\u008b"), "gzip");
+  assert.equal(shapeOf("hola mundo!"), "text");
+  assert.equal(shapeOf(undefined), "none");
+});

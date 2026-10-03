@@ -665,7 +665,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   }
 
   return {
-    ensure, withValidSession, current: readSession, kind, accountState, accountKey, usingShared, sharedConfigured, login, useShared, logout, regionBlocked,
+    ensure, withValidSession, current: readSession, kind, mode, accountState, accountKey, usingShared, sharedConfigured, login, useShared, logout, regionBlocked,
     seedsExhausted: () => exhausted, switchSeed, refreshSeeds, seedPool, adoptSession,
   };
 }

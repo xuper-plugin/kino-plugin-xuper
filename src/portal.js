@@ -99,9 +99,60 @@ export const viewOpts = ({ userId, userToken, sn, deadline }) => ({
   ...(typeof deadline === "number" ? { deadline } : {}),
 });
 
-export function makePortal({ kino, crypto, config, clock, snProvider }) {
+// What a body (or its `data`) LOOKS like, for the decrypt-fail breadcrumb: never any of its content.
+// One pass with charCodeAt, no regex: a body can be megabytes (see crypto.js).
+export function shapeOf(s) {
+  if (typeof s !== "string") return "none";
+  if (s === "") return "empty";
+  const first = s.charCodeAt(0);
+  if (first === 0x1f) return "gzip";
+  const t = s.trimStart();
+  if (t === "") return "blank";
+  if (t[0] === "<") return "html";
+  if (t[0] === "{" || t[0] === "[") return "json";
+  // Hex in either case; base64 (standard or url alphabet) with line breaks at most (MIME wraps it).
+  let hex = true, upperHex = false, b64 = true, wrapped = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    const digit = c >= 48 && c <= 57, lower = c >= 97 && c <= 122, upper = c >= 65 && c <= 90;
+    const newline = c === 10 || c === 13;
+    if (newline) wrapped = true;
+    if (!(digit || (c >= 97 && c <= 102))) {
+      if (c >= 65 && c <= 70) upperHex = true; else hex = false;
+    }
+    if (!(digit || lower || upper || c === 43 || c === 47 || c === 61 || c === 45 || c === 95 || newline)) b64 = false;
+    if (!hex && !b64) return "text";
+  }
+  if (hex) return (upperHex ? "hex-upper" : "hex") + (s.length % 2 === 0 ? "" : "-odd");
+  return wrapped ? "b64-ws" : "b64";
+}
+
+// The response's content-type as a class, never the header itself.
+function contentClass(res) {
+  const h = res !== null && typeof res === "object" && res.headers !== null && typeof res.headers === "object" ? res.headers : null;
+  const ct = h && typeof h["content-type"] === "string" ? h["content-type"].toLowerCase() : "";
+  if (ct === "") return "none";
+  if (ct.includes("json")) return "json";
+  if (ct.includes("html")) return "html";
+  if (ct.startsWith("text/")) return "text";
+  return "other";
+}
+
+function gzipped(res, text) {
+  const h = res !== null && typeof res === "object" && res.headers !== null && typeof res.headers === "object" ? res.headers : null;
+  const enc = h && typeof h["content-encoding"] === "string" ? h["content-encoding"].toLowerCase() : "";
+  return enc.includes("gzip") || (typeof text === "string" && text.charCodeAt(0) === 0x1f);
+}
+
+/**
+ * `modeOf`: the session mode for breadcrumbs only (anon / shared / own / seed / none), never which
+ * account or device.
+ */
+export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = () => "?" }) {
   let preferredHost = null;
   let lastCallMs = null;
+  // Decrypt failures in a row per path (reset by that path's next good answer): the breadcrumb's `attempt`.
+  const decryptFails = new Map();
 
   const hostOrder = () => {
     const hosts = config.hosts || [];
@@ -179,11 +230,16 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
         requestMs = Math.min(perRequest, remaining > 1 ? Math.ceil(left / remaining) : left);
       }
       let answer;
+      // How far this host's answer got, for the decrypt-fail breadcrumb: fetch, body, data, inner.
+      let stage = "fetch";
+      let res = null, bodyText = null;
       try {
-        const res = await kino.fetch(`https://${host}/api/portalCore/${path}`, {
+        res = await kino.fetch(`https://${host}/api/portalCore/${path}`, {
           method: "POST", headers, body: wire, cookies: false, timeoutMs: requestMs,
         });
-        answer = JSON.parse(res.text());
+        stage = "body";
+        bodyText = res.text();
+        answer = JSON.parse(bodyText);
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
         if (i > 0) trace(kino, "portal", "failover", { path, to: i });
         preferredHost = host;
@@ -194,7 +250,10 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
           // A thrown PortalError must escape the catch below untouched.
           answer = { portalFailure: new PortalError(code, typeof em === "string" && em.trim() ? em : "") };
         } else if (typeof answer.data === "string" && answer.data !== "") {
-          const inner = JSON.parse(crypto.decryptBlob(answer.data));
+          stage = "data";
+          const plain = crypto.decryptBlob(answer.data);
+          stage = "inner";
+          const inner = JSON.parse(plain);
           if (!isObject(inner)) throw new Error("datos del portal no son un objeto");
           answer = { ok: inner };
         } else if (isObject(answer.data)) {
@@ -202,14 +261,17 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
         } else if (answer.data === undefined || answer.data === null || answer.data === "") {
           answer = { ok: answer }; // an answer with no data (sendEmailVerifyCode, loginOut...)
         } else {
+          stage = "data";
           throw new Error("datos del portal de un tipo inesperado"); // this host's answer is no good
         }
       } catch (e) {
         lastError = e;
         // The host's INDEX and the error's code, never its message: a fetch error names the host or the url.
         trace(kino, "portal", "host_fail", { path, i, why: errCode(e) });
+        if (stage !== "fetch") decryptFail(path, i, stage, res, bodyText, answer, e);
         continue;
       }
+      decryptFails.delete(path);
       if (answer.portalFailure) {
         trace(kino, "portal", "rc", { path, code: answer.portalFailure.code });
         throw answer.portalFailure;
@@ -219,6 +281,32 @@ export function makePortal({ kino, crypto, config, clock, snProvider }) {
     // Fixed text: the underlying error may echo the URL (host) and must not reach the caller.
     if (order.length > 0) trace(kino, "portal", "all_fail", { path, n: order.length });
     throw kino.error("unavailable", order.length === 0 ? "sin hosts configurados" : CONTACT_FAILED);
+  }
+
+  /**
+   * One `xuper:portal decrypt-fail` line for an answer that came back but could not be read: the
+   * SHAPE of what the host sent (status, content-type class, lengths, hex / base64 / json / html /
+   * empty, gzip), the session mode and how many times in a row this path failed so. Never the body,
+   * the host or a token. Never throws.
+   */
+  function decryptFail(path, i, at, res, bodyText, answer, e) {
+    try {
+      const attempt = (decryptFails.get(path) || 0) + 1;
+      decryptFails.set(path, attempt);
+      const data = at === "body" || !isObject(answer) ? undefined : answer.data;
+      let mode = "?";
+      try { mode = String(modeOf()); } catch (_) { /* breadcrumb only */ }
+      trace(kino, "portal", "decrypt-fail", {
+        path, i, at,
+        status: res !== null && typeof res === "object" && typeof res.status === "number" ? res.status : -1,
+        ctype: contentClass(res),
+        len: typeof bodyText === "string" ? bodyText.length : -1,
+        shape: shapeOf(at === "body" ? bodyText : data),
+        dlen: typeof data === "string" ? data.length : -1,
+        gzip: gzipped(res, bodyText),
+        mode, attempt, why: errCode(e),
+      });
+    } catch (_) { /* a breadcrumb never fails a call */ }
   }
 
   return { call };

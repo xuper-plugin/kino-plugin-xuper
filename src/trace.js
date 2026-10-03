@@ -5,7 +5,7 @@
 // an email, a host or a url. Never throws.
 
 export const MAX_LINE_CHARS = 160;
-const NAME = /^[a-z][a-z0-9_]{0,23}$/;
+const NAME = /^[a-z][a-z0-9_-]{0,23}$/; // area and event: `decrypt-fail` too
 const KEY = /^[a-z][a-zA-Z0-9]{0,11}$/;
 // What a key may never be about (the app's scrubber also blanks `session=`, `token=`, `auth=`...).
 const SENSITIVE_KEY = /pass|token|secret|cred|auth|bearer|cookie|session|key|mail|host|url|^sn$|user|license|sign/i;
