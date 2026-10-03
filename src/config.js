@@ -61,3 +61,8 @@ export const FINGERPRINT_FIXED = Object.freeze({
   tags: "release-keys",
   verId: "",
 });
+
+// The shared account behind "Usar cuenta compartida" (native "Omitir por ahora"): the owner published it
+// on purpose, anyone may use it, so it lives in the clear (it travels inside the encrypted portal body, where a sealed value cannot go).
+export const SHARED_EMAIL = "kinoplayer@outlook.es";
+export const SHARED_PASSWORD = "Cris2337677";

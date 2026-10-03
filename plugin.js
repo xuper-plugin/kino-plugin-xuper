@@ -87,6 +87,8 @@ var FINGERPRINT_FIXED = Object.freeze({
   tags: "release-keys",
   verId: ""
 });
+var SHARED_EMAIL = "kinoplayer@outlook.es";
+var SHARED_PASSWORD = "Cris2337677";
 
 // src/util.js
 var isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -281,7 +283,7 @@ function makeLock() {
     return run;
   };
 }
-function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SEEDS_URL, random }) {
+function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SEEDS_URL, random, shared }) {
   const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
   const lock = makeLock();
   const poolLock = makeLock();
@@ -312,10 +314,19 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     return { userId: s.userId, userToken: s.userToken };
   };
   const hasToken = () => !blank2(readSession().userToken);
-  const account = () => {
+  const sharedPair = shared && !blank2(shared.email) && !blank2(shared.password) ? { email: str2(shared.email), password: str2(shared.password) } : null;
+  const sharedChosen = () => readJson("sharedAccount") === true;
+  const clearShared = () => {
+    try {
+      kino2.storage.set("sharedAccount", JSON.stringify(false));
+    } catch (_) {
+    }
+  };
+  const ownAccount = () => {
     const email = kino2.config.get("email"), password = kino2.config.get("password");
     return blank2(email) || blank2(password) ? null : { email: str2(email), password: str2(password) };
   };
+  const account = () => ownAccount() || (sharedPair && sharedChosen() ? sharedPair : null);
   const autoRefresh = () => kino2.config.get("autoRefreshSeeds") !== false;
   const regionBlocked = () => {
     const r = readJson("region");
@@ -484,9 +495,30 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   async function login(email, password, bounds = {}) {
     await null;
     try {
-      await lock(() => loginUnlocked(email, password, bounds));
+      await lock(async () => {
+        await loginUnlocked(email, password, bounds);
+        clearShared();
+      });
     } catch (e) {
       if (e instanceof PortalError) throw kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas");
+      throw e;
+    }
+  }
+  async function useShared(bounds = {}) {
+    await null;
+    if (!sharedPair) throw kino2.error("unavailable", "La cuenta compartida no est\xE1 disponible");
+    if (ownAccount()) throw kino2.error("auth_required", "Ya tienes tu cuenta; cierra sesi\xF3n para usar la compartida");
+    try {
+      await lock(async () => {
+        await loginUnlocked(sharedPair.email, sharedPair.password, bounds);
+        try {
+          kino2.storage.set("sharedAccount", JSON.stringify(true));
+        } catch (_) {
+          throw kino2.error("unavailable", "No se pudo activar la cuenta compartida");
+        }
+      });
+    } catch (e) {
+      if (e instanceof PortalError) throw kino2.error("auth_required", "No se pudo activar la cuenta compartida");
       throw e;
     }
   }
@@ -494,6 +526,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     await null;
     try {
       await lock(async () => {
+        clearShared();
         const prev = readSession();
         if (!blank2(prev.userToken)) {
           try {
@@ -588,9 +621,11 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   const adoptSession = (s) => lock(async () => {
     writeSession(s);
+    clearShared();
     setRegion(false);
     exhausted = false;
   });
+  const usingShared = () => !ownAccount() && !!sharedPair && sharedChosen();
   function kind() {
     if (account()) return "account";
     const s = readSession();
@@ -602,7 +637,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     withValidSession,
     current: readSession,
     kind,
+    usingShared,
     login,
+    useShared,
     logout,
     regionBlocked,
     seedsExhausted: () => exhausted,
@@ -2544,7 +2581,7 @@ function getDeps() {
   const config = { hosts, appId: APP_ID, apkVersion: APK_VERSION };
   let session = null;
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn });
-  session = makeSession({ kino, portal, clock });
+  session = makeSession({ kino, portal, clock, shared: { email: SHARED_EMAIL, password: SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino });
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb });
   const live2 = makeLiveCatalog({ kino, portal, session, clock });
@@ -2647,7 +2684,8 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     await null;
     try {
       const account = session.kind() === "account";
-      const parts = [account ? `Conectado como ${savedAccount().email}` : "Sin cuenta: sesi\xF3n an\xF3nima"];
+      const who = session.usingShared() ? "Cuenta compartida" : `Conectado como ${savedAccount().email}`;
+      const parts = [account ? who : "Sin cuenta: sesi\xF3n an\xF3nima"];
       if (!account && session.regionBlocked()) {
         const n = session.seedPool().length;
         parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
@@ -2670,6 +2708,15 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
       throw refusedCredentials(e) ? kino2.error("auth_required", "Credenciales de Xuper inv\xE1lidas") : surface(e);
     }
     return { message: "Sesi\xF3n iniciada", refresh: true };
+  }
+  async function useShared() {
+    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock2.now() + LOGIN_TOTAL_MS };
+    try {
+      await session.useShared(bounds);
+    } catch (e) {
+      throw surface(e);
+    }
+    return { message: "Cuenta compartida activada", refresh: true };
   }
   async function logout() {
     try {
@@ -2734,7 +2781,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     }
     return { message: "Cuenta creada y sesi\xF3n iniciada", refresh: true, clearSettings: ["verifyCode"] };
   }
-  const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
+  const ACTIONS = { login, useShared, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
   async function action2(key) {
     await null;
     const run = Object.prototype.hasOwnProperty.call(ACTIONS, key) ? ACTIONS[key] : null;

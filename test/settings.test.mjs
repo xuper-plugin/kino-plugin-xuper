@@ -33,6 +33,7 @@ function fakeSession(over = {}) {
   const s = {
     calls,
     kind: () => "own",
+    usingShared: () => false,
     regionBlocked: () => false,
     seedsExhausted: () => false,
     seedPool: () => [],
@@ -382,7 +383,7 @@ test("manifest: the account form has the actions and no leftover portalUrl", () 
   }
   const valueless = manifest.settings.filter((s) => ["section", "status", "action"].includes(s.type));
   const caps = JSON.parse(readFileSync(new URL("../contract.json", import.meta.url), "utf8")).settings;
-  assert.equal(valueless.length, 10);
+  assert.equal(valueless.length, 11);
   assert.ok(valueless.length <= caps.ui.maxItems && caps.ui.maxItems >= 16);
   assert.ok(manifest.settings.length - valueless.length <= caps.max);
   assert.equal(manifest.settings.length - valueless.length, 4);
@@ -394,7 +395,7 @@ test("manifest: three sections in order, each with its own settings; nothing out
   assert.deepEqual(sections.map((s) => s.label), ["Cuenta", "Crear cuenta", "Semillas"]);
   const at = (k) => keys.indexOf(k);
   const [a, c, d] = sections.map((s) => at(s.key));
-  assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout"]);
+  assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout", "useShared"]);
   assert.deepEqual(keys.slice(c + 1, d), ["verifyCode", "sendCode", "register"]);
   assert.deepEqual(keys.slice(d + 1), ["autoRefreshSeeds", "switchSeed", "refreshSeeds"]);
   const by = Object.fromEntries(manifest.settings.map((s) => [s.key, s]));

@@ -44,7 +44,8 @@ export function makeSettings({ kino, session, clock, registration }) {
     await null;
     try {
       const account = session.kind() === "account";
-      const parts = [account ? `Conectado como ${savedAccount().email}` : "Sin cuenta: sesión anónima"];
+      const who = session.usingShared() ? "Cuenta compartida" : `Conectado como ${savedAccount().email}`;
+      const parts = [account ? who : "Sin cuenta: sesión anónima"];
       if (!account && session.regionBlocked()) {
         const n = session.seedPool().length;
         parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
@@ -67,6 +68,13 @@ export function makeSettings({ kino, session, clock, registration }) {
       throw refusedCredentials(e) ? kino.error("auth_required", "Credenciales de Xuper inválidas") : surface(e);
     }
     return { message: "Sesión iniciada", refresh: true };
+  }
+
+  async function useShared() {
+    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock.now() + LOGIN_TOTAL_MS };
+    try { await session.useShared(bounds); }
+    catch (e) { throw surface(e); }
+    return { message: "Cuenta compartida activada", refresh: true };
   }
 
   async function logout() {
@@ -131,7 +139,7 @@ export function makeSettings({ kino, session, clock, registration }) {
     return { message: "Cuenta creada y sesión iniciada", refresh: true, clearSettings: ["verifyCode"] };
   }
 
-  const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };
+  const ACTIONS = { login, useShared, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };
 
   /** Runs the button `key`; an unknown key is `null` (the app shows "Listo"). */
   async function action(key) {

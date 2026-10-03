@@ -54,6 +54,13 @@
       "confirm": "¿Cerrar sesión de tu cuenta Xuper?"
     },
     {
+      "key": "useShared",
+      "label": "Usar cuenta compartida",
+      "type": "action",
+      "hint": "Sin crear cuenta: usa la cuenta que Kino comparte con todos.",
+      "confirm": "Esta cuenta la usan muchas personas. ¿Continuar?"
+    },
+    {
       "key": "createAccount",
       "label": "Crear cuenta",
       "type": "section",

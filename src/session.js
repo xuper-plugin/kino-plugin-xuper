@@ -31,7 +31,7 @@ function makeLock() {
   };
 }
 
-export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL, random }) {
+export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL, random, shared }) {
   // No Math.random: the injected source, else the host's CSPRNG.
   const rand = random || (() => parseInt(kino.crypto.randomBytes(4, "hex"), 16) / 0x100000000);
   const lock = makeLock(); // mint / login / switch: read-modify-write over the stored session
@@ -57,11 +57,21 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const view = () => { const s = readSession(); return { userId: s.userId, userToken: s.userToken }; };
   const hasToken = () => !blank(readSession().userToken);
 
-  // The person's own account is plugin settings, read each time, never copied.
-  const account = () => {
+  // The shared "cuenta compartida" (native fallback account): injected like the other deployment
+  // values; a blank pair means the feature is unavailable (native: blank pair = no-op).
+  const sharedPair = shared && !blank(shared.email) && !blank(shared.password)
+    ? { email: str(shared.email), password: str(shared.password) } : null;
+  const sharedChosen = () => readJson("sharedAccount") === true;
+  // The choice is a flag, no ttl; a failed clear is harmless (the own account wins, a later write overwrites).
+  const clearShared = () => { try { kino.storage.set("sharedAccount", JSON.stringify(false)); } catch (_) { /* ignored */ } };
+
+  const ownAccount = () => {
     const email = kino.config.get("email"), password = kino.config.get("password");
     return blank(email) || blank(password) ? null : { email: str(email), password: str(password) };
   };
+  // The account in use: the person's own (plugin settings, read each time, never copied), else the
+  // shared pair when the person chose it. The native treats a linked fallback as an own account.
+  const account = () => ownAccount() || (sharedPair && sharedChosen() ? sharedPair : null);
 
   // The "Actualizar semillas automáticamente" toggle; unset (never saved) counts as on, like native.
   const autoRefresh = () => kino.config.get("autoRefreshSeeds") !== false;
@@ -226,9 +236,26 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   async function login(email, password, bounds = {}) {
     await null;
-    try { await lock(() => loginUnlocked(email, password, bounds)); }
+    try { await lock(async () => { await loginUnlocked(email, password, bounds); clearShared(); }); }
     catch (e) {
       if (e instanceof PortalError) throw kino.error("auth_required", "Credenciales de Xuper inválidas");
+      throw e;
+    }
+  }
+
+  /** "Usar cuenta compartida": logs in with the shared pair; the choice is kept only on success. */
+  async function useShared(bounds = {}) {
+    await null;
+    if (!sharedPair) throw kino.error("unavailable", "La cuenta compartida no está disponible");
+    if (ownAccount()) throw kino.error("auth_required", "Ya tienes tu cuenta; cierra sesión para usar la compartida");
+    try {
+      await lock(async () => {
+        await loginUnlocked(sharedPair.email, sharedPair.password, bounds);
+        try { kino.storage.set("sharedAccount", JSON.stringify(true)); }
+        catch (_) { throw kino.error("unavailable", "No se pudo activar la cuenta compartida"); }
+      });
+    } catch (e) {
+      if (e instanceof PortalError) throw kino.error("auth_required", "No se pudo activar la cuenta compartida");
       throw e;
     }
   }
@@ -237,6 +264,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     await null;
     try {
       await lock(async () => {
+        clearShared();
         const prev = readSession();
         if (!blank(prev.userToken)) {
           // Result ignored: the stored token is dropped either way. The account itself lives in
@@ -338,7 +366,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   /** Makes `s` the stored session (registration: the temporary device that just logged in). */
   // A login on the direct path proves the region is not blocking this device (native markClear).
-  const adoptSession = (s) => lock(async () => { writeSession(s); setRegion(false); exhausted = false; });
+  const adoptSession = (s) => lock(async () => { writeSession(s); clearShared(); setRegion(false); exhausted = false; });
+
+  /** True when the shared account (not the person's own) is the one in use. */
+  const usingShared = () => !ownAccount() && !!sharedPair && sharedChosen();
 
   function kind() {
     if (account()) return "account";
@@ -348,7 +379,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   }
 
   return {
-    ensure, withValidSession, current: readSession, kind, login, logout, regionBlocked,
+    ensure, withValidSession, current: readSession, kind, usingShared, login, useShared, logout, regionBlocked,
     seedsExhausted: () => exhausted, switchSeed, refreshSeeds, seedPool, adoptSession,
   };
 }

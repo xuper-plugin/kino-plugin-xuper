@@ -14,11 +14,12 @@ import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 import { build } from "esbuild";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput, checkSettingsOutput, migrateAnswer, validateManifest } from "../sdk/contract.mjs";
 import { signingLane } from "../sdk/kino-shim.mjs";
-import { APK_VER_HEADER, SPKG_VER, USER_AGENT, CONTENT_TYPE, RATE_LIMIT_MS, PORTAL_CODE, LIVE_APP, LIVE_APP_VERSION } from "../src/config.js";
+import { SHARED_EMAIL, SHARED_PASSWORD, APK_VER_HEADER, SPKG_VER, USER_AGENT, CONTENT_TYPE, RATE_LIMIT_MS, PORTAL_CODE, LIVE_APP, LIVE_APP_VERSION } from "../src/config.js";
 
 const ROOT = new URL("../", import.meta.url);
 const checked = validateManifest(readFileSync(new URL("kino-plugin.json", ROOT), "utf8"));
@@ -31,15 +32,19 @@ const APK = "9.9.9-test";
 const TOKEN = "t".repeat(32);
 const USER = "user-1";
 const SN = "0123456789abcdef0123456789abcdef";
+const SHARED_EMAIL_FAKE = "compartida@stand-in.test";
+const SHARED_PASSWORD_FAKE = "shared-stand-in-pw";
 const SEEDS_URL_PART = "raw.githubusercontent.com";
 
 // ---- the module under test ---------------------------------------------------------------------
 
-// config.js with its three deployment values replaced by synthetic ones (whatever they hold: empty or real); each replacement must actually happen.
+// config.js with its deployment values (and the shared pair) replaced by synthetic ones (whatever they hold: empty or real); each replacement must actually happen.
 const FILL = [
   [/export const hosts = \[[^\]]*\];/, `export const hosts = ["${HOST}"];`, /var hosts = \[[^\]]*\];/, `var hosts = ["${HOST}"];`],
   [/export const APP_ID = "[^"]*";/, `export const APP_ID = "${APP}";`, /var APP_ID = "[^"]*";/, `var APP_ID = "${APP}";`],
   [/export const APK_VERSION = "[^"]*";/, `export const APK_VERSION = "${APK}";`, /var APK_VERSION = "[^"]*";/, `var APK_VERSION = "${APK}";`],
+  [/export const SHARED_EMAIL = "[^"]*";/, `export const SHARED_EMAIL = "${SHARED_EMAIL_FAKE}";`, /var SHARED_EMAIL = "[^"]*";/, `var SHARED_EMAIL = "${SHARED_EMAIL_FAKE}";`],
+  [/export const SHARED_PASSWORD = "[^"]*";/, `export const SHARED_PASSWORD = "${SHARED_PASSWORD_FAKE}";`, /var SHARED_PASSWORD = "[^"]*";/, `var SHARED_PASSWORD = "${SHARED_PASSWORD_FAKE}";`],
 ];
 function fill(text, which) {
   let out = text;
@@ -321,6 +326,31 @@ test("action logout: loginOut with the session, then clearSettings survives the 
   const kept = checkSettingsOutput("action", out, manifest, (t) => t, (d) => drops.push(d));
   assert.deepEqual(drops, []);
   assert.deepEqual(kept.clearSettings, ["email", "password"]);
+});
+
+test("action useShared: one v8/login with the (stand-in) shared pair, then the status line and a relogin follow it; the real pair never travels", async () => {
+  const md5 = (t) => createHash("md5").update(t).digest("hex");
+  let logins = 0;
+  const s = await start({ routes: {
+    "v8/login": (bean) => {
+      logins++;
+      assert.equal(bean.userName, SHARED_EMAIL_FAKE);
+      assert.equal(bean.password, md5(SHARED_PASSWORD_FAKE + "cloudstream"));
+      return { data: { userId: USER, userToken: TOKEN, jwtToken: "jwt" } };
+    },
+  } });
+  await s.plugin.action("login").then(() => assert.fail("no own account saved"), kinoError("auth_required"));
+  const out = await s.plugin.action("useShared");
+  assert.deepEqual(out, { message: "Cuenta compartida activada", refresh: true });
+  assert.equal(checkSettingsOutput("action", out, manifest).message, out.message);
+  const st = await s.plugin.settingsStatus();
+  assert.equal(st.status, "Cuenta compartida");
+  assert.deepEqual(checkSettingsOutput("settingsStatus", st, manifest), st);
+  assert.equal(logins, 1);
+  const lo = await s.plugin.action("logout");
+  assert.deepEqual(lo.clearSettings, ["email", "password"]);
+  const all = JSON.stringify(s.log) + JSON.stringify(s.kino.storage.get("session"));
+  assert.ok(!all.includes(SHARED_EMAIL) && !all.includes(SHARED_PASSWORD), "the real shared pair travelled");
 });
 
 test("action switchSeed and refreshSeeds: probe a pool seed, then re-download the pool", async () => {
