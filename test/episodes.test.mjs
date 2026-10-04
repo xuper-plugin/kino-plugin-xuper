@@ -1,6 +1,7 @@
 import test from "node:test";
+import { fixturesDir } from "./helpers/fixtures.mjs";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog } from "../src/catalog.js";
@@ -513,9 +514,7 @@ test("cache: the chapter lookup Task 5 needs - portalChapters keeps contentId, r
 // episodes-1..10 were captured on a real device with the native implementation; they are git-excluded
 // (real titles and hosts) and read by absolute path, never copied here.
 
-const FIXTURE_DIR = "/Users/cristian/kino-light/.claude/worktrees/xuper-plain-plugin/app/src/test/resources/xuper-parity";
-const fixtureFiles = Array.from({ length: 10 }, (_, i) => `${FIXTURE_DIR}/episodes-${i + 1}.json`);
-const haveFixtures = fixtureFiles.every(existsSync);
+const fixtureFiles = Array.from({ length: 10 }, (_, i) => `${fixturesDir}/episodes-${i + 1}.json`);
 
 const canonical = (bean) => Object.keys(bean).sort().map((k) => `${k}=${bean[k]}`).join(",");
 const sorted = (v) => {
@@ -542,9 +541,7 @@ const answerOf = (c) => {
 };
 
 for (const [i, file] of fixtureFiles.entries()) {
-  test(`parity: episodes-${i + 1}.json reproduces the device's captured answer, portal calls and TMDB calls`, {
-    skip: haveFixtures ? false : "episodes fixtures are git-excluded and absent here: nothing to compare against",
-  }, async () => {
+  test(`parity: episodes-${i + 1}.json reproduces the device's captured answer, portal calls and TMDB calls`, async () => {
     const fixture = JSON.parse(readFileSync(file, "utf8"));
     const bodies = {};
     for (const c of fixture.tmdb) bodies[`${c.path}@${c.language}`] = { code: c.code, body: c.body };
@@ -574,9 +571,7 @@ for (const [i, file] of fixtureFiles.entries()) {
   });
 }
 
-test("parity: the captures cover the labelled cases (full + en-US fallback, guard refusal, no imdb, season missing, unknown imdb, not found, single-season list, declared over published, a season > 1)", {
-  skip: haveFixtures ? false : "episodes fixtures are git-excluded and absent here",
-}, () => {
+test("parity: the captures cover the labelled cases (full + en-US fallback, guard refusal, no imdb, season missing, unknown imdb, not found, single-season list, declared over published, a season > 1)", () => {
   const labels = fixtureFiles.map((f) => JSON.parse(readFileSync(f, "utf8")).case);
   for (const want of ["full-tmdb-en-fallback", "full-tmdb", "no-imdb", "guard-refuses", "tmdb-season-missing", "tmdb-unknown-imdb", "not-found", "single-season-list", "declared-over-published"]) {
     assert.ok(labels.includes(want), want);

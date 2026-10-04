@@ -52,7 +52,8 @@ const mediaScore = (m) => (optStringStrict(m.encodeFormat).toLowerCase() === "h2
 function rankedMedia(play) {
   const episode = isObject(play) ? objects(play.episodeList)[0] : undefined;
   if (!episode) return [];
-  const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList));
+  // A track with no contentId has no media path (`/vod/_media.mp4`): it is not a track at all.
+  const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList)).filter((m) => notBlank(optStringStrict(m.contentId)));
   return candidates.map((m, i) => ({ m, i, s: mediaScore(m) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.m);
 }
 

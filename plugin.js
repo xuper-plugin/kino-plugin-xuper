@@ -2490,7 +2490,7 @@ var mediaScore = (m) => (optStringStrict(m.encodeFormat).toLowerCase() === "h264
 function rankedMedia(play) {
   const episode = isObject(play) ? objects(play.episodeList)[0] : void 0;
   if (!episode) return [];
-  const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList));
+  const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList)).filter((m) => notBlank(optStringStrict(m.contentId)));
   return candidates.map((m, i) => ({ m, i, s: mediaScore(m) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.m);
 }
 var licenseOf = (m) => optStringStrict(objects(m.licenseList)[0]?.license);
@@ -2653,6 +2653,7 @@ var MAX_CATEGORIES = 200;
 var ID = /^[A-Za-z0-9._~-]{1,128}$/;
 var POSITIVE = /^\d{1,9}$/;
 var SEARCH_INDEX_TTL_MS = 60 * 6e4;
+var PARTIAL_INDEX_TTL_MS = 3 * 6e4;
 var MAX_SEARCH_HITS = 100;
 var MIN_SEARCH_CHARS = 2;
 var plain2 = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
@@ -2754,6 +2755,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     return project(await fetchPage(id, 1, deadline), id, adult);
   }
   let index = null;
+  let partial = null;
   let sweeping = null;
   async function sweepCategory(category, into, deadline, read = { pages: 0 }) {
     for (let page = 1; page <= MAX_PAGES; page++) {
@@ -2792,11 +2794,15 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   }
   async function channelIndex(deadline) {
     if (index && clock2.now() - index.atMs < SEARCH_INDEX_TTL_MS) return index.channels;
+    if (partial && clock2.now() - partial.atMs < PARTIAL_INDEX_TTL_MS) return partial.channels;
     sweeping ?? (sweeping = sweep(deadline).finally(() => {
       sweeping = null;
     }));
     const { complete, channels } = await sweeping;
-    if (complete) index = { atMs: clock2.now(), channels };
+    if (complete) {
+      index = { atMs: clock2.now(), channels };
+      partial = null;
+    } else partial = { atMs: clock2.now(), channels };
     return channels;
   }
   async function liveSearch2(arg) {

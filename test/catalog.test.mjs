@@ -1,6 +1,7 @@
 import test from "node:test";
+import { fixturePath } from "./helpers/fixtures.mjs";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog, parseShelveTime, projectRows } from "../src/catalog.js";
@@ -199,13 +200,10 @@ test("output caps: at most 20 rows, at most 60 items a row, contract-valid", asy
   assert.equal(checked.value.length, 20);
 });
 
-// ---- home: real captured rows (git-excluded, read by absolute path) ----------------------------
+// ---- home: real captured rows (kept outside the repo, see helpers/fixtures.mjs) ----------------------------
 
-const HOME_FIXTURE = "/Users/cristian/kino-light/.claude/worktrees/xuper-plain-plugin/app/src/test/resources/xuper-parity/home-1.json";
-test("projection of the real captured rows (home-1.json) keeps ids, refs, kind, images, genres, rating", {
-  skip: existsSync(HOME_FIXTURE) ? false : "home-1.json is git-excluded and absent here: nothing to compare against",
-}, () => {
-  const captured = JSON.parse(readFileSync(HOME_FIXTURE, "utf8"));
+test("projection of the real captured rows (home-1.json) keeps ids, refs, kind, images, genres, rating", () => {
+  const captured = JSON.parse(readFileSync(fixturePath("home-1.json"), "utf8"));
   const rows = captured.map((r) => ({
     id: r.id, title: r.title,
     shown: r.shown.map((i) => ({ ...i, genres: i.genres || [], score: i.score ?? null, shelvedAtMs: i.shelvedAtMs || 0 })),

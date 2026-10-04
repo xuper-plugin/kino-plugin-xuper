@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCategories, tilesOf } from "../src/categories.js";
-import { catalogSetup, manifest, fixtureRows, fixtureSkip, answer, column, assets, asset } from "./helpers/fakeCatalog.mjs";
+import { catalogSetup, manifest, fixtureRows, answer, column, assets, asset } from "./helpers/fakeCatalog.mjs";
 
 const setup = (opts) => {
   const w = catalogSetup(opts);
@@ -87,7 +87,7 @@ test("an empty catalog is no tiles, not an error", async () => {
   assert.deepEqual(await setup({ roots }).categories.categories(null), []);
 });
 
-test("the real captured rows (home-1.json) as tiles, kit-valid", { skip: fixtureSkip }, () => {
+test("the real captured rows (home-1.json) as tiles, kit-valid", () => {
   const rows = fixtureRows();
   const tiles = tilesOf(rows);
   assert.deepEqual(tiles.map((t) => t.id), rows.map((r) => r.id));

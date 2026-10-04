@@ -1,6 +1,7 @@
 import test from "node:test";
+import { fixturesDir } from "./helpers/fixtures.mjs";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput, validateManifest } from "../sdk/contract.mjs";
 import { makeResolve } from "../src/resolve.js";
@@ -163,6 +164,17 @@ test("no episodeList / no media: unavailable with the native text, no getSlbInfo
     await rejectsWith(t.resolve(MOVIE), "unavailable", "Xuper devolvió sin media reproducible");
     assert.equal(t.portal.times("v14/getSlbInfo"), 0);
   }
+});
+
+test("a track with a blank contentId is no track: unavailable, never a `/vod/_media.mp4` url, no getSlbInfo", async () => {
+  for (const blank of ["", "   "]) {
+    const t = setup({ queues: { "v10/startPlayVOD": [play([media(blank)])] } });
+    await rejectsWith(t.resolve(MOVIE), "unavailable", "Xuper devolvió sin media reproducible");
+    assert.equal(t.portal.times("v14/getSlbInfo"), 0);
+  }
+  // A blank-id track next to a good one: the good one plays.
+  const t = setup({ queues: { "v10/startPlayVOD": [play([media(""), media("M2", "mp4", "h265")])], "v14/getSlbInfo": [slb()] } });
+  assert.match((await t.resolve(MOVIE)).url, /\/vod\/M2_media\.mp4$/);
 });
 
 test("no licenseList (or a blank license): unavailable, getSlbInfo never asked", async () => {
@@ -583,9 +595,7 @@ test("alternatives: the SLB is still asked once (cached) and a series' chapter g
 // `playable` is compared field by field; the headers the native bridge kept aside are the stream's
 // own `headers` here. appId/apkVersion come from each fixture, at run time.
 
-const FIXTURE_DIR = "/Users/cristian/kino-light/.claude/worktrees/xuper-plain-plugin/app/src/test/resources/xuper-parity";
-const fixtureFiles = Array.from({ length: 6 }, (_, i) => `${FIXTURE_DIR}/resolve-${i + 1}.json`);
-const haveFixtures = fixtureFiles.every(existsSync);
+const fixtureFiles = Array.from({ length: 6 }, (_, i) => `${fixturesDir}/resolve-${i + 1}.json`);
 
 const sorted = (v) => {
   if (Array.isArray(v)) return `[${v.map(sorted).join(",")}]`;
@@ -605,9 +615,7 @@ const fromStream = (s) => ({ url: s.url, headers: s.headers, mime: s.mime, durat
 const fromPlayable = (p) => ({ url: p.url, headers: p.headers, mime: p.mime, durationMs: p.durationMs, subtitles: p.subtitles });
 
 for (const [i, file] of fixtureFiles.entries()) {
-  test(`parity: resolve-${i + 1}.json reproduces the device's captured resolution and portal calls`, {
-    skip: haveFixtures ? false : "resolve fixtures are git-excluded and absent here: nothing to compare against",
-  }, async () => {
+  test(`parity: resolve-${i + 1}.json reproduces the device's captured resolution and portal calls`, async () => {
     const fixture = JSON.parse(readFileSync(file, "utf8"));
     // The harness refused every call that would (re)activate or log in a device: the fake session never makes those.
     const live = fixture.portal.filter((c) => !c.blockedByHarness);

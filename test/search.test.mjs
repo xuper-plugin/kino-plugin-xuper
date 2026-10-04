@@ -1,6 +1,7 @@
 import test from "node:test";
+import { fixturesDir } from "./helpers/fixtures.mjs";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog } from "../src/catalog.js";
@@ -553,9 +554,7 @@ test("the cached search keeps a series' fields exactly (season, count, images) a
 
 // ---- the parity fixtures (git-excluded: read by absolute path, never copied) -------------------
 
-const FIXTURE_DIR = "/Users/cristian/kino-light/.claude/worktrees/xuper-plain-plugin/app/src/test/resources/xuper-parity";
-const fixtureFiles = [1, 2, 3, 4].map((n) => `${FIXTURE_DIR}/search-${n}.json`);
-const haveFixtures = fixtureFiles.every(existsSync);
+const fixtureFiles = [1, 2, 3, 4].map((n) => `${fixturesDir}/search-${n}.json`);
 const sorted = (v) => (Array.isArray(v) ? v.map(sorted) : v !== null && typeof v === "object"
   ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
 const canonical = (bean) => Object.keys(bean).sort().map((k) => `${k}=${bean[k]}`).join(",");
@@ -574,9 +573,7 @@ function rebuilt(item, request) {
 }
 
 for (const [i, file] of fixtureFiles.entries()) {
-  test(`parity: search-${i + 1}.json reproduces the device's captured results and portal calls`, {
-    skip: haveFixtures ? false : "search fixtures are git-excluded and absent here: nothing to compare against",
-  }, async () => {
+  test(`parity: search-${i + 1}.json reproduces the device's captured results and portal calls`, async () => {
     const fixture = JSON.parse(readFileSync(file, "utf8"));
     const request = fixture.request;
     const tmdbByPath = new Map(fixture.tmdb.map((c) => [c.path, c]));
@@ -604,9 +601,7 @@ for (const [i, file] of fixtureFiles.entries()) {
   });
 }
 
-test("parity: the four fixtures cover >3 results, a full-title fallback, an empty result and season > 0", {
-  skip: haveFixtures ? false : "search fixtures are git-excluded and absent here",
-}, () => {
+test("parity: the four fixtures cover >3 results, a full-title fallback, an empty result and season > 0", () => {
   const all = fixtureFiles.map((f) => JSON.parse(readFileSync(f, "utf8")));
   assert.ok(all.some((f) => f.expected.results.length > 3));
   assert.ok(all.some((f) => f.portal.some((c) => c.bean.value.includes(",") || c.bean.value.includes(":")) && f.portal.length > 1));

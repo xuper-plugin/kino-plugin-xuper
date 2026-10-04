@@ -1,6 +1,7 @@
 // A catalog over a scripted portal (getNextColumns per root code) for the section and categories
 // tests; the same fakes catalog.test.mjs uses inline.
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { fixturePath } from "./fixtures.mjs";
 import { fakeKino } from "./fakeKino.mjs";
 import { makeCatalog } from "../../src/catalog.js";
 
@@ -57,12 +58,10 @@ export function catalogSetup({ roots = fourRoots(), now = NOW } = {}) {
 
 export const manifest = () => JSON.parse(readFileSync(new URL("../../kino-plugin.json", import.meta.url), "utf8"));
 
-// The captured classified rows (git-excluded, read by absolute path as catalog.test.mjs does).
-export const HOME_FIXTURE = "/Users/cristian/kino-light/.claude/worktrees/xuper-plain-plugin/app/src/test/resources/xuper-parity/home-1.json";
-export const fixtureSkip = existsSync(HOME_FIXTURE) ? false : "home-1.json is git-excluded and absent here: nothing to compare against";
+// The captured classified rows (kept outside the repo, see fixtures.mjs).
 export function fixtureRows() {
   const norm = (i) => ({ ...i, genres: i.genres || [], score: i.score ?? null, shelvedAtMs: i.shelvedAtMs || 0, description: i.description || "" });
-  return JSON.parse(readFileSync(HOME_FIXTURE, "utf8")).map((r) => ({ id: r.id, title: r.title, shown: r.shown.map(norm), all: r.all.map(norm) }));
+  return JSON.parse(readFileSync(fixturePath("home-1.json"), "utf8")).map((r) => ({ id: r.id, title: r.title, shown: r.shown.map(norm), all: r.all.map(norm) }));
 }
 
 export const kinoErr = (code) => (e) => { if (e.name !== "KinoError_" + code) throw e; return true; };

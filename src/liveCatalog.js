@@ -16,6 +16,9 @@ const ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const POSITIVE = /^\d{1,9}$/;
 // liveSearch: the swept list is kept in memory as long as the app keeps a listing (1 h), never in storage.
 const SEARCH_INDEX_TTL_MS = 60 * 60_000;
+// An incomplete sweep (a later page failed) is kept only briefly: long enough that a burst of searches
+// does not repeat ~30 portal calls each, short enough that the missing pages come back soon.
+const PARTIAL_INDEX_TTL_MS = 3 * 60_000;
 const MAX_SEARCH_HITS = 100; // SDK: liveSearch keeps 100
 const MIN_SEARCH_CHARS = 2; // SDK: asked from 2 characters
 const plain = (text) => String(text).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
@@ -143,9 +146,10 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
   // The portal has no channel search, so the list is swept once: every 18+ category first (a channel
   // found there is adult wherever else it is listed), then ChannelList, the portal's all-channels
   // category (every other category when there is none), each one page after another. Kept in memory
-  // for an hour, so a search inside it asks the portal nothing. Every hit carries its categoryId AND an
+  // for an hour, so a search inside it asks the portal nothing (an incomplete sweep, for 3 minutes). Every hit carries its categoryId AND an
   // explicit `adult`: the app counts an unmarked hit as 18+.
   let index = null; // { atMs, channels: Map<code, item> }: only a complete sweep is kept
+  let partial = null; // same shape as `index`, from an incomplete sweep; expires after PARTIAL_INDEX_TTL_MS
   let sweeping = null;
 
   // Every page of [category] into [into] (a code already there keeps its first category: the adult one);
@@ -189,9 +193,13 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
 
   async function channelIndex(deadline) {
     if (index && clock.now() - index.atMs < SEARCH_INDEX_TTL_MS) return index.channels;
+    if (partial && clock.now() - partial.atMs < PARTIAL_INDEX_TTL_MS) return partial.channels;
+    // Searches that arrive while a sweep runs JOIN it and are bound by the deadline of the call that
+    // started it, not their own: a joiner can get a failure or a partial result sooner than its budget.
     sweeping ??= sweep(deadline).finally(() => { sweeping = null; });
     const { complete, channels } = await sweeping;
-    if (complete) index = { atMs: clock.now(), channels };
+    if (complete) { index = { atMs: clock.now(), channels }; partial = null; }
+    else partial = { atMs: clock.now(), channels };
     return channels;
   }
 

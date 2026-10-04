@@ -171,14 +171,21 @@ test("liveSearch: an 18+ category that cannot be read fails the whole search (fa
   }
 });
 
-test("liveSearch: Todos' first page failing is the error; a later page failing serves what was found and sweeps again next time", async () => {
+test("liveSearch: Todos' first page failing is the error; a later page failing serves what was found, kept only briefly", async () => {
   const first = setup({ fail: { [`${TODOS}:1`]: new PortalError("aaa100028", "x") } });
   await assert.rejects(first.live.liveSearch({ query: "noticias" }), (e) => e.code === "auth_required");
   const later = setup({ fail: { [`${TODOS}:2`]: new TypeError("x") } });
   const out = await later.live.liveSearch({ query: "mixto" });
   assert.deepEqual(out.items.map((c) => [c.id, c.adult]), [["MIX", true]], "the 18+ list was read: MIX stays adult");
   assert.deepEqual(ids(await later.live.liveSearch({ query: "noticias" })), [], "page 2 was not read");
-  assert.equal(later.portal.count("getNextColumns"), 2, "an incomplete sweep is not kept");
+  assert.equal(later.portal.count("getNextColumns"), 1, "an incomplete sweep is kept briefly: the second search asked nothing");
+  const pagesAfterFirst = later.portal.pages().length;
+  later.clock.t = 2 * 60_000;
+  await later.live.liveSearch({ query: "noticias" });
+  assert.equal(later.portal.pages().length, pagesAfterFirst, "still inside the partial window");
+  later.clock.t = 3 * 60_000 + 1;
+  await later.live.liveSearch({ query: "noticias" });
+  assert.equal(later.portal.count("getNextColumns"), 2, "after the partial window it sweeps again");
 });
 
 // ---- what the kit and the app make of it ------------------------------------------------------

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeSection, rowsOfTab, TABS } from "../src/section.js";
 import { rootOfRow } from "../src/homeClassifier.js";
-import { catalogSetup, manifest, fixtureRows, fixtureSkip, kinoErr, NOW } from "./helpers/fakeCatalog.mjs";
+import { catalogSetup, manifest, fixtureRows, kinoErr, NOW } from "./helpers/fakeCatalog.mjs";
 
 const ids = (rows) => rows.map((r) => r.id);
 const setup = (opts) => {
@@ -82,7 +82,7 @@ test("rootOfRow maps every classifier row id to its root; anything else is null"
   for (const bad of ["magis_g_adultos_x", "magis_top_", "other", "", undefined]) assert.equal(rootOfRow(bad), null, String(bad));
 });
 
-test("the real captured rows (home-1.json) split by root, kit-valid", { skip: fixtureSkip }, () => {
+test("the real captured rows (home-1.json) split by root, kit-valid", () => {
   const rows = fixtureRows();
   assert.deepEqual(ids(rowsOfTab(rows, "peliculas", NOW)), ["magis_new_peliculas"]);
   assert.deepEqual(ids(rowsOfTab(rows, "series", NOW)), ["magis_new_series", "magis_g_series_thriller"]);
