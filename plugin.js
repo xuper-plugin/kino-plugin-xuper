@@ -2713,14 +2713,35 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     ), { deadline });
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
   }
-  function project(list, categoryId, adult) {
+  function project(list, categoryId, adult, drops = {}) {
     const seen = /* @__PURE__ */ new Set();
     const items = [];
+    const drop = (why) => {
+      drops[why] = (drops[why] ?? 0) + 1;
+    };
     for (const c of list) {
-      if (!isObject(c)) continue;
+      if (!isObject(c)) {
+        drop("shape");
+        continue;
+      }
       const code = asText(c.channelCode);
       const title2 = asText(c.name);
-      if (isBlank(code) || isBlank(title2) || !ID.test(code) || code.startsWith("~") || seen.has(code)) continue;
+      if (isBlank(code) || isBlank(title2)) {
+        drop("blank");
+        continue;
+      }
+      if (!ID.test(code)) {
+        drop("badid");
+        continue;
+      }
+      if (code.startsWith("~")) {
+        drop("tilde");
+        continue;
+      }
+      if (seen.has(code)) {
+        drop("dup");
+        continue;
+      }
       seen.add(code);
       const n = intOrNull(c.channelNumber);
       const item = { id: code, title: title2, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
@@ -2742,10 +2763,15 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     try {
       const adult = await isAdultCategory(id, deadline);
       const list = await fetchPage(id, page, deadline);
-      const items = project(list, id, adult);
+      const drops = {};
+      const items = project(list, id, adult, drops);
+      trace(kino2, "live", "page", { cat: id, page, raw: list.length, kept: items.length, ...drops });
       return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
-      if (page > 1) return { items: [] };
+      if (page > 1) {
+        trace(kino2, "live", "page_fail", { cat: id, page, code: errCode(e) });
+        return { items: [] };
+      }
       throw surface(e);
     }
   }

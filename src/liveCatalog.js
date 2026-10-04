@@ -94,14 +94,19 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
   }
 
-  function project(list, categoryId, adult) {
+  // `drops` (optional) counts what a page loses before the app sees it, by reason, for the breadcrumb.
+  function project(list, categoryId, adult, drops = {}) {
     const seen = new Set();
     const items = [];
+    const drop = (why) => { drops[why] = (drops[why] ?? 0) + 1; };
     for (const c of list) {
-      if (!isObject(c)) continue;
+      if (!isObject(c)) { drop("shape"); continue; }
       const code = asText(c.channelCode);
       const title = asText(c.name);
-      if (isBlank(code) || isBlank(title) || !ID.test(code) || code.startsWith("~") || seen.has(code)) continue;
+      if (isBlank(code) || isBlank(title)) { drop("blank"); continue; }
+      if (!ID.test(code)) { drop("badid"); continue; }
+      if (code.startsWith("~")) { drop("tilde"); continue; }
+      if (seen.has(code)) { drop("dup"); continue; }
       seen.add(code);
       const n = intOrNull(c.channelNumber);
       const item = { id: code, title, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
@@ -125,10 +130,17 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     try {
       const adult = await isAdultCategory(id, deadline);
       const list = await fetchPage(id, page, deadline);
-      const items = project(list, id, adult);
+      const drops = {};
+      const items = project(list, id, adult, drops);
+      // What the portal sent against what went on (counts only): a gap against the old native list shows here.
+      trace(kino, "live", "page", { cat: id, page, raw: list.length, kept: items.length, ...drops });
       return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
-      if (page > 1) return { items: [] };
+      if (page > 1) {
+        // The listing ends here (as the native one did), but a truncated list must not be silent.
+        trace(kino, "live", "page_fail", { cat: id, page, code: errCode(e) });
+        return { items: [] };
+      }
       throw surface(e);
     }
   }

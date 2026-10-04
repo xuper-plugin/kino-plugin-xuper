@@ -333,3 +333,28 @@ test("D3: the kit at apiVersion 6 keeps the adult category and the adult channel
   assert.deepEqual(chans.drops, []);
   assert.equal(chans.value.items[0].adult, true);
 });
+
+// ---- breadcrumbs: what a page loses before the app sees it ---------------------------------------
+
+function loggedSetup(queues) {
+  const logs = [];
+  const k = Object.create(fakeKino(), { log: { value: (line) => logs.push(String(line)) } });
+  const live = makeLiveCatalog({ kino: k, portal: fakePortal(queues), session: fakeSession(), clock: { now: () => 0 } });
+  return { live, logs };
+}
+
+test("channels: each page writes one breadcrumb with the raw count, the kept count and the drops by reason (counts only)", async () => {
+  const { live, logs } = loggedSetup(withCats({ "v6/getLiveData": [page(
+    chan("ok1"), chan("  "), chan("with space"), chan("~hidden"), chan("ok1", { name: "Repetido" }), chan("ok2", { name: "   " }), "junk", chan("ok3"),
+  )] }));
+  await live.liveChannels({ categoryId: "76183" });
+  assert.deepEqual(logs.filter((l) => l.startsWith("xuper:live page")), [
+    "xuper:live page cat=76183 page=1 raw=8 kept=2 blank=2 badid=1 tilde=1 dup=1 shape=1",
+  ]);
+});
+
+test("channels: a later page that fails still ends the listing, and says so in a breadcrumb", async () => {
+  const { live, logs } = loggedSetup(withCats({ "v6/getLiveData": [new PortalError("portal100024", "")] }));
+  assert.deepEqual(await live.liveChannels({ categoryId: "76183", cursor: "2" }), { items: [] });
+  assert.equal(logs.filter((l) => l.startsWith("xuper:live page_fail cat=76183 page=2")).length, 1);
+});
