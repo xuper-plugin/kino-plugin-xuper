@@ -30,7 +30,7 @@ export function makeCategories({ catalog }) {
   return {
     // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
     categories: async () => {
-      const tiles = tilesOf(await catalog.rows(CALL_BUDGET_MS.categories));
+      const tiles = tilesOf(await catalog.rows(CALL_BUDGET_MS.categories, "categories"));
       return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES - 1), { ...ADULT_TILE }];
     },
   };

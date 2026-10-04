@@ -152,13 +152,13 @@ test("live: a channel with no usable CDN says which check failed", async () => {
   has(w, /^xuper:live bad why=no_cdn$/);
 });
 
-test("storage budget: a home tree that only fits trimmed says how far it was trimmed", async () => {
+test("storage budget: rows that only fit trimmed say how far they were trimmed", async () => {
   const big = { recommendList: [{ columnId: 1, name: "All", assetList: Array.from({ length: 120 }, (_, i) => ({
-    contentId: `PEL${i}`, name: "Titulo " + i, programType: "movie", tags: "Drama,Acción,Comedia", score: 7, description: "d".repeat(400),
+    contentId: `PEL${i}`, name: "Titulo " + i, programType: "movie", tags: "Drama,Acción,Comedia", score: 7, description: "d".repeat(4000),
   })) }] };
   const w = portalWorld({ hosts: ["a.test"], routes: { getNextColumns: big } });
   await w.catalog.home();
-  has(w, /^xuper:store trim what=tree root=[a-z_]+ step=[1-9]\d*$/);
+  has(w, /^xuper:store trim what=rows step=[1-9]\d*$/);
 });
 
 test("traced: every export says when it starts and how it ended, with its time (and its count for a list)", async () => {

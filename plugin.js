@@ -1575,6 +1575,16 @@ function utf8Length(s) {
   }
   return n;
 }
+
+// src/rowsStore.js
+var ROWS_FORMAT = 1;
+var META_KEY = "rows:meta";
+var PART_PREFIX = "rows:";
+var SNAPSHOT_BUDGET_BYTES = 8e4;
+var PART_BUDGET_BYTES = 2e4;
+var META_RESERVE_BYTES = 400;
+var PART_TAG_BYTES = 16;
+var TEXT_BUDGET_BYTES = SNAPSHOT_BUDGET_BYTES - META_RESERVE_BYTES - 4 * PART_TAG_BYTES;
 function commonPrefix(urls) {
   if (urls.length === 0) return "";
   let p = urls[0];
@@ -1584,53 +1594,101 @@ function commonPrefix(urls) {
   }
   return p.length >= 12 ? p : "";
 }
-function cut(text2, max) {
-  if (text2.length <= max) return text2;
-  const end = text2.charCodeAt(max - 1) >= 55296 && text2.charCodeAt(max - 1) < 56320 ? max - 1 : max;
-  return text2.slice(0, end);
+function collect(rows, keepFull) {
+  const index = /* @__PURE__ */ new Map();
+  const items = [];
+  const refs = rows.map((r, n) => {
+    const shown = n < keepFull ? r.shown : r.shown.slice(0, 1);
+    return shown.map((i) => {
+      let k = index.get(i);
+      if (k === void 0) {
+        k = items.length;
+        index.set(i, k);
+        items.push(i);
+      }
+      return k;
+    });
+  });
+  return { items, refs };
 }
-var TREE_FORMAT = 1;
-function encodeTree(sections, { descMax = Infinity, genres = true, backdrop = true, perSection = Infinity } = {}) {
-  sections = sections.map((s2) => s2.items.length > perSection ? { ...s2, items: s2.items.slice(0, perSection) } : s2);
+var descCost = (d) => storedLength(JSON.stringify(d)) - 4;
+function encodeRows(rows, { descItems = Infinity, genres = true, keepFull = Infinity } = {}) {
+  const { items, refs } = collect(rows, keepFull);
   const urls = [];
-  for (const s2 of sections) for (const i of s2.items) {
-    if (i.poster) urls.push(i.poster);
-    if (backdrop && i.backdrop) urls.push(i.backdrop);
+  for (const i2 of items) {
+    if (i2.poster) urls.push(i2.poster);
+    if (i2.backdrop) urls.push(i2.backdrop);
   }
   const p = commonPrefix(urls);
-  const strip = (u) => u === null ? null : u.slice(p.length);
-  const table = /* @__PURE__ */ new Map();
-  const items = [];
-  const s = sections.map((sec) => [sec.name, sec.items.map((i) => {
-    const rec = [
-      i.id,
-      i.title,
-      strip(i.poster),
-      backdrop ? strip(i.backdrop) : null,
-      i.durationS,
-      i.type,
-      genres ? i.genres : [],
-      i.score,
-      cut(i.description, descMax),
-      i.shelvedAtMs
-    ];
-    const key = JSON.stringify(rec);
-    if (!table.has(key)) {
-      table.set(key, items.length);
-      items.push(rec);
+  const strip = (u) => u ? u.slice(p.length) : null;
+  const genreIx = /* @__PURE__ */ new Map();
+  const typeIx = /* @__PURE__ */ new Map();
+  const ix = (map, v) => {
+    let k = map.get(v);
+    if (k === void 0) {
+      k = map.size;
+      map.set(v, k);
     }
-    return table.get(key);
-  })]);
-  return JSON.stringify({ v: TREE_FORMAT, p, i: items, s });
+    return k;
+  };
+  const i = items.map((it, n) => [
+    it.id,
+    it.title,
+    strip(it.poster),
+    strip(it.backdrop),
+    it.durationS,
+    ix(typeIx, it.type),
+    genres ? it.genres.map((g) => ix(genreIx, g)) : [],
+    it.score,
+    n < descItems ? it.description : "",
+    it.shelvedAtMs > 0 ? Math.round(it.shelvedAtMs / 1e3) : 0
+  ]);
+  const r = rows.map((row2, n) => [row2.id, row2.title, refs[n]]);
+  const c = keepFull >= rows.length || rows.slice(keepFull).every((row2) => row2.shown.length <= 1) ? 1 : 0;
+  return JSON.stringify({ v: ROWS_FORMAT, c, p, g: [...genreIx.keys()], t: [...typeIx.keys()], i, r });
 }
-function decodeTree(text2) {
+function fitRows(rows, { budget = TEXT_BUDGET_BYTES, keepFull = Infinity } = {}) {
+  const partial = keepFull < rows.length ? keepFull : Infinity;
+  const homeItems = collect(rows.slice(0, keepFull), Infinity).items.length;
+  const steps = [
+    { keepFull: Infinity, genres: true, least: homeItems },
+    { keepFull: partial, genres: true, least: 0 },
+    { keepFull: partial, genres: false, least: 0 }
+  ];
+  const memo = /* @__PURE__ */ new Map();
+  const enc = (opts) => {
+    const k = JSON.stringify(opts);
+    if (!memo.has(k)) {
+      const text2 = encodeRows(rows, opts);
+      memo.set(k, { text: text2, size: storedLength(text2) });
+    }
+    return memo.get(k);
+  };
+  for (let s = 0; s < steps.length; s++) {
+    const { keepFull: kf, genres, least } = steps[s];
+    const whole2 = enc({ keepFull: kf, genres });
+    if (whole2.size <= budget) return { text: whole2.text, step: s };
+    const bare = enc({ keepFull: kf, genres, descItems: 0 });
+    let room = budget - bare.size;
+    if (room < 0) continue;
+    const items = collect(rows, kf).items;
+    let k = 0;
+    while (k < items.length && (room -= descCost(items[k].description)) >= 0) k++;
+    if (k < least) continue;
+    const fitted = k === 0 ? bare : enc({ keepFull: kf, genres, descItems: k });
+    if (fitted.size <= budget) return { text: fitted.text, step: s };
+  }
+  return null;
+}
+var isIndexList = (a, n) => Array.isArray(a) && a.every((k) => Number.isInteger(k) && k >= 0 && k < n);
+function decodeRows(text2) {
   const o = JSON.parse(text2);
-  if (o === null || typeof o !== "object" || o.v !== TREE_FORMAT || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
-    throw new Error("stored tree is malformed");
+  if (o === null || typeof o !== "object" || o.v !== ROWS_FORMAT || typeof o.p !== "string" || !Array.isArray(o.g) || !Array.isArray(o.t) || !Array.isArray(o.i) || !Array.isArray(o.r) || o.c !== 0 && o.c !== 1) {
+    throw new Error("stored rows are malformed");
   }
   const full = (u) => typeof u === "string" ? o.p + u : null;
   const items = o.i.map((r) => {
-    if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[5] !== "string" || !Array.isArray(r[6])) {
+    if (!Array.isArray(r) || r.length !== 10 || typeof r[0] !== "string" || typeof o.t[r[5]] !== "string" || !isIndexList(r[6], o.g.length)) {
       throw new Error("stored item is malformed");
     }
     return {
@@ -1639,20 +1697,102 @@ function decodeTree(text2) {
       poster: full(r[2]),
       backdrop: full(r[3]),
       durationS: Number(r[4]) || 0,
-      type: r[5],
-      genres: r[6].map(asText),
+      type: o.t[r[5]],
+      genres: r[6].map((g) => asText(o.g[g])),
       score: typeof r[7] === "number" ? r[7] : null,
       description: asText(r[8]),
-      shelvedAtMs: Number(r[9]) || 0
+      shelvedAtMs: (Number(r[9]) || 0) * 1e3
     };
   });
-  return o.s.map((sec) => {
-    if (!Array.isArray(sec) || typeof sec[0] !== "string" || !Array.isArray(sec[1])) throw new Error("stored section is malformed");
-    return { name: sec[0], items: sec[1].map((n) => {
-      if (!items[n]) throw new Error("stored index is malformed");
-      return items[n];
-    }) };
+  const rows = o.r.map((r) => {
+    if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[1] !== "string" || !isIndexList(r[2], items.length)) {
+      throw new Error("stored row is malformed");
+    }
+    return { id: r[0], title: r[1], shown: r[2].map((k) => items[k]), all: null };
   });
+  return { rows, complete: o.c === 1 };
+}
+function splitParts(text2, budget = PART_BUDGET_BYTES) {
+  const parts = [];
+  let start = 0;
+  let size = 0;
+  for (let k = 0; k < text2.length; k++) {
+    const c = text2.charCodeAt(k);
+    const pair = c >= 55296 && c < 56320 && k + 1 < text2.length;
+    const w = pair ? 4 : storedLength(text2[k]);
+    if (size + w > budget && k > start) {
+      parts.push(text2.slice(start, k));
+      start = k;
+      size = 0;
+    }
+    size += w;
+    if (pair) k++;
+  }
+  if (start < text2.length || parts.length === 0) parts.push(text2.slice(start));
+  return parts;
+}
+function checksum(text2) {
+  let h = 2166136261;
+  for (let k = 0; k < text2.length; k++) {
+    h ^= text2.charCodeAt(k);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(36);
+}
+function makeRowsStore({ kino: kino2, ttlMs }) {
+  const partKey = (n) => `${PART_PREFIX}${n}`;
+  const isPartKey = (k) => k.startsWith(PART_PREFIX) && /^\d+$/.test(k.slice(PART_PREFIX.length));
+  function read() {
+    try {
+      const rawMeta = kino2.storage.get(META_KEY);
+      if (rawMeta === null || rawMeta === void 0) return null;
+      const m = JSON.parse(rawMeta);
+      if (m === null || typeof m !== "object" || m.v !== ROWS_FORMAT || typeof m.g !== "string" || !Number.isInteger(m.n) || m.n < 1 || m.n > 64 || !Number.isInteger(m.len) || typeof m.h !== "string" || !Number.isFinite(m.at)) return null;
+      const tag = m.g + ":";
+      let text2 = "";
+      for (let n = 0; n < m.n; n++) {
+        const part = kino2.storage.get(partKey(n));
+        if (typeof part !== "string" || !part.startsWith(tag)) return null;
+        text2 += part.slice(tag.length);
+      }
+      if (text2.length !== m.len || checksum(text2) !== m.h) return null;
+      const { rows, complete } = decodeRows(text2);
+      return { rows, complete, at: m.at };
+    } catch (_) {
+      return null;
+    }
+  }
+  function write(text2, at) {
+    const gen = (Math.floor(at) % 2176782336).toString(36) + checksum(text2).slice(0, 4);
+    const parts = splitParts(text2, PART_BUDGET_BYTES - PART_TAG_BYTES);
+    let keys = [];
+    try {
+      keys = kino2.storage.keys();
+    } catch (_) {
+    }
+    for (const k of keys) {
+      if (k === META_KEY || k.startsWith("tree:") || isPartKey(k) && Number(k.slice(PART_PREFIX.length)) >= parts.length) {
+        try {
+          kino2.storage.remove(k);
+        } catch (_) {
+        }
+      }
+    }
+    try {
+      parts.forEach((p, n) => kino2.storage.set(partKey(n), `${gen}:${p}`, { ttlMs }));
+      kino2.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text2.length, h: checksum(text2), at }), { ttlMs });
+      return true;
+    } catch (e) {
+      for (let n = 0; n < parts.length; n++) {
+        try {
+          kino2.storage.remove(partKey(n));
+        } catch (_) {
+        }
+      }
+      throw e;
+    }
+  }
+  return { read, write };
 }
 
 // src/byteCache.js
@@ -2122,18 +2262,10 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
 var ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
 var ADULT_ROOT_CODE = "masnew_adult";
 var ADULT_REF = "magis_adultos";
-var TREE_TTL_MS = 2 * 36e5;
+var ROWS_FRESH_MS = 2 * 36e5;
+var SNAPSHOT_TTL_MS = 3 * 24 * 36e5;
 var TREE_PAGE_SIZE = 60;
-var TREE_BUDGET_BYTES = 2e4;
-var SHED_STEPS = [
-  {},
-  { descMax: 120 },
-  { descMax: 0 },
-  { descMax: 0, genres: false },
-  { descMax: 0, genres: false, backdrop: false },
-  { descMax: 0, genres: false, backdrop: false, perSection: 100 },
-  { descMax: 0, genres: false, backdrop: false, perSection: 50 }
-];
+var REFRESH_GAP_MS = 5 * 6e4;
 var BROWSE_PAGE = 50;
 var HOME_RETRY_PAUSE_MS = 1500;
 var HOME_RETRY_MIN_MS = 3e3;
@@ -2189,30 +2321,38 @@ function offsetOf(cursor) {
   return n > 0 && n <= 2147483647 ? n : 0;
 }
 function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null, countryRow = null }) {
-  const key = (root) => `tree:${root}`;
-  function readTree(root) {
-    try {
-      const raw = kino2.storage.get(key(root));
-      if (raw === null || raw === void 0) return null;
-      const sections = decodeTree(raw);
-      return hasItems(sections) ? sections : null;
-    } catch (_) {
-      return null;
+  const store = makeRowsStore({ kino: kino2, ttlMs: SNAPSHOT_TTL_MS });
+  const stale = (at) => {
+    const age = clock2.now() - at;
+    return age < 0 || age >= ROWS_FRESH_MS;
+  };
+  const trees = /* @__PURE__ */ new Map();
+  let full = null;
+  let snapshot;
+  function homeRowsCount(rows2) {
+    let shown = 0;
+    for (let n = 0; n < rows2.length; n++) {
+      if (rows2[n].shown.some((i) => ITEM_ID2.test(i.id)) && ++shown >= MAX_HOME_ROWS) return n + 2;
     }
+    return rows2.length;
   }
-  function writeTree(root, sections) {
-    for (let step = 0; step < SHED_STEPS.length; step++) {
-      const text2 = encodeTree(sections, SHED_STEPS[step]);
-      if (storedLength(text2) > TREE_BUDGET_BYTES) continue;
-      if (step > 0) trace(kino2, "store", "trim", { what: "tree", root, step });
-      try {
-        kino2.storage.set(key(root), text2, { ttlMs: TREE_TTL_MS });
-      } catch (e) {
-        trace(kino2, "store", "full", { what: "tree", root, code: errCode(e) });
-      }
+  function saveSnapshot(rows2, at) {
+    const fit = fitRows(rows2, { keepFull: homeRowsCount(rows2) });
+    if (fit === null) {
+      trace(kino2, "store", "skip", { what: "rows" });
       return;
     }
-    trace(kino2, "store", "skip", { what: "tree", root });
+    if (fit.step > 0) trace(kino2, "store", "trim", { what: "rows", step: fit.step });
+    try {
+      store.write(fit.text, at);
+      snapshot = void 0;
+    } catch (e) {
+      trace(kino2, "store", "full", { what: "rows", code: errCode(e) });
+    }
+  }
+  function readSnapshot() {
+    if (snapshot === void 0) snapshot = store.read();
+    return snapshot;
   }
   async function fetchRoot(root, deadline) {
     try {
@@ -2222,9 +2362,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
         viewOpts(v)
       ), { seedFallback: true, deadline });
       const sections = parseTree(response);
-      if (!hasItems(sections)) return { sections: [], error: null };
-      writeTree(root, sections);
-      return { sections, error: null };
+      return { sections: hasItems(sections) ? sections : [], error: null };
     } catch (e) {
       trace(kino2, "home", "root_fail", { root, code: errCode(e) });
       return { sections: [], error: isKinoError(e) ? e : kino2.error("unavailable", "Xuper no est\xE1 disponible ahora") };
@@ -2253,15 +2391,16 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     });
     trace(kino2, "home", "all_fail", fields);
   }
-  async function buildRows(budgetMs = CALL_BUDGET_MS.home) {
+  async function fetchRows(budgetMs, refresh = false) {
     const deadline = callDeadline(clock2, budgetMs);
     const roots = {};
     const missing = [];
     for (const { root } of KINDS) {
-      const cached = readTree(root);
-      if (cached) roots[root] = cached;
+      const kept = trees.get(root);
+      if (!refresh && kept && !stale(kept.at)) roots[root] = kept.sections;
       else missing.push(root);
     }
+    let complete = true;
     if (missing.length > 0) {
       await session.ensure({ deadline });
       const pass = () => Promise.all(missing.map((root) => sharedFetchRoot(root, deadline)));
@@ -2281,15 +2420,60 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
           throw worstOf(fetched);
         }
       }
+      const at = clock2.now();
       missing.forEach((root, i) => {
-        roots[root] = fetched[i].sections;
+        const { sections, error } = fetched[i];
+        if (error !== null) complete = false;
+        const kept = trees.get(root);
+        if (hasItems(sections)) trees.set(root, { sections, at });
+        else if (error === null) trees.delete(root);
+        roots[root] = error !== null && kept ? kept.sections : sections;
       });
     }
-    return classify(roots);
+    const rows2 = classify(roots);
+    if (complete && rows2.length > 0) {
+      const at = clock2.now();
+      full = { rows: rows2, at };
+      saveSnapshot(rows2, at);
+    }
+    return rows2;
+  }
+  let refreshing = null;
+  let refreshedAt = -Infinity;
+  function refreshInBackground() {
+    if (refreshing || clock2.now() - refreshedAt < REFRESH_GAP_MS) return;
+    refreshedAt = clock2.now();
+    trace(kino2, "home", "refresh", {});
+    refreshing = fetchRows(CALL_BUDGET_MS.home, true).catch((e) => {
+      trace(kino2, "home", "refresh_fail", { code: errCode(e) });
+    }).finally(() => {
+      refreshing = null;
+    });
+  }
+  let building = null;
+  function sharedFetchRows(budgetMs) {
+    if (!building) building = fetchRows(budgetMs).finally(() => {
+      building = null;
+    });
+    return building;
+  }
+  async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
+    if (full) {
+      if (stale(full.at)) refreshInBackground();
+      return full.rows;
+    }
+    if (need !== "full") {
+      const snap = readSnapshot();
+      if (snap && (snap.complete || need !== "section")) {
+        if (stale(snap.at)) refreshInBackground();
+        return snap.rows;
+      }
+    }
+    return sharedFetchRows(budgetMs);
   }
   async function home2() {
     const live2 = countryRow ? countryRow(callDeadline(clock2, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
-    const rows2 = projectRows(await buildRows(), clock2.now());
+    const rows2 = projectRows(await buildRows(CALL_BUDGET_MS.home, "home"), clock2.now());
     const row2 = await live2;
     return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
   }
@@ -2363,7 +2547,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
   const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
-  const rows = (budgetMs) => buildRows(budgetMs);
+  const rows = (budgetMs, need = "full") => buildRows(budgetMs, need);
   return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters };
 }
 
@@ -3559,7 +3743,7 @@ function makeSection({ kino: kino2, catalog, clock: clock2 }) {
     const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
     const tab = asked === null || asked === void 0 || asked === "" ? TABS[0].id : asked;
     if (!TABS.some((t) => t.id === tab)) throw kino2.error("not_found", "No se encontr\xF3 esa pesta\xF1a");
-    const rows = await catalog.rows(CALL_BUDGET_MS.section);
+    const rows = await catalog.rows(CALL_BUDGET_MS.section, "section");
     return { tabs: TABS.map((t) => ({ ...t })), tab, rows: rowsOfTab(rows, tab, clock2.now()) };
   }
   return { section: section2 };
@@ -3586,7 +3770,7 @@ function makeCategories({ catalog }) {
   return {
     // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
     categories: async () => {
-      const tiles = tilesOf(await catalog.rows(CALL_BUDGET_MS.categories));
+      const tiles = tilesOf(await catalog.rows(CALL_BUDGET_MS.categories, "categories"));
       return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES2 - 1), { ...ADULT_TILE }];
     }
   };

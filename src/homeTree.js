@@ -1,5 +1,5 @@
 // The portal's `getNextColumns` answer for one VOD root, as sections of items (native
-// MagisLiveCatalog.tree, native-magis.md §4.1), plus the compact form kept in kino.storage.
+// MagisLiveCatalog.tree, native-magis.md §4.1), and the stored size every storage budget is measured in.
 import { encode } from "./refs.js";
 import { isBlank, asText, intOrNull } from "./util.js";
 
@@ -77,10 +77,7 @@ export function parseTree(response) {
 
 export const refOf = (item) => encode({ contentId: item.id, programType: item.type, episode: 0 });
 
-// ---- compact storage form -----------------------------------------------------------------------
-// { v: format version, p: common image url prefix, i: [[id,title,poster,backdrop,durationS,type,genres,score,desc,shelvedAtMs]...],
-//   s: [[name,[index into i...]]...] }. Items are deduplicated (an item shows in several sections), the
-// url prefix is kept once, and descriptions can be cut to fit the storage budget.
+// ---- stored sizes -------------------------------------------------------------------------------
 
 /**
  * The bytes `s` takes in the app's storage file: Android's org.json writes every stored value
@@ -105,64 +102,4 @@ export function utf8Length(s) {
     else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) { n += 4; i++; } else n += 3;
   }
   return n;
-}
-
-function commonPrefix(urls) {
-  if (urls.length === 0) return "";
-  let p = urls[0];
-  for (const u of urls) { while (!u.startsWith(p)) p = p.slice(0, -1); if (p === "") break; }
-  return p.length >= 12 ? p : "";
-}
-
-function cut(text, max) {
-  if (text.length <= max) return text;
-  const end = text.charCodeAt(max - 1) >= 0xd800 && text.charCodeAt(max - 1) < 0xdc00 ? max - 1 : max;
-  return text.slice(0, end);
-}
-
-export const TREE_FORMAT = 1;
-
-/**
- * `shed` trims what the stored form keeps: `descMax` (description length), `genres` and `backdrop`
- * (false drops them) and `perSection` (items kept per section).
- */
-export function encodeTree(sections, { descMax = Infinity, genres = true, backdrop = true, perSection = Infinity } = {}) {
-  sections = sections.map((s) => (s.items.length > perSection ? { ...s, items: s.items.slice(0, perSection) } : s));
-  const urls = [];
-  for (const s of sections) for (const i of s.items) { if (i.poster) urls.push(i.poster); if (backdrop && i.backdrop) urls.push(i.backdrop); }
-  const p = commonPrefix(urls);
-  const strip = (u) => (u === null ? null : u.slice(p.length));
-  const table = new Map();
-  const items = [];
-  const s = sections.map((sec) => [sec.name, sec.items.map((i) => {
-    const rec = [i.id, i.title, strip(i.poster), backdrop ? strip(i.backdrop) : null, i.durationS, i.type, genres ? i.genres : [], i.score,
-      cut(i.description, descMax), i.shelvedAtMs];
-    const key = JSON.stringify(rec);
-    if (!table.has(key)) { table.set(key, items.length); items.push(rec); }
-    return table.get(key);
-  })]);
-  return JSON.stringify({ v: TREE_FORMAT, p, i: items, s });
-}
-
-/** The sections of a stored tree; throws when the stored value is not one (the caller treats it as a miss). */
-export function decodeTree(text) {
-  const o = JSON.parse(text);
-  if (o === null || typeof o !== "object" || o.v !== TREE_FORMAT || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
-    throw new Error("stored tree is malformed");
-  }
-  const full = (u) => (typeof u === "string" ? o.p + u : null);
-  const items = o.i.map((r) => {
-    if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[5] !== "string" || !Array.isArray(r[6])) {
-      throw new Error("stored item is malformed");
-    }
-    return {
-      id: r[0], title: asText(r[1]), poster: full(r[2]), backdrop: full(r[3]), durationS: Number(r[4]) || 0,
-      type: r[5], genres: r[6].map(asText), score: typeof r[7] === "number" ? r[7] : null,
-      description: asText(r[8]), shelvedAtMs: Number(r[9]) || 0,
-    };
-  });
-  return o.s.map((sec) => {
-    if (!Array.isArray(sec) || typeof sec[0] !== "string" || !Array.isArray(sec[1])) throw new Error("stored section is malformed");
-    return { name: sec[0], items: sec[1].map((n) => { if (!items[n]) throw new Error("stored index is malformed"); return items[n]; }) };
-  });
 }

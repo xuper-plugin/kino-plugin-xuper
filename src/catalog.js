@@ -1,7 +1,8 @@
 // Home and browse over the Magis catalog (native-magis.md §4.1, §4.2); `search` lives in search.js
 // (§4.4) and `episodes` in episodes.js (§4.3); both are composed in. Each public function is self-contained.
 import { classify, KINDS } from "./homeClassifier.js";
-import { parseTree, encodeTree, decodeTree, storedLength, refOf, parseShelveTime } from "./homeTree.js";
+import { parseTree, refOf, parseShelveTime } from "./homeTree.js";
+import { fitRows, makeRowsStore } from "./rowsStore.js";
 import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
@@ -17,22 +18,13 @@ const ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime:
 // Categorías tile, never stored, never part of the shared roots. Movies only, every item adult (D3).
 export const ADULT_ROOT_CODE = "masnew_adult";
 export const ADULT_REF = "magis_adultos";
-const TREE_TTL_MS = 2 * 3600_000;
+// The classified rows are fresh for 2 h. After that they are still served at once while a refresh
+// runs in the background (stale-while-revalidate); the stored snapshot is kept 3 days, so a cold
+// start after a night answers from storage instead of fetching, parsing and classifying four roots.
+const ROWS_FRESH_MS = 2 * 3600_000;
+const SNAPSHOT_TTL_MS = 3 * 24 * 3600_000;
 const TREE_PAGE_SIZE = 60;
-// Per-root budget for the stored tree: kino.storage is 256 KB for the whole plugin and a set over
-// the cap throws, so the four home trees together get 80 KB. A tree that does not fit is shed in
-// this order until it does: description to 120 chars, to 0, genres, backdrop, then fewer items per
-// section (never below 50, one browse page); if it still does not fit it is not cached.
-const TREE_BUDGET_BYTES = 20_000;
-const SHED_STEPS = [
-  {},
-  { descMax: 120 },
-  { descMax: 0 },
-  { descMax: 0, genres: false },
-  { descMax: 0, genres: false, backdrop: false },
-  { descMax: 0, genres: false, backdrop: false, perSection: 100 },
-  { descMax: 0, genres: false, backdrop: false, perSection: 50 },
-];
+const REFRESH_GAP_MS = 5 * 60_000;
 
 const BROWSE_PAGE = 50;
 // Every root failed: the pass is asked once more after this pause (native EMPTY_PASS_RETRY_DELAYS_MS
@@ -112,29 +104,39 @@ function offsetOf(cursor) {
  * row appended after the VOD rows; it never throws.
  */
 export function makeCatalog({ kino, portal, session, clock, tmdb = null, countryRow = null }) {
-  const key = (root) => `tree:${root}`;
+  const store = makeRowsStore({ kino, ttlMs: SNAPSHOT_TTL_MS });
+  const stale = (at) => { const age = clock.now() - at; return age < 0 || age >= ROWS_FRESH_MS; };
 
-  function readTree(root) {
-    try {
-      const raw = kino.storage.get(key(root));
-      if (raw === null || raw === undefined) return null;
-      const sections = decodeTree(raw);
-      return hasItems(sections) ? sections : null;
-    } catch (_) { return null; }
+  // In memory for the runtime's life (Kino keeps it 5 idle minutes): the trees of the roots that
+  // answered with items (`root -> { sections, at }`), and the full classified rows once every root answered.
+  const trees = new Map();
+  let full = null; // { rows, at }
+  // The stored snapshot, read at most once per runtime: undefined = not read yet, null = none.
+  let snapshot;
+
+  // The rows that keep every shown item in a snapshot too small for all of them: enough for Home's
+  // 20 rows (counting only rows with an item whose id can be shown, as projectRows does), plus one.
+  function homeRowsCount(rows) {
+    let shown = 0;
+    for (let n = 0; n < rows.length; n++) {
+      if (rows[n].shown.some((i) => ITEM_ID.test(i.id)) && ++shown >= MAX_HOME_ROWS) return n + 2;
+    }
+    return rows.length;
   }
 
-  // Never called with an empty tree. A tree that does not fit even without descriptions is simply
-  // not cached (the next call refetches it).
-  function writeTree(root, sections) {
-    for (let step = 0; step < SHED_STEPS.length; step++) {
-      const text = encodeTree(sections, SHED_STEPS[step]);
-      if (storedLength(text) > TREE_BUDGET_BYTES) continue; // as the app stores it: escaped
-      if (step > 0) trace(kino, "store", "trim", { what: "tree", root, step });
-      try { kino.storage.set(key(root), text, { ttlMs: TREE_TTL_MS }); }
-      catch (e) { trace(kino, "store", "full", { what: "tree", root, code: errCode(e) }); /* serve uncached */ }
-      return;
-    }
-    trace(kino, "store", "skip", { what: "tree", root });
+  function saveSnapshot(rows, at) {
+    const fit = fitRows(rows, { keepFull: homeRowsCount(rows) });
+    if (fit === null) { trace(kino, "store", "skip", { what: "rows" }); return; }
+    if (fit.step > 0) trace(kino, "store", "trim", { what: "rows", step: fit.step });
+    try {
+      store.write(fit.text, at);
+      snapshot = undefined; // the next cold read decodes what was just written
+    } catch (e) { trace(kino, "store", "full", { what: "rows", code: errCode(e) }); /* served from memory */ }
+  }
+
+  function readSnapshot() {
+    if (snapshot === undefined) snapshot = store.read();
+    return snapshot;
   }
 
   // `{ sections, error }`: a failing root shows as empty, but its error is kept so that a Home where
@@ -147,9 +149,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
         viewOpts(v),
       ), { seedFallback: true, deadline });
       const sections = parseTree(response);
-      if (!hasItems(sections)) return { sections: [], error: null };
-      writeTree(root, sections);
-      return { sections, error: null };
+      return { sections: hasItems(sections) ? sections : [], error: null };
     } catch (e) {
       trace(kino, "home", "root_fail", { root, code: errCode(e) });
       return { sections: [], error: isKinoError(e) ? e : kino.error("unavailable", "Xuper no está disponible ahora") };
@@ -188,16 +188,18 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     trace(kino, "home", "all_fail", fields);
   }
 
-  // The classified rows over the four roots: stored trees first, the rest from the portal in parallel.
-  // `budgetMs`: the calling export's cap (home, browse, section and categories all have 20 s).
-  async function buildRows(budgetMs = CALL_BUDGET_MS.home) {
+  // The classified rows over the four roots from the portal: the trees kept in memory first (all of
+  // them ignored when `refresh`), the rest asked in parallel. When every root answered, the rows are
+  // kept in memory and stored as the snapshot. `budgetMs`: the calling export's cap.
+  async function fetchRows(budgetMs, refresh = false) {
     const deadline = callDeadline(clock, budgetMs);
     const roots = {};
     const missing = [];
     for (const { root } of KINDS) {
-      const cached = readTree(root);
-      if (cached) roots[root] = cached; else missing.push(root);
+      const kept = trees.get(root);
+      if (!refresh && kept && !stale(kept.at)) roots[root] = kept.sections; else missing.push(root);
     }
+    let complete = true;
     if (missing.length > 0) {
       // The session is not created by withValidSession: ensure it first; a failure here is the error.
       await session.ensure({ deadline });
@@ -217,15 +219,74 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
           throw worstOf(fetched);
         }
       }
-      missing.forEach((root, i) => { roots[root] = fetched[i].sections; });
+      const at = clock.now();
+      missing.forEach((root, i) => {
+        const { sections, error } = fetched[i];
+        if (error !== null) complete = false;
+        // A tree with no item is as empty as no tree: never kept, asked again by the next call. A root
+        // that failed keeps, and shows, the tree it had (a refresh never loses one).
+        const kept = trees.get(root);
+        if (hasItems(sections)) trees.set(root, { sections, at });
+        else if (error === null) trees.delete(root);
+        roots[root] = error !== null && kept ? kept.sections : sections;
+      });
     }
-    return classify(roots);
+    const rows = classify(roots);
+    // Only a whole answer is kept (a failed root is asked again by the next call) and never an empty one.
+    if (complete && rows.length > 0) {
+      const at = clock.now();
+      full = { rows, at };
+      saveSnapshot(rows, at);
+    }
+    return rows;
+  }
+
+  // One background refresh at a time, and at most one every REFRESH_GAP_MS: one that failed or came
+  // back incomplete keeps what is served (it never throws) and is not retried on every call.
+  let refreshing = null;
+  let refreshedAt = -Infinity;
+  function refreshInBackground() {
+    if (refreshing || clock.now() - refreshedAt < REFRESH_GAP_MS) return;
+    refreshedAt = clock.now();
+    trace(kino, "home", "refresh", {});
+    refreshing = fetchRows(CALL_BUDGET_MS.home, true)
+      .catch((e) => { trace(kino, "home", "refresh_fail", { code: errCode(e) }); })
+      .finally(() => { refreshing = null; });
+  }
+
+  // Concurrent cold callers (home and categories at start-up) share one build: one classification,
+  // one snapshot write. A joiner inherits the first caller's deadline.
+  let building = null;
+  function sharedFetchRows(budgetMs) {
+    if (!building) building = fetchRows(budgetMs).finally(() => { building = null; });
+    return building;
+  }
+
+  /**
+   * The classified rows. `need`: "home" and "categories" read only `shown` of their rows, "section"
+   * all of every row's `shown`, "full" also `all` (browse, scoped search). A kept answer is served at
+   * once, also when stale (then refreshed in the background); the portal is waited for only when
+   * nothing usable is kept.
+   */
+  async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
+    if (full) {
+      if (stale(full.at)) refreshInBackground();
+      return full.rows;
+    }
+    if (need !== "full") {
+      const snap = readSnapshot();
+      if (snap && (snap.complete || need !== "section")) {
+        if (stale(snap.at)) refreshInBackground();
+        return snap.rows;
+      }
+    }
+    return sharedFetchRows(budgetMs);
   }
 
   async function home() {
     // Asked alongside the VOD rows, inside home's own deadline; its failure is no row (never a throw).
     const live = countryRow ? countryRow(callDeadline(clock, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
-    const rows = projectRows(await buildRows(), clock.now());
+    const rows = projectRows(await buildRows(CALL_BUDGET_MS.home, "home"), clock.now());
     const row = await live;
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
@@ -315,8 +376,9 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   const portalChapters = makePortalChapters({ kino, portal, session, clock });
   const episodes = makeEpisodes({ kino, tmdb, portalChapters, clock });
 
-  // The classified rows of the four roots (the same cached trees Home reads), for section and categories.
-  const rows = (budgetMs) => buildRows(budgetMs);
+  // The classified rows of the four roots (the same kept rows Home reads), for section and categories:
+  // `need` is "section" or "categories" (see buildRows).
+  const rows = (budgetMs, need = "full") => buildRows(budgetMs, need);
 
   return { home, browse, rows, search, episodes, portalChapters };
 }

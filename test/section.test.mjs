@@ -49,7 +49,7 @@ test("a tab's rows are the home's rows of that root, same items (the home's shar
     const out = await section.section({ tab: id });
     assert.deepEqual(out.rows, home.filter((r) => rootOfRow(r.id) === id), id);
   }
-  assert.equal(portal.calls.length, calls, "served from the stored trees");
+  assert.equal(portal.calls.length, calls, "served from the kept rows");
 });
 
 test("an unknown tab, and the adult root, are not_found", async () => {
@@ -104,8 +104,7 @@ test("home, section and categories called cold at the same moment ask each root 
   const roots = w.portal.calls.filter((c) => c.path === "getNextColumns").map((c) => c.bean.columnCode);
   assert.equal(roots.length, 4, roots.join(","));
   assert.equal(new Set(roots).size, 4);
-  // Once settled, a later cold root is asked again (nothing stays pinned in memory).
-  w.kino.storage.remove("tree:peliculas");
+  // Once settled, the kept rows answer: nothing is asked again.
   await w.catalog.home();
-  assert.equal(w.portal.calls.filter((c) => c.path === "getNextColumns").length, 5);
+  assert.equal(w.portal.calls.filter((c) => c.path === "getNextColumns").length, 4);
 });

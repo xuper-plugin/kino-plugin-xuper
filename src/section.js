@@ -20,7 +20,7 @@ export function makeSection({ kino, catalog, clock }) {
     const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
     const tab = asked === null || asked === undefined || asked === "" ? TABS[0].id : asked;
     if (!TABS.some((t) => t.id === tab)) throw kino.error("not_found", "No se encontró esa pestaña");
-    const rows = await catalog.rows(CALL_BUDGET_MS.section);
+    const rows = await catalog.rows(CALL_BUDGET_MS.section, "section");
     return { tabs: TABS.map((t) => ({ ...t })), tab, rows: rowsOfTab(rows, tab, clock.now()) };
   }
   return { section };

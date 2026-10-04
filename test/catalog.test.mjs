@@ -6,11 +6,15 @@ import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog, parseShelveTime, projectRows } from "../src/catalog.js";
 import { classify } from "../src/homeClassifier.js";
-import { parseTree, encodeTree, storedLength } from "../src/homeTree.js";
+import { storedLength } from "../src/homeTree.js";
+import { META_KEY, PART_BUDGET_BYTES, SNAPSHOT_BUDGET_BYTES, checksum } from "../src/rowsStore.js";
+import { makeCategories } from "../src/categories.js";
+import { makeSection } from "../src/section.js";
 import { makeCrypto } from "../src/crypto.js";
 import { makePortal } from "../src/portal.js";
 
 const HOUR = 3600_000;
+const DAY = 24 * HOUR;
 const ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
 const NOW = Date.UTC(2026, 9, 2, 12, 0, 0);
 
@@ -68,8 +72,14 @@ function setup({ roots, ensureError, now = NOW } = {}) {
   const session = fakeSession({ ensureError });
   const clock = { t: now, now() { return this.t; } };
   const catalog = makeCatalog({ kino, portal, session, clock });
-  return { kino, portal, session, clock, catalog, sets, treeSets: () => sets.filter((s) => s.k.startsWith("tree:")) };
+  // A new runtime over the same storage (Kino dropped the sandbox): nothing in memory, the snapshot kept.
+  const restart = (other = null) => makeCatalog({ kino, portal: other ? fakePortal(other) : portal, session, clock });
+  return { kino, portal, session, clock, catalog, sets, restart, rowSets: () => sets.filter((s) => s.k.startsWith("rows:")) };
 }
+
+// Lets the background refresh (a few portal round trips of microtasks) run to its end.
+const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+const everyRoot = (a) => ({ masnew_movies: a, masnew_series: a, masnew_anime: a, masnew_kids: a });
 
 const emptyRoots = () => ({ masnew_movies: answer(), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() });
 const rowIds = (rows) => rows.map((r) => r.id);
@@ -231,34 +241,94 @@ test("projection of the real captured rows (home-1.json) keeps ids, refs, kind, 
 
 // ---- home: cache ------------------------------------------------------------------------------
 
-test("trees are cached 2 h per root: a second home makes no portal call, after 2 h it refetches", async () => {
-  const { catalog, portal, treeSets, session } = setup({
+test("the rows are kept: a second home makes no portal call, and the snapshot is stored for 3 days", async () => {
+  const { catalog, portal, rowSets, session, restart } = setup({
     roots: { masnew_movies: smallTree("p"), masnew_series: smallTree("s", "teleplay"), masnew_anime: smallTree("a"), masnew_kids: smallTree("k") },
   });
   const first = await catalog.home();
   assert.equal(portal.calls.length, 4);
-  assert.deepEqual(treeSets().map((s) => s.o), Array(4).fill({ ttlMs: 2 * HOUR }));
+  assert.deepEqual(rowSets().map((s) => s.k), ["rows:0", META_KEY], "one part, the meta last");
+  assert.ok(rowSets().every((s) => s.o.ttlMs === 3 * DAY));
   const second = await catalog.home();
-  assert.equal(portal.calls.length, 4, "served from storage");
+  assert.equal(portal.calls.length, 4, "served from memory");
   assert.deepEqual(second, first);
   assert.equal(session.ensures, 1, "no ensure() when nothing needs the portal");
+  assert.deepEqual(await restart().home(), first, "a new runtime answers from the snapshot");
+  assert.equal(portal.calls.length, 4);
 });
 
-test("the cache expires through the storage ttl (real expiry)", async () => {
-  const realNow = Date.now;
-  const { catalog, portal } = setup({
-    roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() },
+test("stale-while-revalidate: after 2 h the kept rows are served at once and refreshed once in the background", async () => {
+  let gate = null;
+  const t = setup({
+    roots: { masnew_movies: () => (gate ? gate.then(() => smallTree("q")) : smallTree("p")), masnew_series: smallTree("s", "teleplay"), masnew_anime: answer(), masnew_kids: answer() },
   });
-  await catalog.home();
-  const before = portal.calls.length;
-  Date.now = () => realNow() + 2 * HOUR + 1000;
-  try { await catalog.home(); } finally { Date.now = realNow; }
-  assert.equal(portal.calls.length, before + 4, "peliculas expired; the empty roots were never cached");
+  const first = await t.catalog.home();
+  assert.equal(t.portal.calls.length, 4);
+  t.clock.t += 2 * HOUR;
+  let open;
+  gate = new Promise((r) => { open = r; });
+  const stale = await t.catalog.home(); // the refresh waits on the portal; the answer does not
+  assert.deepEqual(stale, first, "the stale rows, without waiting for the portal");
+  await settle();
+  assert.equal(t.portal.calls.length, 8, "one refresh of the four roots started");
+  await t.catalog.home();
+  assert.equal(t.portal.calls.length, 8, "a second stale call joins the running refresh");
+  open();
+  await settle();
+  const fresh = await t.catalog.home();
+  assert.ok(fresh.some((r) => r.items.some((i) => i.id === "q1")), "the refreshed rows replace the stale ones");
+  assert.equal(t.portal.calls.length, 8);
+  assert.deepEqual(await t.restart().home(), fresh, "and they are the new snapshot");
+});
+
+test("cold start with a stale snapshot: served at once, the refresh runs in the background", async () => {
+  const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+  const first = await t.catalog.home();
+  t.clock.t += 2 * HOUR + 1;
+  const cold = t.restart();
+  const calls = t.portal.calls.length;
+  let settled = false;
+  const pending = cold.home().then((v) => { settled = true; return v; });
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.ok(settled, "answered within a few microtasks: no portal round trip");
+  assert.deepEqual(await pending, first);
+  await settle();
+  assert.equal(t.portal.calls.length, calls + 4, "refreshed in the background");
+});
+
+test("a failed background refresh keeps the rows served and is not retried on every call (5 min apart)", async () => {
+  let down = false;
+  const t = setup({ roots: everyRoot(() => (down ? new Error("down") : smallTree("p"))) });
+  const first = await t.catalog.home();
+  down = true;
+  t.clock.t += 2 * HOUR;
+  assert.deepEqual(await t.catalog.home(), first);
+  await settle();
+  const after = t.portal.calls.length;
+  assert.ok(after > 4, "the refresh asked the portal");
+  assert.deepEqual(await t.catalog.home(), first, "still served");
+  await settle();
+  assert.equal(t.portal.calls.length, after, "no new refresh within 5 minutes");
+  t.clock.t += 5 * 60_000;
+  await t.catalog.home();
+  await settle();
+  assert.ok(t.portal.calls.length > after, "the next refresh, 5 minutes later");
+  assert.deepEqual(await t.restart().home(), first, "the stored snapshot was not replaced by a failed refresh");
+});
+
+test("the snapshot expires through the storage ttl (real expiry): a cold start after 3 days rebuilds", async () => {
+  const realNow = Date.now;
+  const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+  await t.catalog.home();
+  const before = t.portal.calls.length;
+  Date.now = () => realNow() + 3 * DAY + 1000;
+  try { await t.restart().home(); } finally { Date.now = realNow; }
+  assert.equal(t.portal.calls.length, before + 4, "nothing kept: the four roots are asked, and waited for");
 });
 
 test("one root down: that root is empty, the others still show, and only the failing/empty ones are retried", async () => {
   let down = true;
-  const { catalog, portal, treeSets } = setup({
+  const { catalog, portal, rowSets } = setup({
     roots: {
       masnew_movies: () => (down ? new Error("portal down") : smallTree("p")),
       masnew_series: smallTree("s", "teleplay"), masnew_anime: answer(), masnew_kids: answer(),
@@ -268,7 +338,7 @@ test("one root down: that root is empty, the others still show, and only the fai
   assert.ok(rows.length > 0);
   assert.ok(rows.every((r) => !r.id.includes("peliculas")), rowIds(rows).join());
   assert.ok(rowOf(rows, "magis_top_series"));
-  assert.deepEqual(treeSets().map((s) => s.k), ["tree:series"]);
+  assert.deepEqual(rowSets(), [], "an incomplete answer is never stored");
   down = false;
   portal.calls.length = 0;
   const again = await catalog.home();
@@ -333,11 +403,12 @@ test("not every root failed: no retry, no error (an empty root is not a failure,
   assert.deepEqual(await mixed.catalog.home(), []);
   assert.equal(mixed.portal.calls.length, 4, "three failed, one answered empty: no retry");
 
-  const cached = setup({ roots: allRoots(() => new Error("down")) });
-  cached.kino.storage.set("tree:peliculas", encodeTree(parseTree(smallTree("c"))), { ttlMs: HOUR });
+  let answered = 0;
+  const cached = setup({ roots: { ...allRoots(() => new Error("down")), masnew_movies: () => (answered++ === 0 ? smallTree("c") : new Error("down")) } });
+  await cached.catalog.home(); // peliculas answers, the other three fail: peliculas is kept in memory
   const rows = await cached.catalog.home();
-  assert.ok(rows.length > 0, "the cached root still shows");
-  assert.equal(cached.portal.calls.length, 3, "only the three missing roots were asked, once");
+  assert.ok(rows.length > 0, "the kept root still shows");
+  assert.equal(cached.portal.calls.length, 4 + 3, "only the three missing roots were asked, once");
 });
 
 test("no retry when the call's time is nearly spent: the error comes at once", async () => {
@@ -358,15 +429,40 @@ test("a tree whose columns hold no usable items is empty, not cached", async () 
   assert.deepEqual(sets, []);
 });
 
-test("a corrupt or truncated cache entry is a miss, never an error", async () => {
-  const { catalog, kino, portal } = setup({
-    roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() },
-  });
-  kino.storage.set("tree:peliculas", "{not json", { ttlMs: HOUR });
-  kino.storage.set("tree:series", JSON.stringify({ i: "x", s: 3 }), { ttlMs: HOUR });
-  const rows = await catalog.home();
-  assert.ok(rowOf(rows, "magis_top_peliculas"));
-  assert.equal(portal.calls.length, 4);
+test("a corrupt, torn or partial snapshot is a miss, never an error: the rows are rebuilt and stored again", async () => {
+  const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+  const first = await t.catalog.home();
+  const meta = t.kino.storage.get(META_KEY);
+  const part = t.kino.storage.get("rows:0");
+  const m = JSON.parse(meta);
+  const tag = m.g + ":";
+  // A text with a valid meta (length and checksum) that is still not the rows format.
+  const forged = (text) => {
+    assert.notEqual(text, part.slice(tag.length), "the forged text differs from the stored one");
+    t.kino.storage.set("rows:0", tag + text, { ttlMs: HOUR });
+    t.kino.storage.set(META_KEY, JSON.stringify({ ...m, len: text.length, h: checksum(text) }), { ttlMs: HOUR });
+  };
+  const breakers = {
+    "meta not json": () => t.kino.storage.set(META_KEY, "{not json", { ttlMs: HOUR }),
+    "meta of another format": () => t.kino.storage.set(META_KEY, JSON.stringify({ ...m, v: 99 }), { ttlMs: HOUR }),
+    "a part missing": () => t.kino.storage.set(META_KEY, JSON.stringify({ ...m, n: 2 }), { ttlMs: HOUR }),
+    "no part at all": () => t.kino.storage.remove("rows:0"),
+    "a truncated part": () => t.kino.storage.set("rows:0", part.slice(0, part.length - 5), { ttlMs: HOUR }),
+    "a part of another generation": () => t.kino.storage.set("rows:0", "zzzz:" + part.slice(tag.length), { ttlMs: HOUR }),
+    "same length, other bytes": () => t.kino.storage.set("rows:0", part.replace("T p1", "T x1"), { ttlMs: HOUR }),
+    "checksummed, not json": () => forged("{nope"),
+    "checksummed, an index out of range": () => forged(part.slice(tag.length).replace(/\[0,1,2,3,4,5\]/, "[0,1,2,3,4,99]")),
+    "checksummed, an item without an id": () => forged(part.slice(tag.length).replace('["p1"', '[7')),
+  };
+  for (const [name, brk] of Object.entries(breakers)) {
+    t.kino.storage.set(META_KEY, meta, { ttlMs: HOUR });
+    t.kino.storage.set("rows:0", part, { ttlMs: HOUR });
+    brk();
+    const calls = t.portal.calls.length;
+    assert.deepEqual(await t.restart().home(), first, name);
+    assert.equal(t.portal.calls.length, calls + 4, `${name}: rebuilt from the portal`);
+    assert.equal(JSON.parse(t.kino.storage.get(META_KEY)).v, 1, `${name}: stored again`);
+  }
 });
 
 test("ensure() failing surfaces as the mapped error, not as an empty home, and no portal call is made", async () => {
@@ -378,41 +474,95 @@ test("ensure() failing surfaces as the mapped error, not as an empty home, and n
   assert.equal(portal.calls.length, 0);
 });
 
-test("bytes stored for the four roots stay under the storage budget with a realistic tree", async () => {
+// A tree as wide as the real ones: many sections, items repeated across them, long descriptions and
+// picture urls (the real roots never fit one 20 KB value; 2.2.3 could never store them).
+function realisticRoots() {
   const words = "Un hermano y una hermana descubren un ritual aterrador en la apartada casa de su nueva madre adoptiva donde nada es lo que parece ".split(" ");
+  const tags = ["Action", "Drama", "Thriller", "Crime", "Comedy", "Horror", "Romance", "Sci-Fi", "Family", "Fantasy", "Mystery", "Adventure"];
   const hex = (n) => n.toString(16).padStart(32, "0").toUpperCase();
-  const mkRoot = (offset, count, perColumn, type) => {
-    const cols = [];
-    for (let c = 0; c * perColumn < count; c++) {
-      cols.push(column(c === 0 ? "2026" : `Seccion ${c}`, Array.from({ length: Math.min(perColumn, count - c * perColumn) }, (_, k) => {
-        const n = offset + c * perColumn + k;
-        return {
-          contentId: hex(n), name: `Titulo largo de ejemplo numero ${n}`, programType: type, tags: "Action, Drama, Thriller, Crime",
-          score: 7.5, duration: 6000, description: words.slice(n % 5).join(" ") + " " + words.slice(0, 12).join(" "),
-          shelveTime: "2026-09-30 10:00:00",
-          posterList: [{ fileType: "icon", fileUrl: `https://img.test/public/images/${hex(n)}-aaaa-bbbb` }, { fileType: "poster", fileUrl: `https://img.test/public/images/${hex(n + 99999)}-cccc` }],
-        };
-      })));
-    }
-    return answer(...cols);
+  const mkRoot = (offset, pool, columns, perColumn, type) => {
+    const items = Array.from({ length: pool }, (_, k) => {
+      const n = offset + k;
+      return {
+        contentId: hex(n), name: `Titulo largo de ejemplo numero ${n}`, programType: type,
+        tags: [tags[n % 12], tags[(n * 7) % 12], tags[(n * 5) % 12]].join(", "),
+        score: (n % 90) / 10, duration: 6000, description: words.slice(n % 5).join(" ") + " " + words.slice(0, 12).join(" "),
+        shelveTime: "2026-09-30 10:00:00",
+        posterList: [{ fileType: "icon", fileUrl: `https://img.test/public/images/${hex(n)}-aaaa-bbbb` }, { fileType: "poster", fileUrl: `https://img.test/public/images/${hex(n + 99999)}-cccc` }],
+      };
+    });
+    return answer(...Array.from({ length: columns }, (_, c) => column(c === 0 ? "2026" : `Seccion ${c}`,
+      Array.from({ length: perColumn }, (_, k) => items[(c * 37 + k * 11) % pool]), c)));
   };
-  const roots = { masnew_movies: mkRoot(0, 200, 10, "movie"), masnew_series: mkRoot(1000, 150, 10, "teleplay"), masnew_anime: mkRoot(2000, 100, 10, "series"), masnew_kids: mkRoot(3000, 80, 10, "movie") };
-  const { catalog, kino } = setup({ roots });
-  const rows = await catalog.home();
-  assert.equal(rows.length, 20);
-  const keys = kino.storage.keys().filter((k) => k.startsWith("tree:")).sort();
+  return { masnew_movies: mkRoot(0, 700, 40, 25, "movie"), masnew_series: mkRoot(10_000, 500, 30, 25, "teleplay"), masnew_anime: mkRoot(20_000, 250, 20, 25, "series"), masnew_kids: mkRoot(30_000, 250, 20, 25, "movie") };
+}
+
+test("a snapshot bigger than one value is split into parts: each under 20 KB, all under 80 KB, read back whole", async () => {
+  const t = setup({ roots: realisticRoots() });
+  const fresh = await t.catalog.home();
+  assert.equal(fresh.length, 20);
+  const meta = JSON.parse(t.kino.storage.get(META_KEY));
+  assert.ok(meta.n >= 2, `${meta.n} part(s): the rows do not fit one value`);
+  const keys = t.kino.storage.keys().filter((k) => k.startsWith("rows:"));
+  assert.equal(keys.length, meta.n + 1);
   // Measured as the app stores them: escaped by Android's org.json, in UTF-8.
-  const sizes = keys.map((k) => storedLength(kino.storage.get(k)));
-  assert.ok(sizes.every((n) => n <= 20_000));
-  assert.ok(sizes.reduce((a, b) => a + b, 0) <= 80_000);
-  // EVERY root that can fit is cached, and only those: the smallest form the catalog ever tries
-  // (everything shed, 50 items per section) decides, measured here independently of the catalog.
-  const smallest = { descMax: 0, genres: false, backdrop: false, perSection: 50 };
-  const expected = Object.entries({ masnew_movies: "peliculas", masnew_series: "series", masnew_anime: "anime", masnew_kids: "infantil" })
-    .filter(([code]) => storedLength(encodeTree(parseTree(roots[code]), smallest)) <= 20_000)
-    .map(([, root]) => `tree:${root}`).sort();
-  assert.deepEqual(keys, expected);
-  assert.deepEqual(keys, ["tree:anime", "tree:infantil"], "with these synthetic sizes the two smaller roots fit, the two large ones cannot");
+  const sizes = keys.map((k) => storedLength(t.kino.storage.get(k)));
+  assert.ok(sizes.every((n) => n <= PART_BUDGET_BYTES), sizes.join(","));
+  assert.ok(sizes.reduce((a, b) => a + b, 0) <= SNAPSHOT_BUDGET_BYTES, sizes.join(","));
+  // A cold start answers Home from the parts: the same rows, ids, refs, titles and pictures.
+  const cold = await t.restart().home();
+  assert.equal(t.portal.calls.length, 4);
+  const shape = (rows) => rows.map((r) => [r.id, r.title, r.ref, r.items.map((i) => [i.id, i.ref, i.title, i.kind, i.poster, i.backdrop, i.genres, i.rating, i.runtimeMinutes, i.badges])]);
+  assert.deepEqual(shape(cold), shape(fresh));
+  // A description is whole or absent, never cut; the first rows keep theirs.
+  const overview = new Map(fresh.flatMap((r) => r.items.map((i) => [i.id, i.overview])));
+  for (const r of cold) for (const i of r.items) assert.ok(i.overview === undefined || i.overview === overview.get(i.id), i.id);
+  assert.ok(cold[0].items.every((i) => i.overview === overview.get(i.id)));
+});
+
+test("a smaller snapshot replaces a bigger one: no part of the old one is left behind", async () => {
+  const t = setup({ roots: realisticRoots() });
+  await t.catalog.home();
+  assert.ok(JSON.parse(t.kino.storage.get(META_KEY)).n >= 2);
+  const small = { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() };
+  t.clock.t += 2 * HOUR;
+  await t.restart(small).home(); // stale: served, refreshed in the background with the small tree
+  await settle();
+  assert.deepEqual(t.kino.storage.keys().filter((k) => k.startsWith("rows:")).sort(), ["rows:0", META_KEY]);
+  assert.ok(rowOf(await t.restart(small).home(), "magis_top_peliculas").items.some((i) => i.id === "p1"));
+});
+
+test("the per-root trees of 2.2.3 and older are removed when the snapshot is written", async () => {
+  const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+  t.kino.storage.set("tree:anime", "x".repeat(19_000), { ttlMs: HOUR });
+  t.kino.storage.set("tree:infantil", "y", { ttlMs: HOUR });
+  t.kino.storage.set("search:v1", "kept", { ttlMs: HOUR });
+  await t.catalog.home();
+  assert.deepEqual(t.kino.storage.keys().filter((k) => k.startsWith("tree:")), []);
+  assert.equal(t.kino.storage.get("search:v1"), "kept");
+});
+
+test("warm calls never rebuild: home, categories and section after the first are served without classifying again", async () => {
+  const t = setup({ roots: realisticRoots() });
+  const categories = makeCategories({ catalog: t.catalog });
+  const section = makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock });
+  const time = async (f) => { const s = performance.now(); await f(); return performance.now() - s; };
+  // Medians, so one garbage-collection pause under a loaded test run cannot decide the result.
+  const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  const cold = await time(() => categories.categories());
+  const warm = [];
+  for (let i = 0; i < 9; i++) {
+    warm.push(await time(() => t.catalog.home()), await time(() => categories.categories()), await time(() => section.section({ tab: "series" })));
+  }
+  assert.equal(t.portal.calls.length, 4);
+  assert.equal(t.rowSets().length, JSON.parse(t.kino.storage.get(META_KEY)).n + 1, "the snapshot was written once");
+  assert.ok(median(warm) < cold / 4, `warm ${median(warm).toFixed(2)} ms vs cold ${cold.toFixed(2)} ms`);
+  // A cold start reads the snapshot instead of rebuilding: no portal, well below a rebuild.
+  const starts = [];
+  for (let i = 0; i < 5; i++) { const restarted = t.restart(); starts.push(await time(() => makeCategories({ catalog: restarted }).categories())); }
+  const coldStart = median(starts);
+  assert.equal(t.portal.calls.length, 4);
+  assert.ok(coldStart < cold / 2, `cold start from storage ${coldStart.toFixed(2)} ms vs rebuild ${cold.toFixed(2)} ms`);
 });
 
 // ---- browse -----------------------------------------------------------------------------------
@@ -493,22 +643,19 @@ test("classify and projectRows are reusable pieces: projectRows drops empty rows
 
 // ---- storage budget -----------------------------------------------------------------------------
 
-test("an oversized tree sheds descriptions to fit the budget; one that never fits is served uncached", async () => {
-  const long = "x".repeat(400);
-  const big = (n, extra) => answer(column("All", Array.from({ length: n }, (_, i) => asset(`b${i}`, { description: long, ...extra }))));
-  const a = setup({ roots: { masnew_movies: big(150, {}), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
-  const rows = await a.catalog.home();
-  assert.ok(rowOf(rows, "magis_top_peliculas"));
-  const stored = a.kino.storage.get("tree:peliculas");
-  assert.ok(stored !== null && Buffer.byteLength(stored) <= 20_000, "cached within budget");
-  const again = await a.catalog.home();
-  assert.ok(rowOf(again, "magis_top_peliculas").items.length > 0);
-
-  // 300 sections of 10: shedding per-section items cannot help, so it never fits.
-  const wide = answer(...Array.from({ length: 300 }, (_, c) => column(`S${c}`, Array.from({ length: 10 }, (_, i) => asset(`w${c}-${i}`)), c)));
-  const b = setup({ roots: { masnew_movies: wide, masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
-  assert.ok(rowOf(await b.catalog.home(), "magis_top_peliculas"));
-  assert.equal(b.kino.storage.get("tree:peliculas"), null, "does not fit even without descriptions: not cached");
+test("rows too big for the snapshot keep Home and the category tiles whole; a section beyond them waits for the portal once", async () => {
+  const t = setup({ roots: realisticRoots() });
+  const fresh = { home: await t.catalog.home(), tiles: await makeCategories({ catalog: t.catalog }).categories() };
+  const tab = (await makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock }).section({ tab: "anime" })).rows;
+  const cold = t.restart();
+  const refs = (rows) => rows.map((r) => [r.id, r.items.map((i) => i.ref)]);
+  assert.deepEqual(refs(await cold.home()), refs(fresh.home));
+  assert.deepEqual(await makeCategories({ catalog: cold }).categories(), fresh.tiles);
+  assert.equal(t.portal.calls.length, 4, "home and categories from the snapshot");
+  const coldTab = (await makeSection({ kino: t.kino, catalog: cold, clock: t.clock }).section({ tab: "anime" })).rows;
+  assert.deepEqual(coldTab, tab);
+  const extra = t.portal.calls.length - 4;
+  assert.ok(extra === 0 || extra === 4, "a partial snapshot sends section to the portal once");
 });
 
 test("the stored form round-trips every field the projection reads", async () => {
@@ -524,28 +671,15 @@ test("the stored form round-trips every field the projection reads", async () =>
   assert.deepEqual(await cached.home(), first);
 });
 
-test("a single huge section sheds items per section (not below 50) before giving up", async () => {
-  const one = answer(column("All", Array.from({ length: 3000 }, (_, i) => asset(`h${i}`))));
-  const a = setup({ roots: { masnew_movies: one, masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
-  await a.catalog.home();
-  const stored = JSON.parse(a.kino.storage.get("tree:peliculas"));
-  assert.ok(stored.s[0][1].length >= 50 && stored.s[0][1].length <= 100);
-  assert.ok(Buffer.byteLength(JSON.stringify(stored)) <= 20_000);
-});
-
-test("a stored tree without the current format version is a miss and refetches", async () => {
-  const { catalog, kino, portal } = setup({
-    roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() },
-  });
-  await catalog.home();
-  const stored = JSON.parse(kino.storage.get("tree:peliculas"));
-  assert.equal(stored.v, 1);
-  delete stored.v;
-  kino.storage.set("tree:peliculas", JSON.stringify(stored), { ttlMs: HOUR });
-  portal.calls.length = 0;
-  assert.ok(rowOf(await catalog.home(), "magis_top_peliculas"));
-  assert.ok(portal.codes().includes("masnew_movies"));
-  assert.equal(JSON.parse(kino.storage.get("tree:peliculas")).v, 1);
+test("a snapshot with another format version is a miss and the rows are rebuilt", async () => {
+  const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+  await t.catalog.home();
+  const meta = JSON.parse(t.kino.storage.get(META_KEY));
+  const text = t.kino.storage.get("rows:0").slice(meta.g.length + 1).replace('"v":1', '"v":2');
+  t.kino.storage.set("rows:0", `${meta.g}:${text}`, { ttlMs: HOUR });
+  t.kino.storage.set(META_KEY, JSON.stringify({ ...meta, len: text.length, h: checksum(text) }), { ttlMs: HOUR });
+  assert.ok(rowOf(await t.restart().home(), "magis_top_peliculas"));
+  assert.equal(t.portal.calls.length, 8);
 });
 
 test("home's four root calls are paced >= 400 ms apart through the real portal client", async () => {

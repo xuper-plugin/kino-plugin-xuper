@@ -50,8 +50,9 @@ test("a byte cache never stores more than its budget once escaped, even with sla
 });
 
 test("worst case: every key the plugin writes, all full at once, fits the 256 KB storage", () => {
-  // Byte budgets (escaped): 4 home trees, search, chapters. The rest is bounded by count.
-  const budgets = { "tree:peliculas": 20_000, "tree:series": 20_000, "tree:anime": 20_000, "tree:infantil": 20_000, "search:v1": 24_000, "chapters:v1": 32_000 };
+  // Byte budgets (escaped): the Home rows snapshot (its parts and meta together, at most 80 KB, in up
+  // to five parts: modelled as five keys sharing it), search, chapters. The rest is bounded by count.
+  const budgets = { "rows:0": 16_000, "rows:1": 16_000, "rows:2": 16_000, "rows:3": 16_000, "rows:4": 16_000, "search:v1": 24_000, "chapters:v1": 32_000 };
   const hex = (n, w) => n.toString(16).padStart(w, "0");
   // 200 seeds as session.js stores them, with token lengths like the real pool's.
   const seeds = JSON.stringify(Array.from({ length: 200 }, (_, i) => ({ sn: hex(i, 32), userId: String(10_000_000 + i), userToken: hex(i, 64) })));

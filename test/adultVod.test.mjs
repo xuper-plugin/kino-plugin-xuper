@@ -84,7 +84,7 @@ test("browse(18+) stores nothing and is asked again on the next call; concurrent
   assert.equal(adultCalls(w).length, 1);
   await w.catalog.browse(ADULT_REF, null);
   assert.equal(adultCalls(w).length, 2);
-  assert.deepEqual(w.sets.filter((k) => !k.startsWith("tree:")), []);
+  assert.deepEqual(w.sets.filter((k) => !k.startsWith("rows:")), []);
   assert.ok(!w.sets.some((k) => k.includes("adult")));
 });
 

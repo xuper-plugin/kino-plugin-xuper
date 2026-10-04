@@ -122,7 +122,7 @@ test("an unknown row answers null (Kino filters its page itself, no failed call)
   assert.deepEqual(await w.catalog.search({ q: "  ", within: DRAMA }), { items: [] });
   await w.catalog.search({ q: "padrino", within: DRAMA });
   await w.catalog.search({ q: "padrino", within: ADULT_REF });
-  assert.ok(w.sets.every((k) => k.startsWith("tree:")), w.sets.join(","));
+  assert.ok(w.sets.every((k) => k.startsWith("rows:")), w.sets.join(","));
 });
 
 test("without within the global search runs as before (the portal's searchByName)", async () => {
