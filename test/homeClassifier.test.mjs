@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classify, isFeatured } from "../src/homeClassifier.js";
+import { classify, isFeatured, rootOfRow } from "../src/homeClassifier.js";
 
 // Ported case by case from the native MagisHomeClassifierTest.
 const item = (id, tags = "", score = 7.0, type = "movie") => ({
@@ -247,4 +247,30 @@ test("series with new chapters are ordered by upload date too", () => {
 test("duplicates inside a year section collapse; roots are classified by kind order, not by input order", () => {
   const r = classify({ peliculas: [section("2026", [item("d"), item("d"), item("e")])] });
   assert.deepEqual(ids(row(r, "magis_recent_peliculas").all), ["d", "e"]);
+});
+
+// ---- one root at a time (2.2.8): the catalog stores its progress root by root ------------------------
+
+test("orderRows puts rows of any source in classify's order, and mergeRoot one root at a time gives classify's rows", async () => {
+  const { orderRows, mergeRoot } = await import("../src/homeClassifier.js");
+  const tags = [["Drama", "Action"], ["Comedy"], ["Horror", "Drama"], ["Sci-Fi"], ["Family", "Comedy"]];
+  const mk = (p, n, type) => Array.from({ length: n }, (_, i) => ({ id: p + i, title: "T" + p + i, poster: null, backdrop: null, durationS: 0, type, genres: tags[i % tags.length], score: (i * 37) % 10, description: "", shelvedAtMs: i }));
+  const roots = {
+    peliculas: [{ name: "2026", items: mk("p", 60, "movie") }, { name: "2026 Peliculas teatrales", items: mk("q", 20, "movie") }],
+    series: [{ name: "2026", items: mk("s", 50, "teleplay") }], anime: [{ name: "x", items: mk("a", 40, "series") }], infantil: [{ name: "x", items: mk("k", 30, "movie") }],
+  };
+  const rows = classify(roots);
+  const ids = (list) => list.map((r) => r.id);
+  assert.deepEqual(ids(orderRows(rows)), ids(rows));
+  assert.deepEqual(ids(orderRows(["infantil", "anime", "series", "peliculas"].flatMap((root) => rows.filter((r) => rootOfRow(r.id) === root)))), ids(rows));
+  let merged = [];
+  for (const root of ["anime", "peliculas", "infantil", "series"]) merged = mergeRoot(merged, root, classify({ [root]: roots[root] }));
+  // No item is in two roots here: the same rows, in the same order, with the same items (genre rows' first
+  // items aside, which classify orders across roots).
+  assert.deepEqual(ids(merged), ids(rows));
+  for (const r of rows) assert.deepEqual(new Set(merged.find((m) => m.id === r.id).all.map((i) => i.id)), new Set(r.all.map((i) => i.id)), r.id);
+  // A root fetched again replaces its rows and leaves the others alone.
+  const again = mergeRoot(merged, "series", classify({ series: [{ name: "2026", items: mk("z", 50, "teleplay") }] }));
+  assert.ok(again.find((r) => r.id === "magis_top_series").all.every((i) => i.id.startsWith("z")));
+  assert.deepEqual(again.find((r) => r.id === "magis_top_peliculas"), merged.find((r) => r.id === "magis_top_peliculas"));
 });

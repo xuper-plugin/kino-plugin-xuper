@@ -20,10 +20,11 @@ test("non-ASCII text round-trips as UTF-8", () => {
   assert.equal(c.decryptBlob(c.encryptBody('{"n":"Ñandú ✓"}')), '{"n":"Ñandú ✓"}');
 });
 
-test("odd-length, uppercase, or non-hex wire is refused, not read leniently", () => {
+test("an odd-length or non-hex wire is refused, not read leniently; uppercase hex reads like lowercase (the host's decoding)", () => {
   const c = makeCrypto(fakeKino({ secrets: { magisKey: KEY } }));
   const wire = c.encryptBody("x");
-  for (const bad of ["abc", "zz".repeat(8), "", wire.toUpperCase(), " " + wire]) {
+  assert.equal(c.decryptBlob(wire.toUpperCase()), "x");
+  for (const bad of ["abc", "zz".repeat(8), "", " " + wire]) {
     assert.throws(() => c.decryptBlob(bad), (e) => e.code === "unavailable", JSON.stringify(bad));
   }
 });
@@ -84,4 +85,30 @@ test("a megabytes-long wire (a 500-channel getLiveData page) decrypts without a 
   const wire = c.encryptBody(plain);
   assert.ok(wire.length > 1_500_000, "the wire is megabytes long: " + wire.length);
   assert.equal(withQuickJsRegexBudget(() => c.decryptBlob(wire)), plain);
+});
+
+test("the wire is decoded by the host when it can, by the engine otherwise, to the same text", () => {
+  const base = fakeKino({ secrets: { magisKey: KEY } });
+  const plain = JSON.stringify({ list: Array.from({ length: 2000 }, (_, i) => ({ n: "Canal " + i + " ñ" })) });
+  const seen = [];
+  const host = makeCrypto(base, { onDecode: (d) => seen.push(d.how) });
+  const wire = host.encryptBody(plain);
+  assert.equal(host.decryptBlob(wire), plain);
+  // A host without AES-ECB (or that refuses the piece): the engine decodes it the same way.
+  const noAes = Object.freeze({ ...base, crypto: Object.freeze({ ...base.crypto, encrypt: (alg, o) => { if (alg !== "des-ede3-ecb") throw new Error("cifrado desconocido"); return base.crypto.encrypt(alg, o); } }) });
+  const engine = makeCrypto(noAes, { onDecode: (d) => seen.push(d.how) });
+  assert.equal(engine.decryptBlob(wire), plain);
+  assert.deepEqual(seen, ["host", "engine"]);
+});
+
+test("the engine's fallback keeps the strict checks: uppercase, odd or non-hex, non-ASCII bytes are refused", () => {
+  const base = fakeKino({ secrets: { magisKey: KEY } });
+  const noAes = Object.freeze({ ...base, crypto: Object.freeze({ ...base.crypto, encrypt: (alg, o) => { if (alg !== "des-ede3-ecb") throw new Error("cifrado desconocido"); return base.crypto.encrypt(alg, o); } }) });
+  const c = makeCrypto(noAes);
+  const hexOf = (s) => Buffer.from(s, "latin1").toString("hex");
+  for (const bad of [c.encryptBody("x").toUpperCase(), "abc", "zz", hexOf("QUJ\u00ffRA==")]) {
+    assert.throws(() => c.decryptBlob(bad), (e) => e.code === "unavailable", JSON.stringify(bad.slice(0, 20)));
+  }
+  // The host's way refuses a non-ASCII byte too: it is not base64.
+  assert.throws(() => makeCrypto(base).decryptBlob(hexOf("QUJ\u00ffRA==")), (e) => e.code === "unavailable");
 });

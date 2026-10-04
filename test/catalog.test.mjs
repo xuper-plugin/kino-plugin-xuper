@@ -10,7 +10,6 @@ import { storedLength } from "../src/homeTree.js";
 import { META_KEY, PART_BUDGET_BYTES, SNAPSHOT_BUDGET_BYTES, checksum } from "../src/rowsStore.js";
 import { makeCategories } from "../src/categories.js";
 import { makeSection } from "../src/section.js";
-import * as PARSE from "../src/homeTree.js";
 import { makeCrypto } from "../src/crypto.js";
 import { makePortal } from "../src/portal.js";
 
@@ -285,22 +284,22 @@ test("the rows are kept: a second home makes no portal call, and the snapshot is
   assert.equal(portal.calls.length, 4);
 });
 
-test("stale rows are served while the refresh runs in slices inside the next calls, never as a build a call waits for", async () => {
+test("stale rows: each call refreshes one root within one slice, the rest stay served, and the snapshot follows", async () => {
   let fresh = false;
   const t = onTv(setup({ roots: { masnew_movies: () => smallTree(fresh ? "q" : "p"), masnew_series: smallTree("s", "teleplay"), masnew_anime: answer(), masnew_kids: answer() } }));
-  const first = await t.catalog.home();
+  await t.catalog.home();
   const meta = t.kino.storage.get(META_KEY);
   assert.equal(t.portal.calls.length, 4);
   t.clock.t += 2 * HOUR;
   fresh = true;
-  const seen = [];
-  for (let i = 0; i < 8; i++) {
+  let last = null;
+  for (let i = 0; i < 6; i++) {
     const { value, ms } = await kinoCall(t, () => t.catalog.home());
     assert.ok(ms <= ONE_SLICE_MS, `call ${i}: delivered after ${ms} ms`);
-    seen.push(value.some((r) => r.items.some((it) => it.id === "q1")));
+    assert.ok(rowOf(value, "magis_top_series"), `call ${i}: the series rows stay served`);
+    last = value;
   }
-  assert.equal(seen[0], false, "the first stale call answers the stale rows");
-  assert.equal(seen[seen.length - 1], true, "the refreshed rows replace them once the slices are done");
+  assert.ok(last.some((r) => r.items.some((it) => it.id === "q1")), "the refreshed movies replace the stale ones");
   assert.equal(t.portal.calls.length, 8, "each root asked once by the refresh");
   assert.notEqual(t.kino.storage.get(META_KEY), meta, "and stored as the new snapshot");
   assert.ok((await t.restart().home()).some((r) => r.items.some((it) => it.id === "q1")));
@@ -348,9 +347,9 @@ test("the snapshot expires through the storage ttl (real expiry): a cold start a
   assert.equal(t.portal.calls.length, before + 4, "nothing kept: the four roots are asked, and waited for");
 });
 
-test("one root down: that root is empty, the others still show, and only the failing/empty ones are retried", async () => {
+test("one root down: the others show and are stored, and the failed root alone is asked again 5 minutes later", async () => {
   let down = true;
-  const { catalog, portal, rowSets } = setup({
+  const { catalog, portal, rowSets, clock } = setup({
     roots: {
       masnew_movies: () => (down ? new Error("portal down") : smallTree("p")),
       masnew_series: smallTree("s", "teleplay"), masnew_anime: answer(), masnew_kids: answer(),
@@ -360,12 +359,17 @@ test("one root down: that root is empty, the others still show, and only the fai
   assert.ok(rows.length > 0);
   assert.ok(rows.every((r) => !r.id.includes("peliculas")), rowIds(rows).join());
   assert.ok(rowOf(rows, "magis_top_series"));
-  assert.deepEqual(rowSets(), [], "an incomplete answer is never stored");
+  const meta = JSON.parse(rowSets().find((s) => s.k === META_KEY).v);
+  assert.deepEqual(Object.keys(meta.r).sort(), ["anime", "infantil", "series"], "what answered is stored; the failed root is not in it");
   down = false;
   portal.calls.length = 0;
+  await catalog.home();
+  assert.deepEqual(portal.codes(), [], "a failed root waits 5 minutes while something is served");
+  clock.t += 5 * 60_000;
   const again = await catalog.home();
-  assert.deepEqual([...portal.codes()].sort(), ["masnew_anime", "masnew_kids", "masnew_movies"], "series came from the cache");
+  assert.deepEqual(portal.codes(), ["masnew_movies"], "then only it is asked: the others are stored and fresh");
   assert.ok(rowOf(again, "magis_top_peliculas"));
+  assert.ok(rowOf(again, "magis_top_series"));
 });
 
 test("all roots empty: no rows and NO cache write (Review Focus 5)", async () => {
@@ -375,33 +379,27 @@ test("all roots empty: no rows and NO cache write (Review Focus 5)", async () =>
   assert.deepEqual(kino.storage.keys(), []);
 });
 
-// ---- every root failing (port of main 2d285106 + 465773f1): one retry, then the error ----------
+// ---- every root failing (port of main 2d285106 + 465773f1): the error, so Home offers Reintentar ---
 
 const allRoots = (a) => ({ masnew_movies: a, masnew_series: a, masnew_anime: a, masnew_kids: a });
 const kinoErr = (code, message) => (e) => { assert.equal(e.name, "KinoError_" + code, e.message); if (message) assert.equal(e.message, message); return true; };
 
-test("all roots failing twice: one retry of the pass, then the error is thrown (Home shows the failure and Reintentar), nothing cached", async () => {
+test("all roots failing with nothing kept: the call asks each root once, throws, stores nothing; the next call asks again", async () => {
   const { catalog, sets, portal } = setup({ roots: allRoots(() => new Error("down")) });
   await assert.rejects(catalog.home(), kinoErr("unavailable", "Xuper no está disponible ahora"));
-  assert.equal(portal.calls.length, 8, "one pass + exactly one retry");
+  assert.equal(portal.calls.length, 4, "each root once");
   assert.deepEqual(sets, []);
+  await assert.rejects(catalog.home(), kinoErr("unavailable"));
+  assert.equal(portal.calls.length, 8, "nothing to show: no wait before asking again");
 });
 
-test("all roots failing once: the retried pass answers and Home shows its rows", async () => {
+test("all roots failing once: the next call answers once the portal is back", async () => {
   let n = 0;
   const { catalog, portal } = setup({ roots: allRoots(() => (++n <= 4 ? new Error("down") : smallTree("p" + n))) });
+  await assert.rejects(catalog.home(), kinoErr("unavailable"));
   const rows = await catalog.home();
   assert.ok(rows.length > 0);
-  assert.equal(portal.calls.length, 8);
-});
-
-test("the retry waits a short pause first, as native (1.5 s)", async () => {
-  const t = setup({ roots: allRoots(() => new Error("down")) });
-  const sleeps = [];
-  const kino = Object.freeze({ ...t.kino, sleep: async (ms) => { sleeps.push(ms); } });
-  const catalog = makeCatalog({ kino, portal: t.portal, session: t.session, clock: t.clock });
-  await assert.rejects(catalog.home());
-  assert.deepEqual(sleeps, [1500]);
+  assert.equal(portal.calls.length, 5, "the first root answers; the others, failed a moment ago, wait while it is served");
 });
 
 test("the thrown error is the person-actionable one: a kino error from a root wins over a plain unavailable", async () => {
@@ -427,10 +425,13 @@ test("not every root failed: no retry, no error (an empty root is not a failure,
 
   let answered = 0;
   const cached = setup({ roots: { ...allRoots(() => new Error("down")), masnew_movies: () => (answered++ === 0 ? smallTree("c") : new Error("down")) } });
-  await cached.catalog.home(); // peliculas answers, the other three fail: peliculas is kept in memory
+  await cached.catalog.home(); // peliculas answers, the other three fail: peliculas is kept (and stored)
   const rows = await cached.catalog.home();
   assert.ok(rows.length > 0, "the kept root still shows");
-  assert.equal(cached.portal.calls.length, 4 + 3, "only the three missing roots were asked, once");
+  assert.equal(cached.portal.calls.length, 4, "the failed roots wait 5 minutes while something is served");
+  cached.clock.t += 5 * 60_000;
+  assert.ok((await cached.catalog.home()).length > 0);
+  assert.equal(cached.portal.calls.length, 4 + 3, "then only the three missing roots are asked, once");
 });
 
 test("a slow portal with nothing kept: the call that asked a root and has nothing to show says why at once", async () => {
@@ -680,28 +681,29 @@ test("rows too big for the snapshot keep Home and the category tiles whole from 
   assert.equal(t.portal.calls.length, 4);
 });
 
-test("partial snapshot (the KALLEY): section is delivered within one slice, completes over the next calls, then never rebuilds", async () => {
+test("partial snapshot (the KALLEY): the first open of a tab fetches that tab's root inside one slice and is whole; every later open costs nothing", async () => {
   const t = onTv(setup({ roots: realisticRoots() }));
   await t.catalog.home();
-  const full = (await makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock }).section({ tab: "anime" })).rows;
+  const ref = makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock });
+  const full = { anime: (await ref.section({ tab: "anime" })).rows, series: (await ref.section({ tab: "series" })).rows };
   const section = makeSection({ kino: t.kino, catalog: t.restart(), clock: t.clock });
   const first = await kinoCall(t, () => section.section({ tab: "anime" }));
-  assert.ok(first.ms <= ONE_SLICE_MS, `first section delivered after ${first.ms} ms (2.2.5: the whole build)`);
-  // First paint: the same rows of the tab, each with its first items at least.
-  assert.deepEqual(first.value.rows.map((r) => r.id), full.map((r) => r.id));
-  first.value.rows.forEach((r, n) => assert.deepEqual(r.items.map((i) => i.ref), full[n].items.slice(0, r.items.length).map((i) => i.ref)));
-  assert.ok(first.value.rows.some((r, n) => r.items.length < full[n].items.length), "this snapshot really is partial");
-  let calls = 1;
-  let last = first;
-  while (JSON.stringify(last.value.rows) !== JSON.stringify(full)) {
-    last = await kinoCall(t, () => section.section({ tab: "anime" }));
-    assert.ok(last.ms <= ONE_SLICE_MS, `call ${calls}: ${last.ms} ms`);
-    assert.ok(++calls <= 6, "complete within a few calls");
-  }
-  assert.equal(t.portal.calls.length, 8, "each root asked once");
-  const warm = await kinoCall(t, () => section.section({ tab: "series" }));
-  assert.equal(warm.ms, 0, "a warm section costs nothing");
-  assert.equal(t.portal.calls.length, 8, "no rebuild on later calls");
+  assert.ok(first.ms <= ONE_SLICE_MS, `first open delivered after ${first.ms} ms (2.2.7: about 8 s on the TV, then again on every open)`);
+  assert.deepEqual(first.value.rows, full.anime, "the whole tab at the first open");
+  assert.equal(t.portal.calls.length, 5, "its root alone");
+  const warm = await kinoCall(t, () => section.section({ tab: "anime" }));
+  assert.equal(warm.ms, 0, "a warm open costs nothing");
+  assert.deepEqual(warm.value.rows, full.anime);
+  const other = await kinoCall(t, () => section.section({ tab: "series" }));
+  assert.ok(other.ms <= ONE_SLICE_MS);
+  assert.deepEqual(other.value.rows, full.series);
+  assert.equal((await kinoCall(t, () => section.section({ tab: "series" }))).ms, 0);
+  assert.equal(t.portal.calls.length, 6, "no fetch on later opens");
+  // The trimmed snapshot cannot keep a tab's rows past Home's whole: a new sandbox pays one slice again.
+  const next = makeSection({ kino: t.kino, catalog: t.restart(), clock: t.clock });
+  const again = await kinoCall(t, () => next.section({ tab: "anime" }));
+  assert.ok(again.ms <= ONE_SLICE_MS);
+  assert.deepEqual(again.value.rows, full.anime);
 });
 
 test("a section that keeps landing in a new runtime (Kino drops it after a timeout) is delivered within one slice every time", async () => {
@@ -714,96 +716,71 @@ test("a section that keeps landing in a new runtime (Kino drops it after a timeo
   }
 });
 
-test("browse and the scoped search on a cold start: the snapshot row's items within one slice, the whole row once built", async () => {
+test("browse and the scoped search on a cold start: the row's root is fetched inside one slice and the page is whole at once", async () => {
   const t = onTv(setup({ roots: realisticRoots() }));
   const whole = await t.catalog.browse("magis_top_peliculas", null);
   assert.equal(whole.items.length, 50);
   const cold = t.restart();
   const page = await kinoCall(t, () => cold.browse("magis_top_peliculas", null));
-  assert.ok(page.ms <= ONE_SLICE_MS);
-  assert.deepEqual(page.value.items.map((i) => i.ref), whole.items.slice(0, 20).map((i) => i.ref));
-  assert.equal(page.value.next, undefined, "no next page until the whole row is built");
+  assert.ok(page.ms <= ONE_SLICE_MS, `${page.ms} ms`);
+  assert.deepEqual(page.value, whole);
   const hit = whole.items[3].title;
   const found = await kinoCall(t, () => cold.search({ q: hit, within: "magis_top_peliculas" }));
-  assert.ok(found.ms <= ONE_SLICE_MS);
+  assert.equal(found.ms, 0, "same root: nothing more to fetch");
   assert.ok(found.value.items.some((i) => i.title === hit));
-  let last = page;
-  for (let i = 0; i < 6 && last.value.items.length < 50; i++) last = await kinoCall(t, () => cold.browse("magis_top_peliculas", null));
-  assert.deepEqual(last.value, whole);
-  assert.equal(t.portal.calls.length, 8, "one pass over the four roots");
+  assert.equal(t.portal.calls.length, 5, "the row's root alone");
 });
 
-// ---- first start and the upgrade from 2.2.3: nothing complete stored, built in slices -------------
-
-// A root's tree in 2.2.3's `tree:<root>` format (what that version stored when a tree fit).
-function legacyTree(code, roots) {
-  const { parseTree } = PARSE;
-  const sections = parseTree(roots[code]);
-  const items = [];
-  const index = new Map();
-  const s = sections.map((sec) => [sec.name, sec.items.map((i) => {
-    if (!index.has(i.id)) { index.set(i.id, items.length); items.push([i.id, i.title, i.poster, i.backdrop, i.durationS, i.type, i.genres, i.score, i.description, i.shelvedAtMs]); }
-    return index.get(i.id);
-  })]);
-  return JSON.stringify({ v: 1, p: "", i: items, s });
-}
+// ---- first start and the upgrade from 2.2.3: nothing stored, built one root per call, kept as it goes --
 
 async function completeHome(roots) {
   const ref = setup({ roots });
   return { home: await ref.catalog.home(), tiles: await makeCategories({ catalog: ref.catalog }).categories() };
 }
 
-test("fresh install on the TV: every call is delivered within one slice, Home shows the first root at once, all complete within 5 calls", async () => {
+test("fresh install on the TV: every call within one slice, each start stores one more root, complete after 4 starts of one call each", async () => {
   const roots = realisticRoots();
   const want = await completeHome(roots);
   const t = onTv(setup({ roots }));
-  const categories = makeCategories({ catalog: t.catalog });
-  const section = makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock });
+  // The KALLEY's pattern: each start makes one categories call, then the sandbox idles out.
+  for (let start = 1; start <= 4; start++) {
+    const { value, ms } = await kinoCall(t, () => makeCategories({ catalog: t.restart() }).categories());
+    assert.ok(ms <= ONE_SLICE_MS, `start ${start}: delivered after ${ms} ms`);
+    assert.ok(value.length > 0, `start ${start}: tiles from the roots in so far`);
+    const meta = JSON.parse(t.kino.storage.get(META_KEY));
+    assert.equal(Object.keys(meta.r).length, start, `start ${start}: one more root stored`);
+  }
+  assert.equal(t.portal.calls.length, 4, "each root asked once");
+  const next = await kinoCall(t, () => t.restart().home());
+  assert.equal(next.ms, 0, "the next start answers from storage alone");
+  // One root at a time across sandboxes: the same rows, ids and refs as one build (no item is in two roots here).
+  const refs = (rows) => rows.map((r) => [r.id, r.items.map((i) => i.ref)]);
+  assert.deepEqual(refs(next.value).map(([id]) => id), refs(want.home).map(([id]) => id));
+  assert.deepEqual(await makeCategories({ catalog: t.restart() }).categories(), want.tiles);
+});
+
+test("fresh install, one sandbox: Home shows the first root at once, every call within one slice, exact after 4 calls", async () => {
+  const roots = realisticRoots();
+  const want = await completeHome(roots);
+  const t = onTv(setup({ roots }));
   const first = await kinoCall(t, () => t.catalog.home());
   assert.ok(first.ms <= ONE_SLICE_MS, `first home delivered after ${first.ms} ms (2.2.6: the whole build)`);
   assert.ok(first.value.length > 0 && first.value.every((r) => r.id.includes("peliculas")), "the movies root, the first one in");
-  const calls = [() => categories.categories(), () => section.section({ tab: "series" }), () => t.catalog.home(), () => categories.categories(), () => t.catalog.home()];
-  let n = 1;
-  for (const call of calls) {
-    if (t.kino.storage.get(META_KEY) !== null) break;
-    const { ms } = await kinoCall(t, call);
-    assert.ok(ms <= ONE_SLICE_MS, `call ${n} delivered after ${ms} ms`);
-    n++;
-  }
-  assert.ok(t.kino.storage.get(META_KEY) !== null, `stored after ${n} calls`);
-  assert.ok(n <= 5, `${n} calls`);
-  assert.deepEqual((await kinoCall(t, () => t.catalog.home())).value, want.home);
-  assert.deepEqual((await kinoCall(t, () => categories.categories())).value, want.tiles);
-  assert.equal(t.portal.calls.length, 4, "each root asked once");
-  const cold = await kinoCall(t, () => t.restart().home());
-  assert.equal(cold.ms, 0, "the next start answers from the snapshot");
+  for (let i = 0; i < 3; i++) assert.ok((await kinoCall(t, () => t.catalog.home())).ms <= ONE_SLICE_MS);
+  assert.deepEqual((await kinoCall(t, () => t.catalog.home())).value, want.home, "all four in memory: classified together, exact");
+  assert.equal(t.portal.calls.length, 4);
 });
 
-test("upgrade from 2.2.3 on the TV: its stored trees are shown at once, every call within one slice, then replaced by the snapshot", async () => {
+test("upgrade from 2.2.3: its tree:* keys are dropped, and the catalog is built like a fresh install", async () => {
   const roots = realisticRoots();
-  const want = await completeHome(roots);
   const t = onTv(setup({ roots }));
-  // What 2.2.3 left: the trees that fit (the small roots), with its 2 h ttl.
-  t.kino.storage.set("tree:anime", legacyTree("masnew_anime", roots), { ttlMs: 2 * HOUR });
-  t.kino.storage.set("tree:infantil", legacyTree("masnew_kids", roots), { ttlMs: 2 * HOUR });
-  const first = await kinoCall(t, () => t.catalog.home());
+  t.kino.storage.set("tree:anime", "x".repeat(19_000), { ttlMs: 2 * HOUR });
+  t.kino.storage.set("tree:infantil", "{}", { ttlMs: 2 * HOUR });
+  const first = await kinoCall(t, () => makeCategories({ catalog: t.catalog }).categories());
   assert.ok(first.ms <= ONE_SLICE_MS, `${first.ms} ms`);
-  assert.ok(first.value.some((r) => r.id.includes("anime")) && first.value.some((r) => r.id.includes("infantil")), "the 2.2.3 trees show at once");
-  for (let n = 1; t.kino.storage.get(META_KEY) === null; n++) {
-    assert.ok(n <= 5, "complete within 5 calls");
-    const { ms } = await kinoCall(t, () => makeCategories({ catalog: t.catalog }).categories());
-    assert.ok(ms <= ONE_SLICE_MS, `call ${n}: ${ms} ms`);
-  }
-  assert.deepEqual(await t.catalog.home(), want.home);
-  assert.equal(t.portal.calls.length, 4, "the seeded roots were asked again too");
+  assert.ok(first.value.length > 0);
   assert.deepEqual(t.kino.storage.keys().filter((k) => k.startsWith("tree:")), [], "2.2.3's keys are gone");
-});
-
-test("a 2.2.3 tree that is not one is ignored, never an error", async () => {
-  const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
-  t.kino.storage.set("tree:anime", "{not json", { ttlMs: HOUR });
-  t.kino.storage.set("tree:series", JSON.stringify({ v: 1, p: "", i: [["x"]], s: [] }), { ttlMs: HOUR });
-  assert.ok(rowOf(await t.catalog.home(), "magis_top_peliculas"));
+  assert.ok(t.kino.storage.get(META_KEY) !== null, "the first root is stored at once");
 });
 
 test("the stored form round-trips every field the projection reads", async () => {

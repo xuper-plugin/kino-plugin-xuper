@@ -10,8 +10,14 @@ import { channelOf } from "./channelId.js";
 
 const LIVE_ROOT = "masnew_live";
 const CATEGORIES_PAGE_SIZE = 200; // 30 lost eight of the 38 real categories
-const CHANNELS_PAGE_SIZE = 500;
-const MAX_PAGES = 10; // SDK: at most 10 pages per category
+// A liveChannels page: 250 channels, half the SDK's 500, so one page costs a slow TV half the time
+// (500 took 15-19 s on the KALLEY with 2.2.7, close to the 20 s cap); 20 pages keep the 5,000 a category
+// could list before (Kino asks 10 pages first, 5 more per scroll). Todos (1,037) is 5 pages.
+const LIST_PAGE_SIZE = 250;
+const LIST_MAX_PAGES = 20;
+// liveSearch's sweep reads whole categories in one call: bigger pages, fewer paced portal calls.
+const SWEEP_PAGE_SIZE = 500;
+const MAX_PAGES = 10;
 const MAX_CATEGORIES = 200; // SDK cap
 const ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const POSITIVE = /^\d{1,9}$/;
@@ -85,11 +91,11 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     return adultIds.has(id);
   }
 
-  async function fetchPage(columnId, page, deadline) {
+  async function fetchPage(columnId, page, deadline, pageSize = LIST_PAGE_SIZE) {
     await session.ensure({ deadline });
     const response = await session.withValidSession(({ userId, userToken }) => portal.call(
       "v6/getLiveData",
-      { columnId: Number(columnId), pageNum: page, pageSize: CHANNELS_PAGE_SIZE, dataVersion: "", expireTimeStr: "" },
+      { columnId: Number(columnId), pageNum: page, pageSize, dataVersion: "", expireTimeStr: "" },
       { baseFields: true, userId, userToken, deadline },
     ), { deadline });
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
@@ -127,7 +133,7 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     }
     const id = String(Number(categoryId));
     const page = typeof cursor === "string" && POSITIVE.test(cursor) && Number(cursor) >= 1 ? Number(cursor) : 1;
-    if (page > MAX_PAGES) return { items: [] };
+    if (page > LIST_MAX_PAGES) return { items: [] };
     // Native "stops at the first failed page": page 1 fails loudly, a later one just ends the listing.
     try {
       const adult = await isAdultCategory(id, deadline);
@@ -136,7 +142,7 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
       const items = project(list, id, adult, drops);
       // What the portal sent against what went on (counts only): a gap against the old native list shows here.
       trace(kino, "live", "page", { cat: id, page, raw: list.length, kept: items.length, ...drops });
-      return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
+      return list.length >= LIST_PAGE_SIZE && page < LIST_MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
       if (page > 1) {
         // The listing ends here (as the native one did), but a truncated list must not be silent.
@@ -170,12 +176,12 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
   // [read] counts the pages that answered.
   async function sweepCategory(category, into, deadline, read = { pages: 0 }) {
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const list = await fetchPage(category.id, page, deadline);
+      const list = await fetchPage(category.id, page, deadline, SWEEP_PAGE_SIZE);
       read.pages++;
       for (const item of project(list, category.id, category.adult)) {
         if (!into.has(item.id)) into.set(item.id, { ...item, adult: category.adult });
       }
-      if (list.length < CHANNELS_PAGE_SIZE) return;
+      if (list.length < SWEEP_PAGE_SIZE) return;
     }
   }
 

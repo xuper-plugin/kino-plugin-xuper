@@ -185,14 +185,26 @@ export function checksum(text) {
 export function makeRowsStore({ kino, ttlMs }) {
   const partKey = (n) => `${PART_PREFIX}${n}`;
   const isPartKey = (k) => k.startsWith(PART_PREFIX) && /^\d+$/.test(k.slice(PART_PREFIX.length));
+  // The host's md5 (native: a JS loop over 80 KB is most of a second on a 32-bit TV), else FNV.
+  const digest = (text) => {
+    try { const h = kino.crypto.hash("md5", text); if (typeof h === "string" && h !== "") return { m: h }; } catch (_) { /* no host hash */ }
+    return { h: checksum(text) };
+  };
+  const ROOT_NAMES = ["peliculas", "series", "anime", "infantil"];
 
+  /**
+   * `{ rows, complete, at, roots, whole }` or null. `roots`: when each root's data in the rows was
+   * fetched (`{ root: ms }`); `whole`: the roots whose rows all keep every shown item. A snapshot of
+   * 2.2.4-2.2.7, written only from all four roots at once, has every root at its `at`, all whole when
+   * it is complete.
+   */
   function read() {
     try {
       const rawMeta = kino.storage.get(META_KEY);
       if (rawMeta === null || rawMeta === undefined) return null;
       const m = JSON.parse(rawMeta);
       if (m === null || typeof m !== "object" || m.v !== ROWS_FORMAT || typeof m.g !== "string" || !Number.isInteger(m.n) ||
-          m.n < 1 || m.n > 64 || !Number.isInteger(m.len) || typeof m.h !== "string" || !Number.isFinite(m.at)) return null;
+          m.n < 1 || m.n > 64 || !Number.isInteger(m.len) || (typeof m.h !== "string" && typeof m.m !== "string") || !Number.isFinite(m.at)) return null;
       const tag = m.g + ":";
       let text = "";
       for (let n = 0; n < m.n; n++) {
@@ -200,17 +212,27 @@ export function makeRowsStore({ kino, ttlMs }) {
         if (typeof part !== "string" || !part.startsWith(tag)) return null;
         text += part.slice(tag.length);
       }
-      if (text.length !== m.len || checksum(text) !== m.h) return null;
+      if (text.length !== m.len) return null;
+      if (typeof m.m === "string" ? digest(text).m !== m.m : checksum(text) !== m.h) return null;
       const { rows, complete } = decodeRows(text);
-      return { rows, complete, at: m.at };
+      let roots;
+      if (m.r === undefined) roots = Object.fromEntries(ROOT_NAMES.map((r) => [r, m.at]));
+      else if (m.r !== null && typeof m.r === "object" && Object.entries(m.r).every(([k, t]) => ROOT_NAMES.includes(k) && Number.isFinite(t))) roots = m.r;
+      else return null;
+      let whole;
+      if (m.w === undefined) whole = complete ? Object.keys(roots) : [];
+      else if (Array.isArray(m.w) && m.w.every((r) => ROOT_NAMES.includes(r))) whole = m.w;
+      else return null;
+      return { rows, complete, at: m.at, roots, whole };
     } catch (_) { return null; }
   }
 
   // Parts first, the meta last; parts left over from a bigger snapshot and the per-root trees of
   // 2.2.3 and older (`tree:<root>`, up to 80 KB) are removed first so the new parts have the room.
-  function write(text, at) {
-    const sum = checksum(text);
-    const gen = (Math.floor(at) % 2176782336).toString(36) + sum.slice(0, 4);
+  // `roots`: when each root the rows hold was fetched; `whole`: the roots whose rows are not trimmed.
+  function write(text, at, roots, whole) {
+    const sum = digest(text);
+    const gen = (Math.floor(at) % 2176782336).toString(36) + String(sum.m ?? sum.h).slice(0, 4);
     const parts = splitParts(text, PART_BUDGET_BYTES - PART_TAG_BYTES);
     let keys = [];
     try { keys = kino.storage.keys(); } catch (_) { /* nothing to clean */ }
@@ -221,7 +243,7 @@ export function makeRowsStore({ kino, ttlMs }) {
     }
     try {
       parts.forEach((p, n) => kino.storage.set(partKey(n), `${gen}:${p}`, { ttlMs }));
-      kino.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text.length, h: sum, at }), { ttlMs });
+      kino.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text.length, ...sum, at, r: roots, w: whole }), { ttlMs });
       return true;
     } catch (e) {
       for (let n = 0; n < parts.length; n++) { try { kino.storage.remove(partKey(n)); } catch (_) { /* best effort */ } }
@@ -232,27 +254,3 @@ export function makeRowsStore({ kino, ttlMs }) {
   return { read, write };
 }
 
-/**
- * The sections of a root's tree as 2.2.3 and older stored it under `tree:<root>`: `{ v: 1, p: url prefix,
- * i: [[id, title, poster, backdrop, durationS, type, [genre], score, description, shelvedAtMs]],
- * s: [[section name, [item#]]] }`. Throws when the text is not one.
- */
-export function decodeLegacyTree(text) {
-  const o = JSON.parse(text);
-  if (o === null || typeof o !== "object" || o.v !== 1 || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
-    throw new Error("stored tree is malformed");
-  }
-  const full = (u) => (typeof u === "string" ? o.p + u : null);
-  const items = o.i.map((r) => {
-    if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[5] !== "string" || !Array.isArray(r[6])) throw new Error("stored item is malformed");
-    return {
-      id: r[0], title: asText(r[1]), poster: full(r[2]), backdrop: full(r[3]), durationS: Number(r[4]) || 0,
-      type: r[5], genres: r[6].map(asText), score: typeof r[7] === "number" ? r[7] : null,
-      description: asText(r[8]), shelvedAtMs: Number(r[9]) || 0,
-    };
-  });
-  return o.s.map((sec) => {
-    if (!Array.isArray(sec) || typeof sec[0] !== "string" || !isIndexList(sec[1], items.length)) throw new Error("stored section is malformed");
-    return { name: sec[0], items: sec[1].map((k) => items[k]) };
-  });
-}

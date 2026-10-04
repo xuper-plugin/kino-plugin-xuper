@@ -179,3 +179,29 @@ export function classify(roots) {
   return [recentMoviesRow(sectionsOf), updatedSeriesRow(sectionsOf)].filter(Boolean)
     .concat(topRatedRows(byKind), [cinemaRow(sectionsOf)].filter(Boolean), genreRows(byKind));
 }
+
+// The featured rows in the order classify gives them.
+const FEATURED_ORDER = ["magis_recent_peliculas", "magis_new_series", "magis_top_peliculas", "magis_top_series", "magis_new_peliculas"];
+
+/**
+ * Rows of several sources put in classify's order: the featured rows first, then each root's genre rows
+ * round-robin across the kinds, every root's genre rows keeping the order they came in.
+ */
+export function orderRows(rows) {
+  const featured = FEATURED_ORDER.map((id) => rows.find((r) => r.id === id)).filter(Boolean);
+  const genre = KINDS.map(({ root }) => rows.filter((r) => !isFeatured(r.id) && rootOfRow(r.id) === root));
+  const out = [...featured];
+  const longest = Math.max(0, ...genre.map((g) => g.length));
+  for (let i = 0; i < longest; i++) for (const g of genre) if (g[i]) out.push(g[i]);
+  return out;
+}
+
+/**
+ * `rows` with the rows of `root` replaced by `rootRows` (classify of that root alone). Used while the
+ * roots arrive one at a time: close to classify over all of them, but an item listed in two roots shows
+ * in both, and a genre row's first items are ordered without the other roots' rows. Exact again once
+ * every root is classified together.
+ */
+export function mergeRoot(rows, root, rootRows) {
+  return orderRows([...rows.filter((r) => rootOfRow(r.id) !== root), ...rootRows]);
+}

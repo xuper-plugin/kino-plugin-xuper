@@ -1,33 +1,44 @@
 // src/crypto.js
 var toHex = (s) => Array.from(new TextEncoder().encode(s), (b) => b.toString(16).padStart(2, "0")).join("");
-var HEX_VALUE = (() => {
-  const t = new Int8Array(128).fill(-1);
-  for (let i = 0; i < 10; i++) t[48 + i] = i;
-  for (let i = 0; i < 6; i++) t[97 + i] = 10 + i;
-  return t;
-})();
-var CHUNK = 4096;
+var HEX_CHUNK = 65536;
+var NOT_LOWER_HEX = /[^0-9a-f]/;
+var NOT_ASCII = /[^\x00-\x7f]/;
+var PAIR = /../g;
 function fromHex(h) {
   if (typeof h !== "string" || h.length === 0 || h.length % 2 !== 0) throw new Error("not hex");
   const parts = [];
-  const buf = new Uint8Array(CHUNK);
-  let n = 0;
-  for (let i = 0; i < h.length; i += 2) {
-    const a = h.charCodeAt(i), b = h.charCodeAt(i + 1);
-    const hi = a < 128 ? HEX_VALUE[a] : -1, lo = b < 128 ? HEX_VALUE[b] : -1;
-    if (hi < 0 || lo < 0) throw new Error("not hex");
-    const byte = hi << 4 | lo;
-    if (byte > 127) throw new Error("not ascii");
-    buf[n++] = byte;
-    if (n === CHUNK) {
-      parts.push(String.fromCharCode.apply(null, buf));
-      n = 0;
-    }
+  for (let i = 0; i < h.length; i += HEX_CHUNK) {
+    const piece = h.slice(i, i + HEX_CHUNK);
+    if (NOT_LOWER_HEX.test(piece)) throw new Error("not hex");
+    const text2 = decodeURIComponent(piece.replace(PAIR, "%$&"));
+    if (NOT_ASCII.test(text2)) throw new Error("not ascii");
+    parts.push(text2);
   }
-  if (n > 0) parts.push(String.fromCharCode.apply(null, buf.subarray(0, n)));
   return parts.join("");
 }
-function makeCrypto(kino2) {
+var PASS_KEY = "kino-xuper-hex16";
+var HOST_CHUNK = 4e6;
+function hostFromHex(kino2, h) {
+  if (typeof h !== "string" || h.length === 0 || h.length % 2 !== 0) throw new Error("not hex");
+  const parts = [];
+  for (let i = 0; i < h.length; i += HOST_CHUNK) {
+    const piece = h.slice(i, i + HOST_CHUNK);
+    const sealed = kino2.crypto.encrypt("aes-128-ecb", { key: PASS_KEY, data: piece, inputEncoding: "hex" });
+    const text2 = kino2.crypto.decrypt("aes-128-ecb", { key: PASS_KEY, data: sealed });
+    if (typeof text2 !== "string" || text2.length * 2 !== piece.length) throw new Error("not ascii");
+    parts.push(text2);
+  }
+  return parts.join("");
+}
+function wireText(kino2, h) {
+  let text2 = null;
+  try {
+    text2 = hostFromHex(kino2, h);
+  } catch (_) {
+  }
+  return text2 === null ? { text: fromHex(h), how: "engine" } : { text: text2, how: "host" };
+}
+function makeCrypto(kino2, { onDecode = null } = {}) {
   const fail = (what) => kino2.error("unavailable", "el portal no se pudo " + what);
   return {
     encryptBody(plain3) {
@@ -43,11 +54,15 @@ function makeCrypto(kino2) {
         throw fail("cifrar");
       }
     },
+    // `onDecode({ how, bytes, ms })`, optional: which way a wire was decoded and how long it took.
     decryptBlob(wire) {
       try {
+        const startedAt = Date.now();
+        const { text: b64, how } = wireText(kino2, wire);
+        if (onDecode) onDecode({ how, bytes: wire.length, ms: Date.now() - startedAt });
         const text2 = kino2.crypto.decrypt("des-ede3-ecb", {
           key: kino2.secret("magisKey"),
-          data: fromHex(wire),
+          data: b64,
           padding: "pkcs7"
         });
         if (typeof text2 !== "string" || text2 === "") throw new Error("empty");
@@ -1217,6 +1232,7 @@ var GENRES = new Map(Object.entries({
 }));
 var YEAR_SECTION = /^(\d{4})(.*)$/;
 var FEATURED_PREFIXES = ["magis_recent_", "magis_new_", "magis_top_"];
+var isFeatured = (rowId) => FEATURED_PREFIXES.some((p) => rowId.startsWith(p));
 function rootOfRow(rowId) {
   if (typeof rowId !== "string") return null;
   const prefix = [...FEATURED_PREFIXES, "magis_g_"].find((p) => rowId.startsWith(p));
@@ -1332,6 +1348,18 @@ function classify(roots) {
   const byKind = Object.fromEntries(KINDS.map((k) => [k.root, []]));
   for (const [root, item] of kindOf.values()) byKind[root].push(item);
   return [recentMoviesRow(sectionsOf), updatedSeriesRow(sectionsOf)].filter(Boolean).concat(topRatedRows(byKind), [cinemaRow(sectionsOf)].filter(Boolean), genreRows(byKind));
+}
+var FEATURED_ORDER = ["magis_recent_peliculas", "magis_new_series", "magis_top_peliculas", "magis_top_series", "magis_new_peliculas"];
+function orderRows(rows) {
+  const featured = FEATURED_ORDER.map((id) => rows.find((r) => r.id === id)).filter(Boolean);
+  const genre = KINDS.map(({ root }) => rows.filter((r) => !isFeatured(r.id) && rootOfRow(r.id) === root));
+  const out = [...featured];
+  const longest = Math.max(0, ...genre.map((g) => g.length));
+  for (let i = 0; i < longest; i++) for (const g of genre) if (g[i]) out.push(g[i]);
+  return out;
+}
+function mergeRoot(rows, root, rootRows) {
+  return orderRows([...rows.filter((r) => rootOfRow(r.id) !== root), ...rootRows]);
 }
 
 // src/channelId.js
@@ -1729,12 +1757,21 @@ function checksum(text2) {
 function makeRowsStore({ kino: kino2, ttlMs }) {
   const partKey = (n) => `${PART_PREFIX}${n}`;
   const isPartKey = (k) => k.startsWith(PART_PREFIX) && /^\d+$/.test(k.slice(PART_PREFIX.length));
+  const digest = (text2) => {
+    try {
+      const h = kino2.crypto.hash("md5", text2);
+      if (typeof h === "string" && h !== "") return { m: h };
+    } catch (_) {
+    }
+    return { h: checksum(text2) };
+  };
+  const ROOT_NAMES = ["peliculas", "series", "anime", "infantil"];
   function read() {
     try {
       const rawMeta = kino2.storage.get(META_KEY);
       if (rawMeta === null || rawMeta === void 0) return null;
       const m = JSON.parse(rawMeta);
-      if (m === null || typeof m !== "object" || m.v !== ROWS_FORMAT || typeof m.g !== "string" || !Number.isInteger(m.n) || m.n < 1 || m.n > 64 || !Number.isInteger(m.len) || typeof m.h !== "string" || !Number.isFinite(m.at)) return null;
+      if (m === null || typeof m !== "object" || m.v !== ROWS_FORMAT || typeof m.g !== "string" || !Number.isInteger(m.n) || m.n < 1 || m.n > 64 || !Number.isInteger(m.len) || typeof m.h !== "string" && typeof m.m !== "string" || !Number.isFinite(m.at)) return null;
       const tag = m.g + ":";
       let text2 = "";
       for (let n = 0; n < m.n; n++) {
@@ -1742,16 +1779,25 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
         if (typeof part !== "string" || !part.startsWith(tag)) return null;
         text2 += part.slice(tag.length);
       }
-      if (text2.length !== m.len || checksum(text2) !== m.h) return null;
+      if (text2.length !== m.len) return null;
+      if (typeof m.m === "string" ? digest(text2).m !== m.m : checksum(text2) !== m.h) return null;
       const { rows, complete } = decodeRows(text2);
-      return { rows, complete, at: m.at };
+      let roots;
+      if (m.r === void 0) roots = Object.fromEntries(ROOT_NAMES.map((r) => [r, m.at]));
+      else if (m.r !== null && typeof m.r === "object" && Object.entries(m.r).every(([k, t]) => ROOT_NAMES.includes(k) && Number.isFinite(t))) roots = m.r;
+      else return null;
+      let whole2;
+      if (m.w === void 0) whole2 = complete ? Object.keys(roots) : [];
+      else if (Array.isArray(m.w) && m.w.every((r) => ROOT_NAMES.includes(r))) whole2 = m.w;
+      else return null;
+      return { rows, complete, at: m.at, roots, whole: whole2 };
     } catch (_) {
       return null;
     }
   }
-  function write(text2, at) {
-    const sum = checksum(text2);
-    const gen = (Math.floor(at) % 2176782336).toString(36) + sum.slice(0, 4);
+  function write(text2, at, roots, whole2) {
+    const sum = digest(text2);
+    const gen = (Math.floor(at) % 2176782336).toString(36) + String(sum.m ?? sum.h).slice(0, 4);
     const parts = splitParts(text2, PART_BUDGET_BYTES - PART_TAG_BYTES);
     let keys = [];
     try {
@@ -1768,7 +1814,7 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
     }
     try {
       parts.forEach((p, n) => kino2.storage.set(partKey(n), `${gen}:${p}`, { ttlMs }));
-      kino2.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text2.length, h: sum, at }), { ttlMs });
+      kino2.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text2.length, ...sum, at, r: roots, w: whole2 }), { ttlMs });
       return true;
     } catch (e) {
       for (let n = 0; n < parts.length; n++) {
@@ -1781,32 +1827,6 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
     }
   }
   return { read, write };
-}
-function decodeLegacyTree(text2) {
-  const o = JSON.parse(text2);
-  if (o === null || typeof o !== "object" || o.v !== 1 || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
-    throw new Error("stored tree is malformed");
-  }
-  const full = (u) => typeof u === "string" ? o.p + u : null;
-  const items = o.i.map((r) => {
-    if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[5] !== "string" || !Array.isArray(r[6])) throw new Error("stored item is malformed");
-    return {
-      id: r[0],
-      title: asText(r[1]),
-      poster: full(r[2]),
-      backdrop: full(r[3]),
-      durationS: Number(r[4]) || 0,
-      type: r[5],
-      genres: r[6].map(asText),
-      score: typeof r[7] === "number" ? r[7] : null,
-      description: asText(r[8]),
-      shelvedAtMs: Number(r[9]) || 0
-    };
-  });
-  return o.s.map((sec) => {
-    if (!Array.isArray(sec) || typeof sec[0] !== "string" || !isIndexList(sec[1], items.length)) throw new Error("stored section is malformed");
-    return { name: sec[0], items: sec[1].map((k) => items[k]) };
-  });
 }
 
 // src/byteCache.js
@@ -2284,7 +2304,6 @@ var SLICE_START_MS = 1500;
 var SLICE_MARGIN_MS = 2e3;
 var SLICE_FETCH_MS = 14e3;
 var BROWSE_PAGE = 50;
-var HOME_RETRY_PAUSE_MS = 1500;
 var MAX_HOME_ROWS = 20;
 var MAX_ROW_ITEMS = 60;
 var MAX_GENRES = 5;
@@ -2343,8 +2362,16 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     return age < 0 || age >= ROWS_FRESH_MS;
   };
   const trees = /* @__PURE__ */ new Map();
-  let full = null;
-  let snapshot;
+  let current;
+  let dirty = false;
+  const failedAt = /* @__PURE__ */ new Map();
+  function getCurrent() {
+    if (current === void 0) {
+      const snap = store.read();
+      current = snap ? { rows: snap.rows, roots: snap.roots, whole: new Set(snap.whole), withAll: /* @__PURE__ */ new Set() } : null;
+    }
+    return current;
+  }
   function homeRowsCount(rows2) {
     let shown = 0;
     for (let n = 0; n < rows2.length; n++) {
@@ -2352,23 +2379,24 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     }
     return rows2.length;
   }
-  function saveSnapshot(rows2, at) {
-    const fit = fitRows(rows2, { keepFull: homeRowsCount(rows2) });
+  function save() {
+    dirty = false;
+    const { rows: rows2, roots } = current;
+    if (rows2.length === 0) return;
+    const keepFull = homeRowsCount(rows2);
+    const fit = fitRows(rows2, { keepFull });
     if (fit === null) {
       trace(kino2, "store", "skip", { what: "rows" });
       return;
     }
     if (fit.step > 0) trace(kino2, "store", "trim", { what: "rows", step: fit.step });
+    const cut = fit.step === 0 ? /* @__PURE__ */ new Set() : new Set(rows2.slice(keepFull).filter((r) => r.shown.length > 1).map((r) => rootOfRow(r.id)));
+    const whole2 = Object.keys(roots).filter((r) => current.whole.has(r) && !cut.has(r));
     try {
-      store.write(fit.text, at);
-      snapshot = void 0;
+      store.write(fit.text, Math.min(...Object.values(roots)), roots, whole2);
     } catch (e) {
       trace(kino2, "store", "full", { what: "rows", code: errCode(e) });
     }
-  }
-  function readSnapshot() {
-    if (snapshot === void 0) snapshot = store.read();
-    return snapshot;
   }
   async function fetchRoot(root, deadline) {
     try {
@@ -2406,142 +2434,77 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     });
     trace(kino2, "home", "all_fail", fields);
   }
-  let work = null;
-  let workEndedAt = -Infinity;
-  let treesVersion = 0;
-  function want(why) {
-    if (work) return;
-    if (why !== "cold" && clock2.now() - workEndedAt < REFRESH_GAP_MS) return;
-    const asked = KINDS.map((k) => k.root).filter((root) => why === "stale" || !trees.has(root) || stale(trees.get(root).at));
-    trace(kino2, "home", "refresh", { why });
-    work = { why, asked, todo: [...asked], results: {}, pass: 1, rows: null, save: why !== "partial" };
+  function nextRoot(need, root, asked) {
+    const cur = getCurrent();
+    const roots = cur ? cur.roots : {};
+    const all = KINDS.map((k) => k.root);
+    const required = root !== null && all.includes(root) && (need === "section" ? !(cur && cur.whole.has(root)) : need === "full" ? !(cur && cur.withAll.has(root)) : false) ? [root] : [];
+    const missing = all.filter((r) => !(r in roots));
+    const stalest = all.filter((r) => r in roots && stale(roots[r])).sort((x, y) => roots[x] - roots[y]);
+    const order = [.../* @__PURE__ */ new Set([...required, ...missing, ...stalest])].filter((r) => !asked.has(r));
+    const failedRecently = (r) => failedAt.has(r) && clock2.now() - failedAt.get(r) < REFRESH_GAP_MS;
+    if (cur) return order.find((r) => !failedRecently(r)) ?? null;
+    return [...order].sort((x, y) => (failedAt.get(x) ?? -Infinity) - (failedAt.get(y) ?? -Infinity))[0] ?? null;
   }
-  function endWork(ok) {
-    if (!ok && work && work.why !== "cold") workEndedAt = clock2.now();
-    work = null;
-  }
-  function keepTree(root, r, at) {
-    if (hasItems(r.sections)) trees.set(root, { sections: r.sections, at });
-    else if (r.error === null) trees.delete(root);
-    else return;
-    treesVersion++;
-  }
-  async function slice(callEnd) {
-    const w = work;
-    if (w.todo.length > 0) {
-      const root = w.todo[0];
-      const deadline = Math.min(callDeadline(clock2, SLICE_FETCH_MS), callEnd);
-      if (!w.ensured) {
-        await session.ensure({ deadline });
-        w.ensured = true;
-      }
-      const r = await sharedFetchRoot(root, deadline);
-      w.results[root] = r;
-      keepTree(root, r, clock2.now());
-      w.todo.shift();
-      return;
+  async function rootSlice(root, deadline) {
+    const r = await sharedFetchRoot(root, deadline);
+    if (r.error !== null) {
+      failedAt.set(root, clock2.now());
+      return r;
     }
-    if (w.rows === null) {
-      const fetched = w.asked.map((root) => w.results[root]);
-      if (fetched.length === KINDS.length && fetched.every((r) => r.error !== null)) {
-        if (w.why !== "cold") {
-          trace(kino2, "home", "refresh_fail", { code: errCode(fetched[0].error) });
-          return endWork(false);
-        }
-        if (w.pass === 1) {
-          w.pass = 2;
-          w.todo = [...w.asked];
-          try {
-            await kino2.sleep(HOME_RETRY_PAUSE_MS);
-          } catch (_) {
-          }
-          return;
-        }
-        summarizeFailure(fetched, 2);
-        endWork(false);
-        throw worstOf(fetched);
-      }
-      if (fetched.some((r) => r.error !== null)) return endWork(false);
-      const rows2 = classify(rootsKept());
-      if (rows2.length === 0) return endWork(false);
-      full = { rows: rows2, at: clock2.now() };
-      w.rows = rows2;
-      if (!w.save) endWork(true);
-      return;
-    }
-    saveSnapshot(w.rows, full.at);
-    endWork(true);
-  }
-  const rootsKept = () => Object.fromEntries(KINDS.map(({ root }) => [root, trees.has(root) ? trees.get(root).sections : []]));
-  let running = null;
-  function runSlice(callEnd) {
-    if (!running) running = slice(callEnd).finally(() => {
-      running = null;
-    });
-    return running;
-  }
-  async function advance(startedAt, budgetMs) {
-    const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
-    while (work && clock2.now() - startedAt < SLICE_START_MS) {
-      const cold = work.why === "cold";
-      try {
-        await runSlice(callEnd);
-      } catch (e) {
-        trace(kino2, "home", "refresh_fail", { code: errCode(e) });
-        endWork(false);
-        if (cold) throw e;
-      }
-    }
-  }
-  let soFar = null;
-  function rowsSoFar() {
-    if (!soFar || soFar.version !== treesVersion) soFar = { version: treesVersion, rows: classify(rootsKept()) };
-    return soFar.rows;
-  }
-  let seeded = false;
-  function seedFromLegacyTrees() {
-    if (seeded) return;
-    seeded = true;
-    for (const { root } of KINDS) {
-      try {
-        const raw = kino2.storage.get(`tree:${root}`);
-        if (typeof raw !== "string") continue;
-        const sections = decodeLegacyTree(raw);
-        if (!hasItems(sections)) continue;
-        trees.set(root, { sections, at: clock2.now() - ROWS_FRESH_MS });
-        treesVersion++;
-      } catch (_) {
-      }
-    }
-    if (treesVersion > 0) trace(kino2, "store", "seed", { what: "tree", roots: treesVersion });
-  }
-  async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home) {
-    const startedAt = clock2.now();
-    let snap = null;
-    if (full) {
-      if (stale(full.at)) want("stale");
-    } else if (snap = readSnapshot()) {
-      if (stale(snap.at)) want("stale");
-      else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") want("partial");
+    failedAt.delete(root);
+    const at = clock2.now();
+    trees.set(root, { sections: r.sections, at });
+    const news = !current || !(root in current.roots) || stale(current.roots[root]);
+    const roots = { ...current ? current.roots : {}, ...news ? { [root]: at } : {} };
+    if (KINDS.every(({ root: k }) => trees.has(k) && !stale(trees.get(k).at))) {
+      const rows2 = classify(Object.fromEntries(KINDS.map(({ root: k }) => [k, trees.get(k).sections])));
+      const everyRoot = KINDS.map(({ root: k }) => k);
+      current = { rows: rows2, roots: Object.fromEntries(everyRoot.map((k) => [k, trees.get(k).at])), whole: new Set(everyRoot), withAll: new Set(everyRoot) };
     } else {
-      seedFromLegacyTrees();
-      want("cold");
+      const rows2 = mergeRoot(current ? current.rows : [], root, classify({ [root]: r.sections }));
+      current = { rows: rows2, roots, whole: /* @__PURE__ */ new Set([...current ? current.whole : [], root]), withAll: /* @__PURE__ */ new Set([...current ? current.withAll : [], root]) };
     }
-    await advance(startedAt, budgetMs);
-    if (full) return full.rows;
-    if (snap) return snap.rows;
-    const rows2 = rowsSoFar();
-    if (rows2.length === 0 && work && work.why === "cold") {
-      const done = Object.values(work.results);
-      if (done.length > 0 && done.every((r) => r.error !== null)) {
-        summarizeFailure(done, work.pass);
-        throw worstOf(done);
+    if (news) dirty = true;
+    return r;
+  }
+  async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home, root = null) {
+    const startedAt = clock2.now();
+    const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
+    getCurrent();
+    const failed = [];
+    let ensured = false;
+    const asked = /* @__PURE__ */ new Set();
+    let next;
+    while (clock2.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked)) !== null) {
+      asked.add(next);
+      const deadline = Math.min(callDeadline(clock2, SLICE_FETCH_MS), callEnd);
+      if (!ensured) {
+        try {
+          await session.ensure({ deadline });
+          ensured = true;
+        } catch (e) {
+          if (!current) throw e;
+          break;
+        }
       }
+      if (current === null && failed.length === 0) trace(kino2, "home", "refresh", { why: "cold" });
+      const r = await rootSlice(next, deadline);
+      if (r.error !== null) failed.push(r);
     }
-    return rows2;
+    if (dirty) save();
+    if (current) return current.rows;
+    if (failed.length > 0) {
+      summarizeFailure(failed, 1);
+      throw worstOf(failed);
+    }
+    return [];
   }
   function rowMissing() {
-    if (!full && work && work.why === "cold") throw kino2.error("unavailable", "Xuper todav\xEDa est\xE1 cargando su cat\xE1logo, intenta de nuevo en un momento");
+    const cur = getCurrent();
+    if (!cur || KINDS.some(({ root }) => !(root in cur.roots))) {
+      throw kino2.error("unavailable", "Xuper todav\xEDa est\xE1 cargando su cat\xE1logo, intenta de nuevo en un momento");
+    }
     throw kino2.error("not_found", "No se encontr\xF3 esa lista");
   }
   async function home2() {
@@ -2585,7 +2548,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   async function browse2(ref, cursor) {
     if (ref === ADULT_REF) return browseAdult(cursor);
-    const row2 = typeof ref === "string" ? (await buildRows("full", CALL_BUDGET_MS.browse)).find((r) => r.id === ref) : void 0;
+    const row2 = typeof ref === "string" ? (await buildRows("full", CALL_BUDGET_MS.browse, rootOfRow(ref))).find((r) => r.id === ref) : void 0;
     if (!row2) rowMissing();
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
@@ -2604,7 +2567,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     if (adult) {
       pool = await adultMovies(callDeadline(clock2, CALL_BUDGET_MS.search));
     } else {
-      const row2 = typeof within === "string" ? (await buildRows("full", CALL_BUDGET_MS.search)).find((r) => r.id === within) : void 0;
+      const row2 = typeof within === "string" ? (await buildRows("full", CALL_BUDGET_MS.search, rootOfRow(within))).find((r) => r.id === within) : void 0;
       if (!row2) return null;
       pool = row2.all ?? row2.shown;
     }
@@ -2621,7 +2584,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
   const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
-  const rows = (need = "full") => buildRows(need, CALL_BUDGET_MS[need] ?? CALL_BUDGET_MS.home);
+  const rows = (need = "full", root = null) => buildRows(need, CALL_BUDGET_MS[need] ?? CALL_BUDGET_MS.home, root);
   return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters };
 }
 
@@ -2944,7 +2907,9 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
 // src/liveCatalog.js
 var LIVE_ROOT = "masnew_live";
 var CATEGORIES_PAGE_SIZE = 200;
-var CHANNELS_PAGE_SIZE = 500;
+var LIST_PAGE_SIZE = 250;
+var LIST_MAX_PAGES = 20;
+var SWEEP_PAGE_SIZE = 500;
 var MAX_PAGES = 10;
 var MAX_CATEGORIES = 200;
 var ID2 = /^[A-Za-z0-9._~-]{1,128}$/;
@@ -3001,11 +2966,11 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     }
     return adultIds.has(id);
   }
-  async function fetchPage(columnId, page, deadline) {
+  async function fetchPage(columnId, page, deadline, pageSize = LIST_PAGE_SIZE) {
     await session.ensure({ deadline });
     const response = await session.withValidSession(({ userId, userToken }) => portal.call(
       "v6/getLiveData",
-      { columnId: Number(columnId), pageNum: page, pageSize: CHANNELS_PAGE_SIZE, dataVersion: "", expireTimeStr: "" },
+      { columnId: Number(columnId), pageNum: page, pageSize, dataVersion: "", expireTimeStr: "" },
       { baseFields: true, userId, userToken, deadline }
     ), { deadline });
     return isObject(response) && Array.isArray(response.channelList) ? response.channelList : [];
@@ -3053,14 +3018,14 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     }
     const id = String(Number(categoryId));
     const page = typeof cursor === "string" && POSITIVE.test(cursor) && Number(cursor) >= 1 ? Number(cursor) : 1;
-    if (page > MAX_PAGES) return { items: [] };
+    if (page > LIST_MAX_PAGES) return { items: [] };
     try {
       const adult = await isAdultCategory(id, deadline);
       const list = await fetchPage(id, page, deadline);
       const drops = {};
       const items = project(list, id, adult, drops);
       trace(kino2, "live", "page", { cat: id, page, raw: list.length, kept: items.length, ...drops });
-      return list.length >= CHANNELS_PAGE_SIZE && page < MAX_PAGES ? { items, next: String(page + 1) } : { items };
+      return list.length >= LIST_PAGE_SIZE && page < LIST_MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
       if (page > 1) {
         trace(kino2, "live", "page_fail", { cat: id, page, code: errCode(e) });
@@ -3079,12 +3044,12 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   let sweeping = null;
   async function sweepCategory(category, into, deadline, read = { pages: 0 }) {
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const list = await fetchPage(category.id, page, deadline);
+      const list = await fetchPage(category.id, page, deadline, SWEEP_PAGE_SIZE);
       read.pages++;
       for (const item of project(list, category.id, category.adult)) {
         if (!into.has(item.id)) into.set(item.id, { ...item, adult: category.adult });
       }
-      if (list.length < CHANNELS_PAGE_SIZE) return;
+      if (list.length < SWEEP_PAGE_SIZE) return;
     }
   }
   async function sweep(deadline) {
@@ -3817,7 +3782,7 @@ function makeSection({ kino: kino2, catalog, clock: clock2 }) {
     const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
     const tab = asked === null || asked === void 0 || asked === "" ? TABS[0].id : asked;
     if (!TABS.some((t) => t.id === tab)) throw kino2.error("not_found", "No se encontr\xF3 esa pesta\xF1a");
-    const rows = await catalog.rows("section");
+    const rows = await catalog.rows("section", tab);
     return { tabs: TABS.map((t) => ({ ...t })), tab, rows: rowsOfTab(rows, tab, clock2.now()) };
   }
   return { section: section2 };
@@ -3936,7 +3901,14 @@ var deps = null;
 var clock = { now: () => Date.now() };
 function getDeps() {
   if (deps) return deps;
-  const crypto = makeCrypto(kino);
+  let decodeLogged = false;
+  const crypto = makeCrypto(kino, {
+    onDecode: ({ how, bytes, ms }) => {
+      if (decodeLogged || bytes < 1e6) return;
+      decodeLogged = true;
+      trace(kino, "portal", "decode", { how, kb: Math.round(bytes / 1024), ms });
+    }
+  });
   const config = { hosts, appId: APP_ID, apkVersion: APK_VERSION };
   let session = null;
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn, modeOf: () => session.mode() });

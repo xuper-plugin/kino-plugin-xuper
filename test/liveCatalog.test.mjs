@@ -147,7 +147,7 @@ test("channels: maps a portal entry (id, title, bare ref, category, icon logo, n
     id: "A", title: "Canal A", ref: "A", categoryId: "76183", number: 7, logo: "https://img.test/A.png",
   }] });
   const call = portal.calls.find((c) => c.path === "v6/getLiveData");
-  assert.deepEqual(call.bean, { columnId: 76183, pageNum: 1, pageSize: 500, dataVersion: "", expireTimeStr: "" });
+  assert.deepEqual(call.bean, { columnId: 76183, pageNum: 1, pageSize: 250, dataVersion: "", expireTimeStr: "" });
   assert.deepEqual(call.opts, { baseFields: true, userId: "u1", userToken: "tok1", deadline: 18_000 });
   assert.ok(session.ensures >= 1);
 });
@@ -181,10 +181,10 @@ test("channels: blank code or name and in-page duplicates are skipped; odd codes
   assert.equal(items[0].title, "Canal ok1");
 });
 
-test("channels: a full page of 500 has next = the following portal page; a short page has none", async () => {
-  const { live, portal } = setup({ queues: withCats({ "v6/getLiveData": [page(...many("p1", 500)), page(...many("p2", 40))] }) });
+test("channels: a full page of 250 has next = the following portal page; a short page has none", async () => {
+  const { live, portal } = setup({ queues: withCats({ "v6/getLiveData": [page(...many("p1", 250)), page(...many("p2", 40))] }) });
   const first = await live.liveChannels({ categoryId: "76183" });
-  assert.equal(first.items.length, 500);
+  assert.equal(first.items.length, 250);
   assert.equal(first.next, "2");
   const second = await live.liveChannels({ categoryId: "76183", cursor: first.next });
   assert.equal(second.items.length, 40);
@@ -192,8 +192,8 @@ test("channels: a full page of 500 has next = the following portal page; a short
   assert.deepEqual(portal.calls.filter((c) => c.path === "v6/getLiveData").map((c) => c.bean.pageNum), [1, 2]);
 });
 
-test("channels: Todos (about 1040 channels) flows through 3 SDK pages and the kit drops nothing", async () => {
-  const { live } = setup({ queues: withCats({ "v6/getLiveData": [page(...many("a", 500)), page(...many("b", 500)), page(...many("c", 40))] }) });
+test("channels: Todos (about 1040 channels) flows through 5 SDK pages of 250 and the kit drops nothing", async () => {
+  const { live } = setup({ queues: withCats({ "v6/getLiveData": ["a", "b", "c", "d"].map((p) => page(...many(p, 250))).concat([page(...many("e", 40))]) }) });
   let cursor = null;
   const ids = [];
   let pages = 0;
@@ -204,19 +204,19 @@ test("channels: Todos (about 1040 channels) flows through 3 SDK pages and the ki
     cursor = r.next ?? null;
     pages++;
   } while (cursor !== null);
-  assert.equal(pages, 3);
+  assert.equal(pages, 5);
   assert.equal(ids.length, 1040);
   assert.equal(new Set(ids).size, 1040);
 });
 
-test("channels: the listing stops at page 10 even when the portal keeps sending full pages", async () => {
-  const { live } = setup({ queues: withCats({ "v6/getLiveData": Array.from({ length: 12 }, (_, i) => page(...many("q" + i, 500))) }) });
-  const r9 = await live.liveChannels({ categoryId: "76183", cursor: "9" });
-  assert.equal(r9.next, "10");
-  const r10 = await live.liveChannels({ categoryId: "76183", cursor: "10" });
-  assert.equal(r10.items.length, 500);
-  assert.equal("next" in r10, false);
-  assert.deepEqual(await live.liveChannels({ categoryId: "76183", cursor: "11" }), { items: [] });
+test("channels: the listing stops at page 20 (5,000 channels, as 10 pages of 500 did) even when the portal keeps sending full pages", async () => {
+  const { live } = setup({ queues: withCats({ "v6/getLiveData": Array.from({ length: 22 }, (_, i) => page(...many("q" + i, 250))) }) });
+  const r19 = await live.liveChannels({ categoryId: "76183", cursor: "19" });
+  assert.equal(r19.next, "20");
+  const r20 = await live.liveChannels({ categoryId: "76183", cursor: "20" });
+  assert.equal(r20.items.length, 250);
+  assert.equal("next" in r20, false);
+  assert.deepEqual(await live.liveChannels({ categoryId: "76183", cursor: "21" }), { items: [] });
 });
 
 test("channels: a portal failure on page 1 is the mapped error", async () => {
