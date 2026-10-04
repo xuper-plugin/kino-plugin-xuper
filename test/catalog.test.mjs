@@ -241,14 +241,14 @@ test("projection of the real captured rows (home-1.json) keeps ids, refs, kind, 
 
 // ---- home: cache ------------------------------------------------------------------------------
 
-test("the rows are kept: a second home makes no portal call, and the snapshot is stored for 3 days", async () => {
+test("the rows are kept: a second home makes no portal call, and the snapshot is stored for 14 days", async () => {
   const { catalog, portal, rowSets, session, restart } = setup({
     roots: { masnew_movies: smallTree("p"), masnew_series: smallTree("s", "teleplay"), masnew_anime: smallTree("a"), masnew_kids: smallTree("k") },
   });
   const first = await catalog.home();
   assert.equal(portal.calls.length, 4);
   assert.deepEqual(rowSets().map((s) => s.k), ["rows:0", META_KEY], "one part, the meta last");
-  assert.ok(rowSets().every((s) => s.o.ttlMs === 3 * DAY));
+  assert.ok(rowSets().every((s) => s.o.ttlMs === 14 * DAY));
   const second = await catalog.home();
   assert.equal(portal.calls.length, 4, "served from memory");
   assert.deepEqual(second, first);
@@ -316,12 +316,12 @@ test("a failed background refresh keeps the rows served and is not retried on ev
   assert.deepEqual(await t.restart().home(), first, "the stored snapshot was not replaced by a failed refresh");
 });
 
-test("the snapshot expires through the storage ttl (real expiry): a cold start after 3 days rebuilds", async () => {
+test("the snapshot expires through the storage ttl (real expiry): a cold start after 14 days rebuilds", async () => {
   const realNow = Date.now;
   const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
   await t.catalog.home();
   const before = t.portal.calls.length;
-  Date.now = () => realNow() + 3 * DAY + 1000;
+  Date.now = () => realNow() + 14 * DAY + 1000;
   try { await t.restart().home(); } finally { Date.now = realNow; }
   assert.equal(t.portal.calls.length, before + 4, "nothing kept: the four roots are asked, and waited for");
 });
@@ -643,19 +643,70 @@ test("classify and projectRows are reusable pieces: projectRows drops empty rows
 
 // ---- storage budget -----------------------------------------------------------------------------
 
-test("rows too big for the snapshot keep Home and the category tiles whole; a section beyond them waits for the portal once", async () => {
+// Settles within a few microtasks: no portal round trip, no build (the KALLEY's 2.2.4 `section` took 22 s).
+async function answersAtOnce(promise) {
+  let done = false;
+  const p = promise.then((v) => { done = true; return v; });
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.ok(done, "answered without waiting for the portal or a build");
+  return p;
+}
+
+test("rows too big for the snapshot keep Home and the category tiles whole from a cold start", async () => {
   const t = setup({ roots: realisticRoots() });
   const fresh = { home: await t.catalog.home(), tiles: await makeCategories({ catalog: t.catalog }).categories() };
-  const tab = (await makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock }).section({ tab: "anime" })).rows;
   const cold = t.restart();
   const refs = (rows) => rows.map((r) => [r.id, r.items.map((i) => i.ref)]);
-  assert.deepEqual(refs(await cold.home()), refs(fresh.home));
-  assert.deepEqual(await makeCategories({ catalog: cold }).categories(), fresh.tiles);
-  assert.equal(t.portal.calls.length, 4, "home and categories from the snapshot");
-  const coldTab = (await makeSection({ kino: t.kino, catalog: cold, clock: t.clock }).section({ tab: "anime" })).rows;
-  assert.deepEqual(coldTab, tab);
-  const extra = t.portal.calls.length - 4;
-  assert.ok(extra === 0 || extra === 4, "a partial snapshot sends section to the portal once");
+  assert.deepEqual(refs(await answersAtOnce(cold.home())), refs(fresh.home));
+  assert.deepEqual(await answersAtOnce(makeCategories({ catalog: cold }).categories()), fresh.tiles);
+  await settle();
+  assert.equal(t.portal.calls.length, 4, "home and categories never start a build for a partial snapshot");
+});
+
+test("partial snapshot: section answers at once from it, completes once in the background, and a second section does not rebuild", async () => {
+  const t = setup({ roots: realisticRoots() });
+  await t.catalog.home();
+  const full = (await makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock }).section({ tab: "anime" })).rows;
+  const cold = t.restart();
+  const section = makeSection({ kino: t.kino, catalog: cold, clock: t.clock });
+  const first = (await answersAtOnce(section.section({ tab: "anime" }))).rows;
+  // First paint: the same rows of the tab, each with its first items at least.
+  assert.deepEqual(first.map((r) => r.id), full.map((r) => r.id));
+  first.forEach((r, n) => assert.deepEqual(r.items.map((i) => i.ref), full[n].items.slice(0, r.items.length).map((i) => i.ref)));
+  assert.ok(first.some((r, n) => r.items.length < full[n].items.length), "this snapshot really is partial");
+  await settle();
+  assert.equal(t.portal.calls.length, 8, "one background build of the four roots");
+  const second = (await answersAtOnce(section.section({ tab: "anime" }))).rows;
+  assert.deepEqual(second, full, "the second section is the whole tab, from memory");
+  await answersAtOnce(section.section({ tab: "series" }));
+  await settle();
+  assert.equal(t.portal.calls.length, 8, "no rebuild on later calls");
+});
+
+test("a section that keeps landing in a new runtime (Kino drops it after a timeout) never waits for a build", async () => {
+  const t = setup({ roots: realisticRoots() });
+  await t.catalog.home();
+  for (let i = 0; i < 3; i++) {
+    const rows = (await answersAtOnce(makeSection({ kino: t.kino, catalog: t.restart(), clock: t.clock }).section({ tab: "series" }))).rows;
+    assert.ok(rows.length > 0);
+  }
+});
+
+test("browse and the scoped search on a cold start: the snapshot row's items at once, the whole row once built", async () => {
+  const t = setup({ roots: realisticRoots() });
+  const whole = await t.catalog.browse("magis_top_peliculas", null);
+  assert.equal(whole.items.length, 50);
+  const cold = t.restart();
+  const page = await answersAtOnce(cold.browse("magis_top_peliculas", null));
+  assert.deepEqual(page.items.map((i) => i.ref), whole.items.slice(0, 20).map((i) => i.ref));
+  assert.equal(page.next, undefined, "no next page until the whole row is built");
+  assert.deepEqual(await answersAtOnce(cold.browse("magis_top_peliculas", "50")), { items: [] });
+  const hit = whole.items[3].title;
+  const found = await answersAtOnce(cold.search({ q: hit, within: "magis_top_peliculas" }));
+  assert.ok(found.items.some((i) => i.title === hit));
+  await settle();
+  assert.equal(t.portal.calls.length, 8, "one background build");
+  assert.deepEqual(await answersAtOnce(cold.browse("magis_top_peliculas", null)), whole);
 });
 
 test("the stored form round-trips every field the projection reads", async () => {

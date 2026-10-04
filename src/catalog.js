@@ -19,10 +19,11 @@ const ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime:
 export const ADULT_ROOT_CODE = "masnew_adult";
 export const ADULT_REF = "magis_adultos";
 // The classified rows are fresh for 2 h. After that they are still served at once while a refresh
-// runs in the background (stale-while-revalidate); the stored snapshot is kept 3 days, so a cold
-// start after a night answers from storage instead of fetching, parsing and classifying four roots.
+// runs in the background (stale-while-revalidate); the stored snapshot is kept 14 days, so a cold
+// start answers from storage instead of fetching, parsing and classifying four roots (more than the
+// call's 20 s on a 32-bit TV).
 const ROWS_FRESH_MS = 2 * 3600_000;
-const SNAPSHOT_TTL_MS = 3 * 24 * 3600_000;
+const SNAPSHOT_TTL_MS = 14 * 24 * 3600_000;
 const TREE_PAGE_SIZE = 60;
 const REFRESH_GAP_MS = 5 * 60_000;
 
@@ -241,15 +242,17 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     return rows;
   }
 
-  // One background refresh at a time, and at most one every REFRESH_GAP_MS: one that failed or came
-  // back incomplete keeps what is served (it never throws) and is not retried on every call.
+  // One background build at a time, and at most one every REFRESH_GAP_MS: one that failed or came
+  // back incomplete keeps what is served (it never throws) and is not retried on every call. `why`:
+  // "stale" asks every root again; "partial" completes rows the snapshot only has in part (the trees
+  // already in memory are reused).
   let refreshing = null;
   let refreshedAt = -Infinity;
-  function refreshInBackground() {
+  function refreshInBackground(why) {
     if (refreshing || clock.now() - refreshedAt < REFRESH_GAP_MS) return;
     refreshedAt = clock.now();
-    trace(kino, "home", "refresh", {});
-    refreshing = fetchRows(CALL_BUDGET_MS.home, true)
+    trace(kino, "home", "refresh", { why });
+    refreshing = fetchRows(CALL_BUDGET_MS.home, why === "stale")
       .catch((e) => { trace(kino, "home", "refresh_fail", { code: errCode(e) }); })
       .finally(() => { refreshing = null; });
   }
@@ -264,21 +267,22 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
 
   /**
    * The classified rows. `need`: "home" and "categories" read only `shown` of their rows, "section"
-   * all of every row's `shown`, "full" also `all` (browse, scoped search). A kept answer is served at
-   * once, also when stale (then refreshed in the background); the portal is waited for only when
-   * nothing usable is kept.
+   * every row's `shown`, "full" also `all` (browse, scoped search). Whatever is kept is served at once:
+   * the full rows in memory, else the stored snapshot, even stale or partial (a partial row has only its
+   * first items and a snapshot row no `all`), and the rest is built in the background. The portal is
+   * waited for only when nothing is kept at all: a whole build takes more than the call's 20 s on a
+   * 32-bit TV, and a call that runs out of time is thrown away with its sandbox (2.2.4 on the KALLEY).
    */
   async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
     if (full) {
-      if (stale(full.at)) refreshInBackground();
+      if (stale(full.at)) refreshInBackground("stale");
       return full.rows;
     }
-    if (need !== "full") {
-      const snap = readSnapshot();
-      if (snap && (snap.complete || need !== "section")) {
-        if (stale(snap.at)) refreshInBackground();
-        return snap.rows;
-      }
+    const snap = readSnapshot();
+    if (snap) {
+      if (stale(snap.at)) refreshInBackground("stale");
+      else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") refreshInBackground("partial");
+      return snap.rows;
     }
     return sharedFetchRows(budgetMs);
   }
@@ -332,9 +336,12 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     if (!row) throw kino.error("not_found", "No se encontró esa lista");
     const offset = offsetOf(cursor);
     const nowMs = clock.now();
-    const items = row.all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null);
+    // A row from the snapshot has no `all`: its shown items are the page, with no next (the full rows
+    // are being built in the background for the next visit).
+    const list = row.all ?? (offset === 0 ? row.shown : []);
+    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
-    return next < row.all.length ? { items, next: String(next) } : { items };
+    return row.all && next < list.length ? { items, next: String(next) } : { items };
   }
 
   const { search: globalSearch } = makeSearch({ kino, portal, session, clock, tmdb });
@@ -356,7 +363,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       const row = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : undefined;
       // Not one of our refs: null is scopedSearch's "can't search there" (Kino filters the page itself), not a failure.
       if (!row) return null;
-      pool = row.all;
+      pool = row.all ?? row.shown; // a snapshot row: its shown items until the full rows are built
     }
     const ranked = rankWithin(kino, pool, q);
     const offset = offsetOf(query.cursor);

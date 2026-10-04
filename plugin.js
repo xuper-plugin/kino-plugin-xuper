@@ -2263,7 +2263,7 @@ var ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "
 var ADULT_ROOT_CODE = "masnew_adult";
 var ADULT_REF = "magis_adultos";
 var ROWS_FRESH_MS = 2 * 36e5;
-var SNAPSHOT_TTL_MS = 3 * 24 * 36e5;
+var SNAPSHOT_TTL_MS = 14 * 24 * 36e5;
 var TREE_PAGE_SIZE = 60;
 var REFRESH_GAP_MS = 5 * 6e4;
 var BROWSE_PAGE = 50;
@@ -2440,11 +2440,11 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   let refreshing = null;
   let refreshedAt = -Infinity;
-  function refreshInBackground() {
+  function refreshInBackground(why) {
     if (refreshing || clock2.now() - refreshedAt < REFRESH_GAP_MS) return;
     refreshedAt = clock2.now();
-    trace(kino2, "home", "refresh", {});
-    refreshing = fetchRows(CALL_BUDGET_MS.home, true).catch((e) => {
+    trace(kino2, "home", "refresh", { why });
+    refreshing = fetchRows(CALL_BUDGET_MS.home, why === "stale").catch((e) => {
       trace(kino2, "home", "refresh_fail", { code: errCode(e) });
     }).finally(() => {
       refreshing = null;
@@ -2459,15 +2459,14 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
     if (full) {
-      if (stale(full.at)) refreshInBackground();
+      if (stale(full.at)) refreshInBackground("stale");
       return full.rows;
     }
-    if (need !== "full") {
-      const snap = readSnapshot();
-      if (snap && (snap.complete || need !== "section")) {
-        if (stale(snap.at)) refreshInBackground();
-        return snap.rows;
-      }
+    const snap = readSnapshot();
+    if (snap) {
+      if (stale(snap.at)) refreshInBackground("stale");
+      else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") refreshInBackground("partial");
+      return snap.rows;
     }
     return sharedFetchRows(budgetMs);
   }
@@ -2516,9 +2515,10 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     if (!row2) throw kino2.error("not_found", "No se encontr\xF3 esa lista");
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
-    const items = row2.all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null);
+    const list = row2.all ?? (offset === 0 ? row2.shown : []);
+    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
-    return next < row2.all.length ? { items, next: String(next) } : { items };
+    return row2.all && next < list.length ? { items, next: String(next) } : { items };
   }
   const { search: globalSearch } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb });
   async function searchWithin(query) {
@@ -2532,7 +2532,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     } else {
       const row2 = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : void 0;
       if (!row2) return null;
-      pool = row2.all;
+      pool = row2.all ?? row2.shown;
     }
     const ranked = rankWithin(kino2, pool, q);
     const offset = offsetOf(query.cursor);
