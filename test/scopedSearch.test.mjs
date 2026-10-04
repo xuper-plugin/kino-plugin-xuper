@@ -88,7 +88,7 @@ test("a cold tree is fetched inside the search's own budget (15 s less the margi
   const w = setup();
   await w.catalog.search({ q: "rocky", within: DRAMA });
   assert.ok(w.deadlines.length > 0);
-  for (const d of w.deadlines) assert.equal(d, NOW + 15_000 - 2_000);
+  for (const d of w.deadlines) assert.ok(d <= NOW + 15_000 - 2_000, `deadline ${d - NOW} ms after the start`);
 });
 
 test("cursor paging: 50 a page, next as a string, garbage cursor is the first page", async () => {

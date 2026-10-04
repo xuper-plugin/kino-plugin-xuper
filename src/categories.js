@@ -1,7 +1,6 @@
 // Xuper's Categorías tiles (apiVersion 6): the Home's featured and genre rows, in the classifier's
 // order, as the native tiles were (CategoriesViewModel: magis_g_* plus the featured rows, the
 // picture being the first shown item's backdrop, else its poster). `ref` is the row id `browse` pages.
-import { CALL_BUDGET_MS } from "./portal.js";
 import { ADULT_REF } from "./catalog.js";
 
 const MAX_CATEGORIES = 24; // contract caps
@@ -30,7 +29,7 @@ export function makeCategories({ catalog }) {
   return {
     // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
     categories: async () => {
-      const tiles = tilesOf(await catalog.rows(CALL_BUDGET_MS.categories, "categories"));
+      const tiles = tilesOf(await catalog.rows("categories"));
       return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES - 1), { ...ADULT_TILE }];
     },
   };

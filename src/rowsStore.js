@@ -231,3 +231,28 @@ export function makeRowsStore({ kino, ttlMs }) {
 
   return { read, write };
 }
+
+/**
+ * The sections of a root's tree as 2.2.3 and older stored it under `tree:<root>`: `{ v: 1, p: url prefix,
+ * i: [[id, title, poster, backdrop, durationS, type, [genre], score, description, shelvedAtMs]],
+ * s: [[section name, [item#]]] }`. Throws when the text is not one.
+ */
+export function decodeLegacyTree(text) {
+  const o = JSON.parse(text);
+  if (o === null || typeof o !== "object" || o.v !== 1 || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
+    throw new Error("stored tree is malformed");
+  }
+  const full = (u) => (typeof u === "string" ? o.p + u : null);
+  const items = o.i.map((r) => {
+    if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[5] !== "string" || !Array.isArray(r[6])) throw new Error("stored item is malformed");
+    return {
+      id: r[0], title: asText(r[1]), poster: full(r[2]), backdrop: full(r[3]), durationS: Number(r[4]) || 0,
+      type: r[5], genres: r[6].map(asText), score: typeof r[7] === "number" ? r[7] : null,
+      description: asText(r[8]), shelvedAtMs: Number(r[9]) || 0,
+    };
+  });
+  return o.s.map((sec) => {
+    if (!Array.isArray(sec) || typeof sec[0] !== "string" || !isIndexList(sec[1], items.length)) throw new Error("stored section is malformed");
+    return { name: sec[0], items: sec[1].map((k) => items[k]) };
+  });
+}

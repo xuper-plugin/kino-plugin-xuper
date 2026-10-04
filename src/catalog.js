@@ -2,7 +2,7 @@
 // (§4.4) and `episodes` in episodes.js (§4.3); both are composed in. Each public function is self-contained.
 import { classify, KINDS } from "./homeClassifier.js";
 import { parseTree, refOf, parseShelveTime } from "./homeTree.js";
-import { fitRows, makeRowsStore } from "./rowsStore.js";
+import { fitRows, makeRowsStore, decodeLegacyTree } from "./rowsStore.js";
 import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
@@ -29,13 +29,13 @@ const REFRESH_GAP_MS = 5 * 60_000;
 // Background work is done in slices inside calls (see makeCatalog): a call starts a slice only while it
 // has run for less than this, and a slice's portal fetch gets this budget (the call's margin taken off).
 const SLICE_START_MS = 1_500;
-const SLICE_FETCH_MS = 8_000;
+const SLICE_MARGIN_MS = 2_000; // as callDeadline's: what a slice leaves of the calling export's cap
+const SLICE_FETCH_MS = 14_000;
 
 const BROWSE_PAGE = 50;
-// Every root failed: the pass is asked once more after this pause (native EMPTY_PASS_RETRY_DELAYS_MS
-// starts at 1.5 s), only when at least the pause plus this much of the call's time is left.
+// Every root of a cold pass failed: the pass is asked once more after this pause (native
+// EMPTY_PASS_RETRY_DELAYS_MS starts at 1.5 s).
 const HOME_RETRY_PAUSE_MS = 1_500;
-const HOME_RETRY_MIN_MS = 3_000;
 const MAX_HOME_ROWS = 20; // SDK output caps
 const MAX_ROW_ITEMS = 60;
 const MAX_GENRES = 5;
@@ -174,8 +174,6 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     return pending;
   }
 
-  // Every root asked failed (none cached, none answered, not even empty).
-  const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
   // What to tell the person: a root's specific error (geo, account...) before a plain unavailable.
   const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
 
@@ -193,118 +191,84 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     trace(kino, "home", "all_fail", fields);
   }
 
-  // The classified rows over the four roots from the portal: the trees kept in memory first (all of
-  // them ignored when `refresh`), the rest asked in parallel. When every root answered, the rows are
-  // kept in memory and stored as the snapshot. `budgetMs`: the calling export's cap.
-  async function fetchRows(budgetMs, refresh = false) {
-    const deadline = callDeadline(clock, budgetMs);
-    const roots = {};
-    const missing = [];
-    for (const { root } of KINDS) {
-      const kept = trees.get(root);
-      if (!refresh && kept && !stale(kept.at)) roots[root] = kept.sections; else missing.push(root);
-    }
-    let complete = true;
-    if (missing.length > 0) {
-      // The session is not created by withValidSession: ensure it first; a failure here is the error.
-      await session.ensure({ deadline });
-      const pass = () => Promise.all(missing.map((root) => sharedFetchRoot(root, deadline)));
-      let fetched = await pass();
-      let passes = 1;
-      if (allFailed(fetched)) {
-        // Every root failed: one more pass after a short pause (native), if the call's time allows;
-        // still all failed, the error is thrown so Home says Xuper failed and offers "Reintentar".
-        if (deadline - clock.now() >= HOME_RETRY_PAUSE_MS + HOME_RETRY_MIN_MS) {
-          try { await kino.sleep(HOME_RETRY_PAUSE_MS); } catch (_) { /* no pause: retry at once */ }
-          fetched = await pass();
-          passes = 2;
-        }
-        if (allFailed(fetched)) {
-          summarizeFailure(fetched, passes);
-          throw worstOf(fetched);
-        }
-      }
-      const at = clock.now();
-      missing.forEach((root, i) => {
-        const { sections, error } = fetched[i];
-        if (error !== null) complete = false;
-        // A tree with no item is as empty as no tree: never kept, asked again by the next call. A root
-        // that failed keeps, and shows, the tree it had (a refresh never loses one).
-        const kept = trees.get(root);
-        if (hasItems(sections)) trees.set(root, { sections, at });
-        else if (error === null) trees.delete(root);
-        roots[root] = error !== null && kept ? kept.sections : sections;
-      });
-    }
-    const rows = classify(roots);
-    // Only a whole answer is kept (a failed root is asked again by the next call) and never an empty one.
-    if (complete && rows.length > 0) {
-      const at = clock.now();
-      full = { rows, at };
-      saveSnapshot(rows, at);
-    }
-    return rows;
-  }
-
-  // ---- background work, in slices --------------------------------------------------------------
+  // ---- the work, in slices -----------------------------------------------------------------------
   // Kino's call returns only once the sandbox's job queue is empty and every kino.fetch has settled
-  // (quickjs-kt's evaluate drains them): nothing runs "after" a call, and a build left running would
-  // hold the answer of the call that started it (2.2.5 on the KALLEY: section ok in 32 ms, delivered
-  // after 20 s). So the work that refreshes stale rows, or completes a partial snapshot, is done in
-  // slices that the catalog's calls await: one root fetched and parsed, then the classification, then
-  // the snapshot write. A call starts a new slice only while it has run for less than SLICE_START_MS,
-  // so it pays about one slice (about 2 s on a 32-bit TV) on top of its answer, served from what is
-  // kept. The work lives in memory: a sandbox thrown away starts it again from the snapshot.
-  let work = null; // { why, todo: [root], results: { root: { sections, error } }, rows, save }
-  let workEndedAt = -Infinity; // a failed or incomplete pass is tried again only REFRESH_GAP_MS later
+  // (quickjs-kt's evaluate drains them): nothing runs "after" a call, and work left running holds the
+  // answer of the call that started it (2.2.5 on the KALLEY: section ok in 32 ms, delivered after 20 s).
+  // And a whole build takes longer than a call's 20 s on that TV (26 s with 2.2.4). So every build is a
+  // pass of slices the catalog's calls await: one root fetched and parsed per slice, then the
+  // classification, then the snapshot write. A call starts a slice only while it has run for less than
+  // SLICE_START_MS, so it pays about one slice (about 2 s on the TV) on top of its answer, made of what
+  // is kept so far; the pass goes on in the next calls. The pass lives in memory: a sandbox thrown away
+  // starts again from what is stored.
+  //
+  // `why`: "cold" = nothing complete is kept (first start, or 2.2.3's storage): every root not in memory
+  // is asked, a pass where every root failed is asked once more after a pause, and if that fails too the
+  // call that ends it throws the error (Home says Xuper failed and offers "Reintentar"); a cold pass that
+  // ends incomplete is simply started again by the next call. "stale" = rows older than 2 h are served
+  // while every root is asked again. "partial" = the stored snapshot lacks rows section, browse or the
+  // scoped search need: the roots are asked, the full rows kept in memory, nothing stored. A stale or
+  // partial pass that fails keeps what is served and is tried again REFRESH_GAP_MS later.
+  let work = null; // { why, asked: [root], todo: [root], results: { root: { sections, error } }, pass, rows, save }
+  let workEndedAt = -Infinity;
+  let treesVersion = 0;
 
   function want(why) {
-    if (work || clock.now() - workEndedAt < REFRESH_GAP_MS) return;
+    if (work) return;
+    if (why !== "cold" && clock.now() - workEndedAt < REFRESH_GAP_MS) return;
+    const asked = KINDS.map((k) => k.root).filter((root) => why === "stale" || !trees.has(root) || stale(trees.get(root).at));
     trace(kino, "home", "refresh", { why });
-    // "stale" asks every root again and stores the result; "partial" only needs the full rows in memory
-    // (the stored snapshot is current) and reuses the trees already kept.
-    const todo = KINDS.map((k) => k.root).filter((root) => why === "stale" || !trees.has(root) || stale(trees.get(root).at));
-    work = { why, todo, results: {}, rows: null, save: why === "stale" };
+    work = { why, asked, todo: [...asked], results: {}, pass: 1, rows: null, save: why !== "partial" };
   }
 
   function endWork(ok) {
-    if (!ok) workEndedAt = clock.now();
+    if (!ok && work && work.why !== "cold") workEndedAt = clock.now();
     work = null;
   }
 
-  async function slice() {
+  function keepTree(root, r, at) {
+    if (hasItems(r.sections)) trees.set(root, { sections: r.sections, at });
+    else if (r.error === null) trees.delete(root);
+    else return; // a failed root keeps, and shows, the tree it had
+    treesVersion++;
+  }
+
+  async function slice(callEnd) {
     const w = work;
     if (w.todo.length > 0) {
       const root = w.todo[0];
-      const deadline = callDeadline(clock, SLICE_FETCH_MS);
-      await session.ensure({ deadline });
-      w.results[root] = await sharedFetchRoot(root, deadline);
+      // A root's own budget, and never past the calling export's (search has 15 s, the rest 20 s).
+      const deadline = Math.min(callDeadline(clock, SLICE_FETCH_MS), callEnd);
+      // The session is not created by withValidSession: ensured once per pass; a failure is the slice's.
+      if (!w.ensured) { await session.ensure({ deadline }); w.ensured = true; }
+      const r = await sharedFetchRoot(root, deadline);
+      w.results[root] = r;
+      keepTree(root, r, clock.now());
       w.todo.shift();
       return;
     }
     if (w.rows === null) {
-      const results = Object.entries(w.results);
-      if (results.length > 0 && results.every(([, r]) => r.error !== null)) {
-        trace(kino, "home", "refresh_fail", { code: errCode(results[0][1].error) });
-        return endWork(false);
+      const fetched = w.asked.map((root) => w.results[root]);
+      // Every root asked failed (none kept, none answered, not even empty).
+      if (fetched.length === KINDS.length && fetched.every((r) => r.error !== null)) {
+        if (w.why !== "cold") { trace(kino, "home", "refresh_fail", { code: errCode(fetched[0].error) }); return endWork(false); }
+        if (w.pass === 1) {
+          // One more pass after a short pause (native EMPTY_PASS_RETRY_DELAYS_MS starts at 1.5 s).
+          w.pass = 2;
+          w.todo = [...w.asked];
+          try { await kino.sleep(HOME_RETRY_PAUSE_MS); } catch (_) { /* no pause: retry at once */ }
+          return;
+        }
+        summarizeFailure(fetched, 2);
+        endWork(false);
+        throw worstOf(fetched);
       }
-      const at = clock.now();
-      const roots = {};
-      let complete = true;
-      for (const { root } of KINDS) {
-        const r = w.results[root];
-        const kept = trees.get(root);
-        if (!r) { roots[root] = kept ? kept.sections : []; continue; }
-        if (r.error !== null) complete = false;
-        if (hasItems(r.sections)) trees.set(root, { sections: r.sections, at });
-        else if (r.error === null) trees.delete(root);
-        roots[root] = r.error !== null && kept ? kept.sections : r.sections;
-      }
-      // An incomplete pass keeps what is served; it is tried again later.
-      if (!complete) return endWork(false);
-      const rows = classify(roots);
+      // Incomplete: what answered is kept in memory and shown, nothing is stored. A stale or partial pass
+      // is tried again later; a cold one by the next call.
+      if (fetched.some((r) => r.error !== null)) return endWork(false);
+      const rows = classify(rootsKept());
       if (rows.length === 0) return endWork(false);
-      full = { rows, at };
+      full = { rows, at: clock.now() };
       w.rows = rows;
       if (!w.save) endWork(true);
       return;
@@ -313,46 +277,99 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     endWork(true);
   }
 
-  // Runs slices while the call is young; a slice that throws ends the pass (never the call).
-  async function advance(startedAt) {
+  const rootsKept = () => Object.fromEntries(KINDS.map(({ root }) => [root, trees.has(root) ? trees.get(root).sections : []]));
+
+  // Runs slices while the call is young. A slice that throws ends its pass; a cold pass's error is the
+  // call's (nothing is kept to answer with), any other is only logged.
+  // One slice at a time even when calls overlap (Kino runs them one by one; a test may not).
+  let running = null;
+  function runSlice(callEnd) {
+    if (!running) running = slice(callEnd).finally(() => { running = null; });
+    return running;
+  }
+
+  async function advance(startedAt, budgetMs) {
+    const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
     while (work && clock.now() - startedAt < SLICE_START_MS) {
-      try { await slice(); } catch (e) { trace(kino, "home", "refresh_fail", { code: errCode(e) }); endWork(false); }
+      const cold = work.why === "cold";
+      try {
+        await runSlice(callEnd);
+      } catch (e) {
+        trace(kino, "home", "refresh_fail", { code: errCode(e) });
+        endWork(false);
+        if (cold) throw e;
+      }
     }
   }
 
-  // Concurrent cold callers (home and categories at start-up) share one build: one classification,
-  // one snapshot write. A joiner inherits the first caller's deadline.
-  let building = null;
-  function sharedFetchRows(budgetMs) {
-    if (!building) building = fetchRows(budgetMs).finally(() => { building = null; });
-    return building;
+  // The rows of the roots kept so far, while nothing complete is (classified once per change).
+  let soFar = null;
+  function rowsSoFar() {
+    if (!soFar || soFar.version !== treesVersion) soFar = { version: treesVersion, rows: classify(rootsKept()) };
+    return soFar.rows;
+  }
+
+  // 2.2.3 and older kept a root's tree under `tree:<root>` (2 h) when it fit: such a tree is a seed, shown
+  // at once and asked again by the cold pass. Read once per sandbox; the snapshot write removes the keys.
+  let seeded = false;
+  function seedFromLegacyTrees() {
+    if (seeded) return;
+    seeded = true;
+    for (const { root } of KINDS) {
+      try {
+        const raw = kino.storage.get(`tree:${root}`);
+        if (typeof raw !== "string") continue;
+        const sections = decodeLegacyTree(raw);
+        if (!hasItems(sections)) continue;
+        trees.set(root, { sections, at: clock.now() - ROWS_FRESH_MS }); // stale: asked again by the pass
+        treesVersion++;
+      } catch (_) { /* not a tree: ignored */ }
+    }
+    if (treesVersion > 0) trace(kino, "store", "seed", { what: "tree", roots: treesVersion });
   }
 
   /**
    * The classified rows. `need`: "home" and "categories" read only `shown` of their rows, "section"
-   * every row's `shown`, "full" also `all` (browse, scoped search). Whatever is kept is served: the
-   * full rows in memory, else the stored snapshot, even stale or partial (a partial row has only its
-   * first items and a snapshot row no `all`). What is missing is built in slices across calls (see
-   * `slice`). The portal is waited for in full only when nothing is kept at all.
+   * every row's `shown`, "full" also `all` (browse, scoped search). What is kept is served: the full rows
+   * in memory, else the stored snapshot, even stale or partial (a partial row has only its first items
+   * and a snapshot row no `all`), else the rows of the roots fetched so far (none at first). What is
+   * missing is built in slices across calls (see `slice`); no call ever waits for a whole build.
    */
-  async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
+  async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home) {
     const startedAt = clock.now();
+    let snap = null;
     if (full) {
       if (stale(full.at)) want("stale");
-    } else {
-      const snap = readSnapshot();
-      if (!snap) return sharedFetchRows(budgetMs);
+    } else if ((snap = readSnapshot())) {
       if (stale(snap.at)) want("stale");
       else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") want("partial");
+    } else {
+      seedFromLegacyTrees();
+      want("cold");
     }
-    await advance(startedAt);
-    return full ? full.rows : readSnapshot().rows;
+    await advance(startedAt, budgetMs);
+    if (full) return full.rows;
+    if (snap) return snap.rows;
+    const rows = rowsSoFar();
+    // Nothing to show and every root asked so far failed: that error is this call's (Home says Xuper
+    // failed and offers "Reintentar"); the pass goes on with the next call.
+    if (rows.length === 0 && work && work.why === "cold") {
+      const done = Object.values(work.results);
+      if (done.length > 0 && done.every((r) => r.error !== null)) { summarizeFailure(done, work.pass); throw worstOf(done); }
+    }
+    return rows;
+  }
+
+  // A row not (yet) found while the first pass is still running: "try again", never "no such list".
+  function rowMissing() {
+    if (!full && work && work.why === "cold") throw kino.error("unavailable", "Xuper todavía está cargando su catálogo, intenta de nuevo en un momento");
+    throw kino.error("not_found", "No se encontró esa lista");
   }
 
   async function home() {
     // Asked alongside the VOD rows, inside home's own deadline; its failure is no row (never a throw).
     const live = countryRow ? countryRow(callDeadline(clock, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
-    const rows = projectRows(await buildRows(CALL_BUDGET_MS.home, "home"), clock.now());
+    const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now());
     const row = await live;
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
@@ -394,8 +411,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
 
   async function browse(ref, cursor) {
     if (ref === ADULT_REF) return browseAdult(cursor);
-    const row = typeof ref === "string" ? (await buildRows()).find((r) => r.id === ref) : undefined;
-    if (!row) throw kino.error("not_found", "No se encontró esa lista");
+    const row = typeof ref === "string" ? (await buildRows("full", CALL_BUDGET_MS.browse)).find((r) => r.id === ref) : undefined;
+    if (!row) rowMissing();
     const offset = offsetOf(cursor);
     const nowMs = clock.now();
     // A row from the snapshot has no `all`: its shown items are the page, with no next (the full rows
@@ -422,7 +439,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     if (adult) {
       pool = await adultMovies(callDeadline(clock, CALL_BUDGET_MS.search));
     } else {
-      const row = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : undefined;
+      const row = typeof within === "string" ? (await buildRows("full", CALL_BUDGET_MS.search)).find((r) => r.id === within) : undefined;
       // Not one of our refs: null is scopedSearch's "can't search there" (Kino filters the page itself), not a failure.
       if (!row) return null;
       pool = row.all ?? row.shown; // a snapshot row: its shown items until the full rows are built
@@ -447,7 +464,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
 
   // The classified rows of the four roots (the same kept rows Home reads), for section and categories:
   // `need` is "section" or "categories" (see buildRows).
-  const rows = (budgetMs, need = "full") => buildRows(budgetMs, need);
+  const rows = (need = "full") => buildRows(need, CALL_BUDGET_MS[need] ?? CALL_BUDGET_MS.home);
 
   return { home, browse, rows, search, episodes, portalChapters };
 }

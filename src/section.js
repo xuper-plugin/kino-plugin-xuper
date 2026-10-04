@@ -3,7 +3,6 @@
 // this order. The adult root is never a tab: the portal is never asked for it.
 import { rootOfRow } from "./homeClassifier.js";
 import { projectRows } from "./catalog.js";
-import { CALL_BUDGET_MS } from "./portal.js";
 
 export const TABS = [
   { id: "peliculas", label: "Películas" },
@@ -20,7 +19,7 @@ export function makeSection({ kino, catalog, clock }) {
     const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
     const tab = asked === null || asked === undefined || asked === "" ? TABS[0].id : asked;
     if (!TABS.some((t) => t.id === tab)) throw kino.error("not_found", "No se encontró esa pestaña");
-    const rows = await catalog.rows(CALL_BUDGET_MS.section, "section");
+    const rows = await catalog.rows("section");
     return { tabs: TABS.map((t) => ({ ...t })), tab, rows: rowsOfTab(rows, tab, clock.now()) };
   }
   return { section };

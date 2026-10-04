@@ -1782,6 +1782,32 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
   }
   return { read, write };
 }
+function decodeLegacyTree(text2) {
+  const o = JSON.parse(text2);
+  if (o === null || typeof o !== "object" || o.v !== 1 || typeof o.p !== "string" || !Array.isArray(o.i) || !Array.isArray(o.s)) {
+    throw new Error("stored tree is malformed");
+  }
+  const full = (u) => typeof u === "string" ? o.p + u : null;
+  const items = o.i.map((r) => {
+    if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[5] !== "string" || !Array.isArray(r[6])) throw new Error("stored item is malformed");
+    return {
+      id: r[0],
+      title: asText(r[1]),
+      poster: full(r[2]),
+      backdrop: full(r[3]),
+      durationS: Number(r[4]) || 0,
+      type: r[5],
+      genres: r[6].map(asText),
+      score: typeof r[7] === "number" ? r[7] : null,
+      description: asText(r[8]),
+      shelvedAtMs: Number(r[9]) || 0
+    };
+  });
+  return o.s.map((sec) => {
+    if (!Array.isArray(sec) || typeof sec[0] !== "string" || !isIndexList(sec[1], items.length)) throw new Error("stored section is malformed");
+    return { name: sec[0], items: sec[1].map((k) => items[k]) };
+  });
+}
 
 // src/byteCache.js
 function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid = () => true }) {
@@ -2255,10 +2281,10 @@ var SNAPSHOT_TTL_MS = 14 * 24 * 36e5;
 var TREE_PAGE_SIZE = 60;
 var REFRESH_GAP_MS = 5 * 6e4;
 var SLICE_START_MS = 1500;
-var SLICE_FETCH_MS = 8e3;
+var SLICE_MARGIN_MS = 2e3;
+var SLICE_FETCH_MS = 14e3;
 var BROWSE_PAGE = 50;
 var HOME_RETRY_PAUSE_MS = 1500;
-var HOME_RETRY_MIN_MS = 3e3;
 var MAX_HOME_ROWS = 20;
 var MAX_ROW_ITEMS = 60;
 var MAX_GENRES = 5;
@@ -2367,7 +2393,6 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     }
     return pending;
   }
-  const allFailed = (fetched) => fetched.length === KINDS.length && fetched.every((f) => f.error !== null);
   const worstOf = (fetched) => (fetched.find((f) => f.error.name !== "KinoError_unavailable") || fetched[0]).error;
   function summarizeFailure(fetched, passes) {
     const codes = [];
@@ -2381,100 +2406,65 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     });
     trace(kino2, "home", "all_fail", fields);
   }
-  async function fetchRows(budgetMs, refresh = false) {
-    const deadline = callDeadline(clock2, budgetMs);
-    const roots = {};
-    const missing = [];
-    for (const { root } of KINDS) {
-      const kept = trees.get(root);
-      if (!refresh && kept && !stale(kept.at)) roots[root] = kept.sections;
-      else missing.push(root);
-    }
-    let complete = true;
-    if (missing.length > 0) {
-      await session.ensure({ deadline });
-      const pass = () => Promise.all(missing.map((root) => sharedFetchRoot(root, deadline)));
-      let fetched = await pass();
-      let passes = 1;
-      if (allFailed(fetched)) {
-        if (deadline - clock2.now() >= HOME_RETRY_PAUSE_MS + HOME_RETRY_MIN_MS) {
-          try {
-            await kino2.sleep(HOME_RETRY_PAUSE_MS);
-          } catch (_) {
-          }
-          fetched = await pass();
-          passes = 2;
-        }
-        if (allFailed(fetched)) {
-          summarizeFailure(fetched, passes);
-          throw worstOf(fetched);
-        }
-      }
-      const at = clock2.now();
-      missing.forEach((root, i) => {
-        const { sections, error } = fetched[i];
-        if (error !== null) complete = false;
-        const kept = trees.get(root);
-        if (hasItems(sections)) trees.set(root, { sections, at });
-        else if (error === null) trees.delete(root);
-        roots[root] = error !== null && kept ? kept.sections : sections;
-      });
-    }
-    const rows2 = classify(roots);
-    if (complete && rows2.length > 0) {
-      const at = clock2.now();
-      full = { rows: rows2, at };
-      saveSnapshot(rows2, at);
-    }
-    return rows2;
-  }
   let work = null;
   let workEndedAt = -Infinity;
+  let treesVersion = 0;
   function want(why) {
-    if (work || clock2.now() - workEndedAt < REFRESH_GAP_MS) return;
+    if (work) return;
+    if (why !== "cold" && clock2.now() - workEndedAt < REFRESH_GAP_MS) return;
+    const asked = KINDS.map((k) => k.root).filter((root) => why === "stale" || !trees.has(root) || stale(trees.get(root).at));
     trace(kino2, "home", "refresh", { why });
-    const todo = KINDS.map((k) => k.root).filter((root) => why === "stale" || !trees.has(root) || stale(trees.get(root).at));
-    work = { why, todo, results: {}, rows: null, save: why === "stale" };
+    work = { why, asked, todo: [...asked], results: {}, pass: 1, rows: null, save: why !== "partial" };
   }
   function endWork(ok) {
-    if (!ok) workEndedAt = clock2.now();
+    if (!ok && work && work.why !== "cold") workEndedAt = clock2.now();
     work = null;
   }
-  async function slice() {
+  function keepTree(root, r, at) {
+    if (hasItems(r.sections)) trees.set(root, { sections: r.sections, at });
+    else if (r.error === null) trees.delete(root);
+    else return;
+    treesVersion++;
+  }
+  async function slice(callEnd) {
     const w = work;
     if (w.todo.length > 0) {
       const root = w.todo[0];
-      const deadline = callDeadline(clock2, SLICE_FETCH_MS);
-      await session.ensure({ deadline });
-      w.results[root] = await sharedFetchRoot(root, deadline);
+      const deadline = Math.min(callDeadline(clock2, SLICE_FETCH_MS), callEnd);
+      if (!w.ensured) {
+        await session.ensure({ deadline });
+        w.ensured = true;
+      }
+      const r = await sharedFetchRoot(root, deadline);
+      w.results[root] = r;
+      keepTree(root, r, clock2.now());
       w.todo.shift();
       return;
     }
     if (w.rows === null) {
-      const results = Object.entries(w.results);
-      if (results.length > 0 && results.every(([, r]) => r.error !== null)) {
-        trace(kino2, "home", "refresh_fail", { code: errCode(results[0][1].error) });
-        return endWork(false);
-      }
-      const at = clock2.now();
-      const roots = {};
-      let complete = true;
-      for (const { root } of KINDS) {
-        const r = w.results[root];
-        const kept = trees.get(root);
-        if (!r) {
-          roots[root] = kept ? kept.sections : [];
-          continue;
+      const fetched = w.asked.map((root) => w.results[root]);
+      if (fetched.length === KINDS.length && fetched.every((r) => r.error !== null)) {
+        if (w.why !== "cold") {
+          trace(kino2, "home", "refresh_fail", { code: errCode(fetched[0].error) });
+          return endWork(false);
         }
-        if (r.error !== null) complete = false;
-        if (hasItems(r.sections)) trees.set(root, { sections: r.sections, at });
-        else if (r.error === null) trees.delete(root);
-        roots[root] = r.error !== null && kept ? kept.sections : r.sections;
+        if (w.pass === 1) {
+          w.pass = 2;
+          w.todo = [...w.asked];
+          try {
+            await kino2.sleep(HOME_RETRY_PAUSE_MS);
+          } catch (_) {
+          }
+          return;
+        }
+        summarizeFailure(fetched, 2);
+        endWork(false);
+        throw worstOf(fetched);
       }
-      if (!complete) return endWork(false);
-      const rows2 = classify(roots);
+      if (fetched.some((r) => r.error !== null)) return endWork(false);
+      const rows2 = classify(rootsKept());
       if (rows2.length === 0) return endWork(false);
-      full = { rows: rows2, at };
+      full = { rows: rows2, at: clock2.now() };
       w.rows = rows2;
       if (!w.save) endWork(true);
       return;
@@ -2482,39 +2472,81 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     saveSnapshot(w.rows, full.at);
     endWork(true);
   }
-  async function advance(startedAt) {
+  const rootsKept = () => Object.fromEntries(KINDS.map(({ root }) => [root, trees.has(root) ? trees.get(root).sections : []]));
+  let running = null;
+  function runSlice(callEnd) {
+    if (!running) running = slice(callEnd).finally(() => {
+      running = null;
+    });
+    return running;
+  }
+  async function advance(startedAt, budgetMs) {
+    const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
     while (work && clock2.now() - startedAt < SLICE_START_MS) {
+      const cold = work.why === "cold";
       try {
-        await slice();
+        await runSlice(callEnd);
       } catch (e) {
         trace(kino2, "home", "refresh_fail", { code: errCode(e) });
         endWork(false);
+        if (cold) throw e;
       }
     }
   }
-  let building = null;
-  function sharedFetchRows(budgetMs) {
-    if (!building) building = fetchRows(budgetMs).finally(() => {
-      building = null;
-    });
-    return building;
+  let soFar = null;
+  function rowsSoFar() {
+    if (!soFar || soFar.version !== treesVersion) soFar = { version: treesVersion, rows: classify(rootsKept()) };
+    return soFar.rows;
   }
-  async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
+  let seeded = false;
+  function seedFromLegacyTrees() {
+    if (seeded) return;
+    seeded = true;
+    for (const { root } of KINDS) {
+      try {
+        const raw = kino2.storage.get(`tree:${root}`);
+        if (typeof raw !== "string") continue;
+        const sections = decodeLegacyTree(raw);
+        if (!hasItems(sections)) continue;
+        trees.set(root, { sections, at: clock2.now() - ROWS_FRESH_MS });
+        treesVersion++;
+      } catch (_) {
+      }
+    }
+    if (treesVersion > 0) trace(kino2, "store", "seed", { what: "tree", roots: treesVersion });
+  }
+  async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home) {
     const startedAt = clock2.now();
+    let snap = null;
     if (full) {
       if (stale(full.at)) want("stale");
-    } else {
-      const snap = readSnapshot();
-      if (!snap) return sharedFetchRows(budgetMs);
+    } else if (snap = readSnapshot()) {
       if (stale(snap.at)) want("stale");
       else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") want("partial");
+    } else {
+      seedFromLegacyTrees();
+      want("cold");
     }
-    await advance(startedAt);
-    return full ? full.rows : readSnapshot().rows;
+    await advance(startedAt, budgetMs);
+    if (full) return full.rows;
+    if (snap) return snap.rows;
+    const rows2 = rowsSoFar();
+    if (rows2.length === 0 && work && work.why === "cold") {
+      const done = Object.values(work.results);
+      if (done.length > 0 && done.every((r) => r.error !== null)) {
+        summarizeFailure(done, work.pass);
+        throw worstOf(done);
+      }
+    }
+    return rows2;
+  }
+  function rowMissing() {
+    if (!full && work && work.why === "cold") throw kino2.error("unavailable", "Xuper todav\xEDa est\xE1 cargando su cat\xE1logo, intenta de nuevo en un momento");
+    throw kino2.error("not_found", "No se encontr\xF3 esa lista");
   }
   async function home2() {
     const live2 = countryRow ? countryRow(callDeadline(clock2, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
-    const rows2 = projectRows(await buildRows(CALL_BUDGET_MS.home, "home"), clock2.now());
+    const rows2 = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock2.now());
     const row2 = await live2;
     return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
   }
@@ -2553,8 +2585,8 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   async function browse2(ref, cursor) {
     if (ref === ADULT_REF) return browseAdult(cursor);
-    const row2 = typeof ref === "string" ? (await buildRows()).find((r) => r.id === ref) : void 0;
-    if (!row2) throw kino2.error("not_found", "No se encontr\xF3 esa lista");
+    const row2 = typeof ref === "string" ? (await buildRows("full", CALL_BUDGET_MS.browse)).find((r) => r.id === ref) : void 0;
+    if (!row2) rowMissing();
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
     const list = row2.all ?? (offset === 0 ? row2.shown : []);
@@ -2572,7 +2604,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     if (adult) {
       pool = await adultMovies(callDeadline(clock2, CALL_BUDGET_MS.search));
     } else {
-      const row2 = typeof within === "string" ? (await buildRows(CALL_BUDGET_MS.search)).find((r) => r.id === within) : void 0;
+      const row2 = typeof within === "string" ? (await buildRows("full", CALL_BUDGET_MS.search)).find((r) => r.id === within) : void 0;
       if (!row2) return null;
       pool = row2.all ?? row2.shown;
     }
@@ -2589,7 +2621,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
   const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
-  const rows = (budgetMs, need = "full") => buildRows(budgetMs, need);
+  const rows = (need = "full") => buildRows(need, CALL_BUDGET_MS[need] ?? CALL_BUDGET_MS.home);
   return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters };
 }
 
@@ -3785,7 +3817,7 @@ function makeSection({ kino: kino2, catalog, clock: clock2 }) {
     const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
     const tab = asked === null || asked === void 0 || asked === "" ? TABS[0].id : asked;
     if (!TABS.some((t) => t.id === tab)) throw kino2.error("not_found", "No se encontr\xF3 esa pesta\xF1a");
-    const rows = await catalog.rows(CALL_BUDGET_MS.section, "section");
+    const rows = await catalog.rows("section");
     return { tabs: TABS.map((t) => ({ ...t })), tab, rows: rowsOfTab(rows, tab, clock2.now()) };
   }
   return { section: section2 };
@@ -3812,7 +3844,7 @@ function makeCategories({ catalog }) {
   return {
     // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
     categories: async () => {
-      const tiles = tilesOf(await catalog.rows(CALL_BUDGET_MS.categories, "categories"));
+      const tiles = tilesOf(await catalog.rows("categories"));
       return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES2 - 1), { ...ADULT_TILE }];
     }
   };

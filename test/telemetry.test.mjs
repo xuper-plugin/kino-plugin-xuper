@@ -310,7 +310,7 @@ test("a Home where every root fails ends with one compact summary line, inside t
   for (const l of [...ring].reverse()) { if (total + l.length + 1 > 2048) break; sent.unshift(l); total += l.length + 1; }
   const summary = sent.filter((l) => l.startsWith("xuper:home all_fail "));
   assert.equal(summary.length, 1, lines.join("\n"));
-  assert.match(summary[0], /^xuper:home all_fail roots=4 rounds=\d c1=geo_blocked( c2=[a-z0-9_]+)?( c3=[a-z0-9_]+)?$/);
+  assert.match(summary[0], /^xuper:home all_fail roots=\d rounds=\d c1=geo_blocked( c2=[a-z0-9_]+)?( c3=[a-z0-9_]+)?$/);
   assert.equal(appScrub(summary[0]), summary[0]);
   assert.equal(lines[lines.length - 1], summary[0], "the newest line, so it is the last one cut");
 });

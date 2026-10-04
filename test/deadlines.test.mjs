@@ -25,9 +25,15 @@ async function firstRowId() {
 const EXPORTS = {
   search: { cap: CAP.search, run: (w) => w.catalog.search(query), ok: (out) => assert.equal(out[0].id, "D1") },
   home: { cap: CAP.other, run: (w) => w.catalog.home(), ok: (out) => assert.ok(out.length > 0) },
-  browse: { cap: CAP.other, run: async (w) => w.catalog.browse(await firstRowId(), null), ok: (out) => assert.ok(out.items.length > 0) },
+  // With nothing stored the catalog is built in slices across calls (one root per call on a slow portal):
+  // until the row's root is in, browse says "still loading" and section shows the tabs with what is in.
+  browse: {
+    cap: CAP.other,
+    run: async (w) => w.catalog.browse(await firstRowId(), null).catch((e) => (/cargando/.test(e.message) && e.name === "KinoError_unavailable" ? { loading: true } : Promise.reject(e))),
+    ok: (out) => assert.ok(out.loading || out.items.length > 0),
+  },
   browseAdult: { cap: CAP.other, run: (w) => w.catalog.browse("magis_adultos", null), ok: (out) => assert.ok(out.items.length > 0 && out.items.every((i) => i.adult === true)) },
-  section: { cap: CAP.other, run: (w) => makeSection({ kino: w.kino, catalog: w.catalog, clock: w.clock }).section({ tab: "anime" }), ok: (out) => assert.ok(out.rows.length > 0) },
+  section: { cap: CAP.other, run: (w) => makeSection({ kino: w.kino, catalog: w.catalog, clock: w.clock }).section({ tab: "anime" }), ok: (out) => assert.ok(out.tabs.length === 4 && Array.isArray(out.rows)) },
   categories: { cap: CAP.other, run: (w) => makeCategories({ catalog: w.catalog }).categories(null), ok: (out) => assert.ok(out.length > 0) },
   episodes: { cap: CAP.other, run: (w) => w.catalog.episodes("magis1:tv:0:SERIE"), ok: (out) => assert.equal(out.episodes.length, 1) },
   resolveVod: { cap: CAP.other, run: (w) => w.resolve.resolve("magis1:movie:0:M1"), ok: (out) => assert.match(out.url, /vod\.cdn\.test/) },
