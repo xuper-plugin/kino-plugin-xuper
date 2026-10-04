@@ -4,6 +4,7 @@
   "version": "2.2.3",
   "apiVersion": 6,
   "entry": "plugin.js",
+  "icon": "icon.png",
   "hosts": [
     "oogoy.f30c96w8.com",
     "osuhk.m3x8o50te.com",
