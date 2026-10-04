@@ -26,6 +26,10 @@ const ROWS_FRESH_MS = 2 * 3600_000;
 const SNAPSHOT_TTL_MS = 14 * 24 * 3600_000;
 const TREE_PAGE_SIZE = 60;
 const REFRESH_GAP_MS = 5 * 60_000;
+// Background work is done in slices inside calls (see makeCatalog): a call starts a slice only while it
+// has run for less than this, and a slice's portal fetch gets this budget (the call's margin taken off).
+const SLICE_START_MS = 1_500;
+const SLICE_FETCH_MS = 8_000;
 
 const BROWSE_PAGE = 50;
 // Every root failed: the pass is asked once more after this pause (native EMPTY_PASS_RETRY_DELAYS_MS
@@ -242,19 +246,78 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     return rows;
   }
 
-  // One background build at a time, and at most one every REFRESH_GAP_MS: one that failed or came
-  // back incomplete keeps what is served (it never throws) and is not retried on every call. `why`:
-  // "stale" asks every root again; "partial" completes rows the snapshot only has in part (the trees
-  // already in memory are reused).
-  let refreshing = null;
-  let refreshedAt = -Infinity;
-  function refreshInBackground(why) {
-    if (refreshing || clock.now() - refreshedAt < REFRESH_GAP_MS) return;
-    refreshedAt = clock.now();
+  // ---- background work, in slices --------------------------------------------------------------
+  // Kino's call returns only once the sandbox's job queue is empty and every kino.fetch has settled
+  // (quickjs-kt's evaluate drains them): nothing runs "after" a call, and a build left running would
+  // hold the answer of the call that started it (2.2.5 on the KALLEY: section ok in 32 ms, delivered
+  // after 20 s). So the work that refreshes stale rows, or completes a partial snapshot, is done in
+  // slices that the catalog's calls await: one root fetched and parsed, then the classification, then
+  // the snapshot write. A call starts a new slice only while it has run for less than SLICE_START_MS,
+  // so it pays about one slice (about 2 s on a 32-bit TV) on top of its answer, served from what is
+  // kept. The work lives in memory: a sandbox thrown away starts it again from the snapshot.
+  let work = null; // { why, todo: [root], results: { root: { sections, error } }, rows, save }
+  let workEndedAt = -Infinity; // a failed or incomplete pass is tried again only REFRESH_GAP_MS later
+
+  function want(why) {
+    if (work || clock.now() - workEndedAt < REFRESH_GAP_MS) return;
     trace(kino, "home", "refresh", { why });
-    refreshing = fetchRows(CALL_BUDGET_MS.home, why === "stale")
-      .catch((e) => { trace(kino, "home", "refresh_fail", { code: errCode(e) }); })
-      .finally(() => { refreshing = null; });
+    // "stale" asks every root again and stores the result; "partial" only needs the full rows in memory
+    // (the stored snapshot is current) and reuses the trees already kept.
+    const todo = KINDS.map((k) => k.root).filter((root) => why === "stale" || !trees.has(root) || stale(trees.get(root).at));
+    work = { why, todo, results: {}, rows: null, save: why === "stale" };
+  }
+
+  function endWork(ok) {
+    if (!ok) workEndedAt = clock.now();
+    work = null;
+  }
+
+  async function slice() {
+    const w = work;
+    if (w.todo.length > 0) {
+      const root = w.todo[0];
+      const deadline = callDeadline(clock, SLICE_FETCH_MS);
+      await session.ensure({ deadline });
+      w.results[root] = await sharedFetchRoot(root, deadline);
+      w.todo.shift();
+      return;
+    }
+    if (w.rows === null) {
+      const results = Object.entries(w.results);
+      if (results.length > 0 && results.every(([, r]) => r.error !== null)) {
+        trace(kino, "home", "refresh_fail", { code: errCode(results[0][1].error) });
+        return endWork(false);
+      }
+      const at = clock.now();
+      const roots = {};
+      let complete = true;
+      for (const { root } of KINDS) {
+        const r = w.results[root];
+        const kept = trees.get(root);
+        if (!r) { roots[root] = kept ? kept.sections : []; continue; }
+        if (r.error !== null) complete = false;
+        if (hasItems(r.sections)) trees.set(root, { sections: r.sections, at });
+        else if (r.error === null) trees.delete(root);
+        roots[root] = r.error !== null && kept ? kept.sections : r.sections;
+      }
+      // An incomplete pass keeps what is served; it is tried again later.
+      if (!complete) return endWork(false);
+      const rows = classify(roots);
+      if (rows.length === 0) return endWork(false);
+      full = { rows, at };
+      w.rows = rows;
+      if (!w.save) endWork(true);
+      return;
+    }
+    saveSnapshot(w.rows, full.at);
+    endWork(true);
+  }
+
+  // Runs slices while the call is young; a slice that throws ends the pass (never the call).
+  async function advance(startedAt) {
+    while (work && clock.now() - startedAt < SLICE_START_MS) {
+      try { await slice(); } catch (e) { trace(kino, "home", "refresh_fail", { code: errCode(e) }); endWork(false); }
+    }
   }
 
   // Concurrent cold callers (home and categories at start-up) share one build: one classification,
@@ -267,24 +330,23 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
 
   /**
    * The classified rows. `need`: "home" and "categories" read only `shown` of their rows, "section"
-   * every row's `shown`, "full" also `all` (browse, scoped search). Whatever is kept is served at once:
-   * the full rows in memory, else the stored snapshot, even stale or partial (a partial row has only its
-   * first items and a snapshot row no `all`), and the rest is built in the background. The portal is
-   * waited for only when nothing is kept at all: a whole build takes more than the call's 20 s on a
-   * 32-bit TV, and a call that runs out of time is thrown away with its sandbox (2.2.4 on the KALLEY).
+   * every row's `shown`, "full" also `all` (browse, scoped search). Whatever is kept is served: the
+   * full rows in memory, else the stored snapshot, even stale or partial (a partial row has only its
+   * first items and a snapshot row no `all`). What is missing is built in slices across calls (see
+   * `slice`). The portal is waited for in full only when nothing is kept at all.
    */
   async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
+    const startedAt = clock.now();
     if (full) {
-      if (stale(full.at)) refreshInBackground("stale");
-      return full.rows;
+      if (stale(full.at)) want("stale");
+    } else {
+      const snap = readSnapshot();
+      if (!snap) return sharedFetchRows(budgetMs);
+      if (stale(snap.at)) want("stale");
+      else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") want("partial");
     }
-    const snap = readSnapshot();
-    if (snap) {
-      if (stale(snap.at)) refreshInBackground("stale");
-      else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") refreshInBackground("partial");
-      return snap.rows;
-    }
-    return sharedFetchRows(budgetMs);
+    await advance(startedAt);
+    return full ? full.rows : readSnapshot().rows;
   }
 
   async function home() {

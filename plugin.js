@@ -1554,27 +1554,15 @@ function parseTree(response) {
 }
 var refOf = (item) => encode({ contentId: item.id, programType: item.type, episode: 0 });
 function storedLength(s) {
-  let n = utf8Length(s);
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c === 34 || c === 92 || c === 47 || c === 9 || c === 8 || c === 10 || c === 13 || c === 12) n += 1;
-    else if (c < 32) n += 5;
+  let n = s.length + countOf(s, /["\\/\t\b\n\r\f]/g) + 5 * countOf(s, /[\x00-\x07\x0b\x0e-\x1f]/g);
+  if (NON_ASCII.test(s)) {
+    const pairs = countOf(s, /[\ud800-\udbff][\udc00-\udfff]/g) / 2;
+    n += countOf(s, /[\u0080-\u07ff]/g) + 2 * countOf(s, /[\u0800-\ud7ff\ue000-\uffff]/g) + 2 * pairs + 2 * (countOf(s, /[\ud800-\udfff]/g) - 2 * pairs);
   }
   return n;
 }
-function utf8Length(s) {
-  let n = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 128) n += 1;
-    else if (c < 2048) n += 2;
-    else if (c >= 55296 && c < 56320 && i + 1 < s.length) {
-      n += 4;
-      i++;
-    } else n += 3;
-  }
-  return n;
-}
+var NON_ASCII = /[^\x00-\x7f]/;
+var countOf = (s, re) => s.length - s.replace(re, "").length;
 
 // src/rowsStore.js
 var ROWS_FORMAT = 1;
@@ -1655,28 +1643,25 @@ function fitRows(rows, { budget = TEXT_BUDGET_BYTES, keepFull = Infinity } = {})
     { keepFull: partial, genres: true, least: 0 },
     { keepFull: partial, genres: false, least: 0 }
   ];
-  const memo = /* @__PURE__ */ new Map();
-  const enc = (opts) => {
-    const k = JSON.stringify(opts);
-    if (!memo.has(k)) {
-      const text2 = encodeRows(rows, opts);
-      memo.set(k, { text: text2, size: storedLength(text2) });
-    }
-    return memo.get(k);
-  };
   for (let s = 0; s < steps.length; s++) {
     const { keepFull: kf, genres, least } = steps[s];
-    const whole2 = enc({ keepFull: kf, genres });
-    if (whole2.size <= budget) return { text: whole2.text, step: s };
-    const bare = enc({ keepFull: kf, genres, descItems: 0 });
-    let room = budget - bare.size;
-    if (room < 0) continue;
     const items = collect(rows, kf).items;
-    let k = 0;
-    while (k < items.length && (room -= descCost(items[k].description)) >= 0) k++;
-    if (k < least) continue;
-    const fitted = k === 0 ? bare : enc({ keepFull: kf, genres, descItems: k });
-    if (fitted.size <= budget) return { text: fitted.text, step: s };
+    let floor = 0;
+    for (let n = 0; n < items.length && floor <= budget; n++) {
+      floor += items[n].id.length + items[n].title.length + 9 + (n < least ? items[n].description.length : 0);
+    }
+    if (floor > budget) continue;
+    const whole2 = encodeRows(rows, { keepFull: kf, genres });
+    let size = storedLength(whole2);
+    if (size <= budget) return { text: whole2, step: s };
+    let k = items.length;
+    while (k > 0 && size > budget) {
+      k--;
+      size -= descCost(items[k].description);
+    }
+    if (size > budget || k < least) continue;
+    const fitted = encodeRows(rows, { keepFull: kf, genres, descItems: k });
+    if (storedLength(fitted) <= budget) return { text: fitted, step: s };
   }
   return null;
 }
@@ -1715,21 +1700,23 @@ function decodeRows(text2) {
 function splitParts(text2, budget = PART_BUDGET_BYTES) {
   const parts = [];
   let start = 0;
-  let size = 0;
-  for (let k = 0; k < text2.length; k++) {
-    const c = text2.charCodeAt(k);
-    const pair = c >= 55296 && c < 56320 && k + 1 < text2.length;
-    const w = pair ? 4 : storedLength(text2[k]);
-    if (size + w > budget && k > start) {
-      parts.push(text2.slice(start, k));
-      start = k;
-      size = 0;
+  while (start < text2.length) {
+    let len = Math.min(budget, text2.length - start);
+    for (; ; ) {
+      let end = start + len;
+      const c = text2.charCodeAt(end - 1);
+      if (end < text2.length && c >= 55296 && c < 56320) end--;
+      const size = storedLength(text2.slice(start, end));
+      if (size <= budget || end - start <= 1) {
+        len = end - start;
+        break;
+      }
+      len = Math.max(1, Math.min(end - start - 1, Math.floor((end - start) * budget / size) - 2));
     }
-    size += w;
-    if (pair) k++;
+    parts.push(text2.slice(start, start + len));
+    start += len;
   }
-  if (start < text2.length || parts.length === 0) parts.push(text2.slice(start));
-  return parts;
+  return parts.length === 0 ? [""] : parts;
 }
 function checksum(text2) {
   let h = 2166136261;
@@ -1763,7 +1750,8 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
     }
   }
   function write(text2, at) {
-    const gen = (Math.floor(at) % 2176782336).toString(36) + checksum(text2).slice(0, 4);
+    const sum = checksum(text2);
+    const gen = (Math.floor(at) % 2176782336).toString(36) + sum.slice(0, 4);
     const parts = splitParts(text2, PART_BUDGET_BYTES - PART_TAG_BYTES);
     let keys = [];
     try {
@@ -1780,7 +1768,7 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
     }
     try {
       parts.forEach((p, n) => kino2.storage.set(partKey(n), `${gen}:${p}`, { ttlMs }));
-      kino2.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text2.length, h: checksum(text2), at }), { ttlMs });
+      kino2.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text2.length, h: sum, at }), { ttlMs });
       return true;
     } catch (e) {
       for (let n = 0; n < parts.length; n++) {
@@ -2266,6 +2254,8 @@ var ROWS_FRESH_MS = 2 * 36e5;
 var SNAPSHOT_TTL_MS = 14 * 24 * 36e5;
 var TREE_PAGE_SIZE = 60;
 var REFRESH_GAP_MS = 5 * 6e4;
+var SLICE_START_MS = 1500;
+var SLICE_FETCH_MS = 8e3;
 var BROWSE_PAGE = 50;
 var HOME_RETRY_PAUSE_MS = 1500;
 var HOME_RETRY_MIN_MS = 3e3;
@@ -2438,17 +2428,69 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     }
     return rows2;
   }
-  let refreshing = null;
-  let refreshedAt = -Infinity;
-  function refreshInBackground(why) {
-    if (refreshing || clock2.now() - refreshedAt < REFRESH_GAP_MS) return;
-    refreshedAt = clock2.now();
+  let work = null;
+  let workEndedAt = -Infinity;
+  function want(why) {
+    if (work || clock2.now() - workEndedAt < REFRESH_GAP_MS) return;
     trace(kino2, "home", "refresh", { why });
-    refreshing = fetchRows(CALL_BUDGET_MS.home, why === "stale").catch((e) => {
-      trace(kino2, "home", "refresh_fail", { code: errCode(e) });
-    }).finally(() => {
-      refreshing = null;
-    });
+    const todo = KINDS.map((k) => k.root).filter((root) => why === "stale" || !trees.has(root) || stale(trees.get(root).at));
+    work = { why, todo, results: {}, rows: null, save: why === "stale" };
+  }
+  function endWork(ok) {
+    if (!ok) workEndedAt = clock2.now();
+    work = null;
+  }
+  async function slice() {
+    const w = work;
+    if (w.todo.length > 0) {
+      const root = w.todo[0];
+      const deadline = callDeadline(clock2, SLICE_FETCH_MS);
+      await session.ensure({ deadline });
+      w.results[root] = await sharedFetchRoot(root, deadline);
+      w.todo.shift();
+      return;
+    }
+    if (w.rows === null) {
+      const results = Object.entries(w.results);
+      if (results.length > 0 && results.every(([, r]) => r.error !== null)) {
+        trace(kino2, "home", "refresh_fail", { code: errCode(results[0][1].error) });
+        return endWork(false);
+      }
+      const at = clock2.now();
+      const roots = {};
+      let complete = true;
+      for (const { root } of KINDS) {
+        const r = w.results[root];
+        const kept = trees.get(root);
+        if (!r) {
+          roots[root] = kept ? kept.sections : [];
+          continue;
+        }
+        if (r.error !== null) complete = false;
+        if (hasItems(r.sections)) trees.set(root, { sections: r.sections, at });
+        else if (r.error === null) trees.delete(root);
+        roots[root] = r.error !== null && kept ? kept.sections : r.sections;
+      }
+      if (!complete) return endWork(false);
+      const rows2 = classify(roots);
+      if (rows2.length === 0) return endWork(false);
+      full = { rows: rows2, at };
+      w.rows = rows2;
+      if (!w.save) endWork(true);
+      return;
+    }
+    saveSnapshot(w.rows, full.at);
+    endWork(true);
+  }
+  async function advance(startedAt) {
+    while (work && clock2.now() - startedAt < SLICE_START_MS) {
+      try {
+        await slice();
+      } catch (e) {
+        trace(kino2, "home", "refresh_fail", { code: errCode(e) });
+        endWork(false);
+      }
+    }
   }
   let building = null;
   function sharedFetchRows(budgetMs) {
@@ -2458,17 +2500,17 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     return building;
   }
   async function buildRows(budgetMs = CALL_BUDGET_MS.home, need = "full") {
+    const startedAt = clock2.now();
     if (full) {
-      if (stale(full.at)) refreshInBackground("stale");
-      return full.rows;
+      if (stale(full.at)) want("stale");
+    } else {
+      const snap = readSnapshot();
+      if (!snap) return sharedFetchRows(budgetMs);
+      if (stale(snap.at)) want("stale");
+      else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") want("partial");
     }
-    const snap = readSnapshot();
-    if (snap) {
-      if (stale(snap.at)) refreshInBackground("stale");
-      else if (!snap.complete ? need !== "home" && need !== "categories" : need === "full") refreshInBackground("partial");
-      return snap.rows;
-    }
-    return sharedFetchRows(budgetMs);
+    await advance(startedAt);
+    return full ? full.rows : readSnapshot().rows;
   }
   async function home2() {
     const live2 = countryRow ? countryRow(callDeadline(clock2, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);

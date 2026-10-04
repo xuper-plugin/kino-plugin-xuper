@@ -85,14 +85,20 @@ export const refOf = (item) => encode({ contentId: item.id, programType: item.ty
  * characters \uXXXX) and the file is measured in UTF-8. Byte budgets are measured with this.
  */
 export function storedLength(s) {
-  let n = utf8Length(s);
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c === 0x22 || c === 0x5c || c === 0x2f || c === 0x09 || c === 0x08 || c === 0x0a || c === 0x0d || c === 0x0c) n += 1;
-    else if (c < 0x20) n += 5;
+  // Counted with regular expressions: on QuickJS a per-character loop is the slow part of measuring
+  // an 80 KB snapshot on a TV.
+  let n = s.length + countOf(s, /["\\/\t\b\n\r\f]/g) + 5 * countOf(s, /[\x00-\x07\x0b\x0e-\x1f]/g);
+  if (NON_ASCII.test(s)) {
+    // UTF-8: 2 bytes up to U+07FF, 3 up to U+FFFF; a surrogate pair is 4 bytes for its 2 units, a lone one 3.
+    const pairs = countOf(s, /[\ud800-\udbff][\udc00-\udfff]/g) / 2;
+    n += countOf(s, /[\u0080-\u07ff]/g) + 2 * countOf(s, /[\u0800-\ud7ff\ue000-\uffff]/g) + 2 * pairs +
+      2 * (countOf(s, /[\ud800-\udfff]/g) - 2 * pairs);
   }
   return n;
 }
+
+const NON_ASCII = /[^\x00-\x7f]/;
+const countOf = (s, re) => s.length - s.replace(re, "").length;
 
 export function utf8Length(s) {
   let n = 0;

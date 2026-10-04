@@ -83,8 +83,9 @@ export function encodeRows(rows, { descItems = Infinity, genres = true, keepFull
  * The text that fits `budget` keeping the most: every row with every description; every row with
  * the descriptions of at least the items of the first `keepFull` rows (Home's); then only the first
  * `keepFull` rows whole, with as many descriptions as fit; then that without genres. `{ text, step }`,
- * or null when nothing fits. At most two encodes per step: descriptions are measured on their own,
- * so how many fit is computed, never searched for by encoding.
+ * or null when nothing fits. This is the costliest part of a build on a slow TV, so a step is skipped
+ * when the ids and titles alone are over the budget, and at most two encodes are made per step: the
+ * whole text minus the descriptions dropped from the end says how many fit.
  */
 export function fitRows(rows, { budget = TEXT_BUDGET_BYTES, keepFull = Infinity } = {}) {
   const partial = keepFull < rows.length ? keepFull : Infinity;
@@ -95,25 +96,24 @@ export function fitRows(rows, { budget = TEXT_BUDGET_BYTES, keepFull = Infinity 
     { keepFull: partial, genres: true, least: 0 },
     { keepFull: partial, genres: false, least: 0 },
   ];
-  const memo = new Map();
-  const enc = (opts) => {
-    const k = JSON.stringify(opts);
-    if (!memo.has(k)) { const text = encodeRows(rows, opts); memo.set(k, { text, size: storedLength(text) }); }
-    return memo.get(k);
-  };
   for (let s = 0; s < steps.length; s++) {
     const { keepFull: kf, genres, least } = steps[s];
-    const whole = enc({ keepFull: kf, genres });
-    if (whole.size <= budget) return { text: whole.text, step: s };
-    const bare = enc({ keepFull: kf, genres, descItems: 0 });
-    let room = budget - bare.size;
-    if (room < 0) continue;
     const items = collect(rows, kf).items;
-    let k = 0;
-    while (k < items.length && (room -= descCost(items[k].description)) >= 0) k++;
-    if (k < least) continue;
-    const fitted = k === 0 ? bare : enc({ keepFull: kf, genres, descItems: k });
-    if (fitted.size <= budget) return { text: fitted.text, step: s };
+    // A floor of the stored size: each id and title as a quoted string (quotes escaped), and the
+    // descriptions the step must keep; nothing else.
+    let floor = 0;
+    for (let n = 0; n < items.length && floor <= budget; n++) {
+      floor += items[n].id.length + items[n].title.length + 9 + (n < least ? items[n].description.length : 0);
+    }
+    if (floor > budget) continue;
+    const whole = encodeRows(rows, { keepFull: kf, genres });
+    let size = storedLength(whole);
+    if (size <= budget) return { text: whole, step: s };
+    let k = items.length;
+    while (k > 0 && size > budget) { k--; size -= descCost(items[k].description); }
+    if (size > budget || k < least) continue;
+    const fitted = encodeRows(rows, { keepFull: kf, genres, descItems: k });
+    if (storedLength(fitted) <= budget) return { text: fitted, step: s };
   }
   return null;
 }
@@ -147,21 +147,28 @@ export function decodeRows(text) {
   return { rows, complete: o.c === 1 };
 }
 
-/** `text` in consecutive slices of at most `budget` stored bytes each, never splitting a surrogate pair. */
+/**
+ * `text` in consecutive slices of at most `budget` stored bytes each, never splitting a surrogate pair.
+ * Each slice is measured whole and shrunk until it fits (a character costs 1 to 6 stored bytes), so a
+ * part may be a little under the budget.
+ */
 export function splitParts(text, budget = PART_BUDGET_BYTES) {
   const parts = [];
   let start = 0;
-  let size = 0;
-  for (let k = 0; k < text.length; k++) {
-    const c = text.charCodeAt(k);
-    const pair = c >= 0xd800 && c < 0xdc00 && k + 1 < text.length;
-    const w = pair ? 4 : storedLength(text[k]);
-    if (size + w > budget && k > start) { parts.push(text.slice(start, k)); start = k; size = 0; }
-    size += w;
-    if (pair) k++;
+  while (start < text.length) {
+    let len = Math.min(budget, text.length - start);
+    for (;;) {
+      let end = start + len;
+      const c = text.charCodeAt(end - 1);
+      if (end < text.length && c >= 0xd800 && c < 0xdc00) end--;
+      const size = storedLength(text.slice(start, end));
+      if (size <= budget || end - start <= 1) { len = end - start; break; }
+      len = Math.max(1, Math.min(end - start - 1, Math.floor((end - start) * budget / size) - 2));
+    }
+    parts.push(text.slice(start, start + len));
+    start += len;
   }
-  if (start < text.length || parts.length === 0) parts.push(text.slice(start));
-  return parts;
+  return parts.length === 0 ? [""] : parts;
 }
 
 // FNV-1a over the UTF-16 units: a torn or mixed snapshot never passes as a whole one.
@@ -202,7 +209,8 @@ export function makeRowsStore({ kino, ttlMs }) {
   // Parts first, the meta last; parts left over from a bigger snapshot and the per-root trees of
   // 2.2.3 and older (`tree:<root>`, up to 80 KB) are removed first so the new parts have the room.
   function write(text, at) {
-    const gen = (Math.floor(at) % 2176782336).toString(36) + checksum(text).slice(0, 4);
+    const sum = checksum(text);
+    const gen = (Math.floor(at) % 2176782336).toString(36) + sum.slice(0, 4);
     const parts = splitParts(text, PART_BUDGET_BYTES - PART_TAG_BYTES);
     let keys = [];
     try { keys = kino.storage.keys(); } catch (_) { /* nothing to clean */ }
@@ -213,7 +221,7 @@ export function makeRowsStore({ kino, ttlMs }) {
     }
     try {
       parts.forEach((p, n) => kino.storage.set(partKey(n), `${gen}:${p}`, { ttlMs }));
-      kino.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text.length, h: checksum(text), at }), { ttlMs });
+      kino.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text.length, h: sum, at }), { ttlMs });
       return true;
     } catch (e) {
       for (let n = 0; n < parts.length; n++) { try { kino.storage.remove(partKey(n)); } catch (_) { /* best effort */ } }

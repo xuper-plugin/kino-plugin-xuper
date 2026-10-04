@@ -79,6 +79,30 @@ function setup({ roots, ensureError, now = NOW } = {}) {
 
 // Lets the background refresh (a few portal round trips of microtasks) run to its end.
 const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+// Kino's call semantics (PluginRuntime: quickjs-kt's evaluate): the answer reaches Kino only once the
+// sandbox's job queue is empty and every kino.fetch has settled, so work a call leaves running is paid
+// by that call. `onTv(t)` makes every portal answer cost ROOT_MS of the (fake) clock, about what a root
+// costs on the KALLEY (fetch, decrypt, parse); `kinoCall` answers `{ value, ms }`, ms being when Kino
+// would have received the answer.
+const ROOT_MS = 3_000;
+function onTv(t) {
+  const call = t.portal.call.bind(t.portal);
+  t.inFlight = 0;
+  t.portal.call = async (...args) => {
+    t.inFlight++;
+    try { t.clock.t += ROOT_MS; await new Promise((r) => setImmediate(r)); return await call(...args); } finally { t.inFlight--; }
+  };
+  return t;
+}
+async function kinoCall(t, f) {
+  const start = t.clock.t;
+  const value = await f();
+  do { await settle(); } while (t.inFlight > 0);
+  return { value, ms: t.clock.t - start };
+}
+// One slice at most: a call that started one root fetch, never the whole build.
+const ONE_SLICE_MS = ROOT_MS;
+
 const everyRoot = (a) => ({ masnew_movies: a, masnew_series: a, masnew_anime: a, masnew_kids: a });
 
 const emptyRoots = () => ({ masnew_movies: answer(), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() });
@@ -257,62 +281,56 @@ test("the rows are kept: a second home makes no portal call, and the snapshot is
   assert.equal(portal.calls.length, 4);
 });
 
-test("stale-while-revalidate: after 2 h the kept rows are served at once and refreshed once in the background", async () => {
-  let gate = null;
-  const t = setup({
-    roots: { masnew_movies: () => (gate ? gate.then(() => smallTree("q")) : smallTree("p")), masnew_series: smallTree("s", "teleplay"), masnew_anime: answer(), masnew_kids: answer() },
-  });
+test("stale rows are served while the refresh runs in slices inside the next calls, never as a build a call waits for", async () => {
+  let fresh = false;
+  const t = onTv(setup({ roots: { masnew_movies: () => smallTree(fresh ? "q" : "p"), masnew_series: smallTree("s", "teleplay"), masnew_anime: answer(), masnew_kids: answer() } }));
   const first = await t.catalog.home();
+  const meta = t.kino.storage.get(META_KEY);
   assert.equal(t.portal.calls.length, 4);
   t.clock.t += 2 * HOUR;
-  let open;
-  gate = new Promise((r) => { open = r; });
-  const stale = await t.catalog.home(); // the refresh waits on the portal; the answer does not
-  assert.deepEqual(stale, first, "the stale rows, without waiting for the portal");
-  await settle();
-  assert.equal(t.portal.calls.length, 8, "one refresh of the four roots started");
-  await t.catalog.home();
-  assert.equal(t.portal.calls.length, 8, "a second stale call joins the running refresh");
-  open();
-  await settle();
-  const fresh = await t.catalog.home();
-  assert.ok(fresh.some((r) => r.items.some((i) => i.id === "q1")), "the refreshed rows replace the stale ones");
-  assert.equal(t.portal.calls.length, 8);
-  assert.deepEqual(await t.restart().home(), fresh, "and they are the new snapshot");
+  fresh = true;
+  const seen = [];
+  for (let i = 0; i < 8; i++) {
+    const { value, ms } = await kinoCall(t, () => t.catalog.home());
+    assert.ok(ms <= ONE_SLICE_MS, `call ${i}: delivered after ${ms} ms`);
+    seen.push(value.some((r) => r.items.some((it) => it.id === "q1")));
+  }
+  assert.equal(seen[0], false, "the first stale call answers the stale rows");
+  assert.equal(seen[seen.length - 1], true, "the refreshed rows replace them once the slices are done");
+  assert.equal(t.portal.calls.length, 8, "each root asked once by the refresh");
+  assert.notEqual(t.kino.storage.get(META_KEY), meta, "and stored as the new snapshot");
+  assert.ok((await t.restart().home()).some((r) => r.items.some((it) => it.id === "q1")));
 });
 
-test("cold start with a stale snapshot: served at once, the refresh runs in the background", async () => {
-  const t = setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } });
+test("cold start with a stale snapshot: the stale rows are delivered within one slice", async () => {
+  const t = onTv(setup({ roots: { masnew_movies: smallTree("p"), masnew_series: answer(), masnew_anime: answer(), masnew_kids: answer() } }));
   const first = await t.catalog.home();
   t.clock.t += 2 * HOUR + 1;
   const cold = t.restart();
-  const calls = t.portal.calls.length;
-  let settled = false;
-  const pending = cold.home().then((v) => { settled = true; return v; });
-  for (let i = 0; i < 5; i++) await Promise.resolve();
-  assert.ok(settled, "answered within a few microtasks: no portal round trip");
-  assert.deepEqual(await pending, first);
-  await settle();
-  assert.equal(t.portal.calls.length, calls + 4, "refreshed in the background");
+  const { value, ms } = await kinoCall(t, () => cold.home());
+  assert.deepEqual(value, first);
+  assert.ok(ms <= ONE_SLICE_MS, `delivered after ${ms} ms`);
+  assert.equal(t.portal.calls.length, 5, "one slice: one root asked");
 });
 
-test("a failed background refresh keeps the rows served and is not retried on every call (5 min apart)", async () => {
+test("a failed refresh keeps the rows served and is tried again only 5 minutes later", async () => {
   let down = false;
-  const t = setup({ roots: everyRoot(() => (down ? new Error("down") : smallTree("p"))) });
+  const t = onTv(setup({ roots: everyRoot(() => (down ? new Error("down") : smallTree("p"))) }));
   const first = await t.catalog.home();
   down = true;
   t.clock.t += 2 * HOUR;
-  assert.deepEqual(await t.catalog.home(), first);
-  await settle();
+  for (let i = 0; i < 6; i++) {
+    const { value, ms } = await kinoCall(t, () => t.catalog.home());
+    assert.deepEqual(value, first);
+    assert.ok(ms <= ONE_SLICE_MS, `call ${i}: ${ms} ms`);
+  }
   const after = t.portal.calls.length;
-  assert.ok(after > 4, "the refresh asked the portal");
-  assert.deepEqual(await t.catalog.home(), first, "still served");
-  await settle();
-  assert.equal(t.portal.calls.length, after, "no new refresh within 5 minutes");
+  assert.equal(after, 8, "the four roots were asked once each, all failed");
+  for (let i = 0; i < 3; i++) assert.deepEqual((await kinoCall(t, () => t.catalog.home())).value, first);
+  assert.equal(t.portal.calls.length, after, "no new pass within 5 minutes");
   t.clock.t += 5 * 60_000;
-  await t.catalog.home();
-  await settle();
-  assert.ok(t.portal.calls.length > after, "the next refresh, 5 minutes later");
+  await kinoCall(t, () => t.catalog.home());
+  assert.ok(t.portal.calls.length > after, "the next pass, 5 minutes later");
   assert.deepEqual(await t.restart().home(), first, "the stored snapshot was not replaced by a failed refresh");
 });
 
@@ -643,70 +661,70 @@ test("classify and projectRows are reusable pieces: projectRows drops empty rows
 
 // ---- storage budget -----------------------------------------------------------------------------
 
-// Settles within a few microtasks: no portal round trip, no build (the KALLEY's 2.2.4 `section` took 22 s).
-async function answersAtOnce(promise) {
-  let done = false;
-  const p = promise.then((v) => { done = true; return v; });
-  for (let i = 0; i < 5; i++) await Promise.resolve();
-  assert.ok(done, "answered without waiting for the portal or a build");
-  return p;
-}
-
-test("rows too big for the snapshot keep Home and the category tiles whole from a cold start", async () => {
-  const t = setup({ roots: realisticRoots() });
+test("rows too big for the snapshot keep Home and the category tiles whole from a cold start, and start no work", async () => {
+  const t = onTv(setup({ roots: realisticRoots() }));
   const fresh = { home: await t.catalog.home(), tiles: await makeCategories({ catalog: t.catalog }).categories() };
   const cold = t.restart();
   const refs = (rows) => rows.map((r) => [r.id, r.items.map((i) => i.ref)]);
-  assert.deepEqual(refs(await answersAtOnce(cold.home())), refs(fresh.home));
-  assert.deepEqual(await answersAtOnce(makeCategories({ catalog: cold }).categories()), fresh.tiles);
-  await settle();
-  assert.equal(t.portal.calls.length, 4, "home and categories never start a build for a partial snapshot");
+  const home = await kinoCall(t, () => cold.home());
+  assert.deepEqual(refs(home.value), refs(fresh.home));
+  const tiles = await kinoCall(t, () => makeCategories({ catalog: cold }).categories());
+  assert.deepEqual(tiles.value, fresh.tiles);
+  assert.equal(home.ms + tiles.ms, 0, "no portal call at all");
+  assert.equal(t.portal.calls.length, 4);
 });
 
-test("partial snapshot: section answers at once from it, completes once in the background, and a second section does not rebuild", async () => {
-  const t = setup({ roots: realisticRoots() });
+test("partial snapshot (the KALLEY): section is delivered within one slice, completes over the next calls, then never rebuilds", async () => {
+  const t = onTv(setup({ roots: realisticRoots() }));
   await t.catalog.home();
   const full = (await makeSection({ kino: t.kino, catalog: t.catalog, clock: t.clock }).section({ tab: "anime" })).rows;
-  const cold = t.restart();
-  const section = makeSection({ kino: t.kino, catalog: cold, clock: t.clock });
-  const first = (await answersAtOnce(section.section({ tab: "anime" }))).rows;
+  const section = makeSection({ kino: t.kino, catalog: t.restart(), clock: t.clock });
+  const first = await kinoCall(t, () => section.section({ tab: "anime" }));
+  assert.ok(first.ms <= ONE_SLICE_MS, `first section delivered after ${first.ms} ms (2.2.5: the whole build)`);
   // First paint: the same rows of the tab, each with its first items at least.
-  assert.deepEqual(first.map((r) => r.id), full.map((r) => r.id));
-  first.forEach((r, n) => assert.deepEqual(r.items.map((i) => i.ref), full[n].items.slice(0, r.items.length).map((i) => i.ref)));
-  assert.ok(first.some((r, n) => r.items.length < full[n].items.length), "this snapshot really is partial");
-  await settle();
-  assert.equal(t.portal.calls.length, 8, "one background build of the four roots");
-  const second = (await answersAtOnce(section.section({ tab: "anime" }))).rows;
-  assert.deepEqual(second, full, "the second section is the whole tab, from memory");
-  await answersAtOnce(section.section({ tab: "series" }));
-  await settle();
+  assert.deepEqual(first.value.rows.map((r) => r.id), full.map((r) => r.id));
+  first.value.rows.forEach((r, n) => assert.deepEqual(r.items.map((i) => i.ref), full[n].items.slice(0, r.items.length).map((i) => i.ref)));
+  assert.ok(first.value.rows.some((r, n) => r.items.length < full[n].items.length), "this snapshot really is partial");
+  let calls = 1;
+  let last = first;
+  while (JSON.stringify(last.value.rows) !== JSON.stringify(full)) {
+    last = await kinoCall(t, () => section.section({ tab: "anime" }));
+    assert.ok(last.ms <= ONE_SLICE_MS, `call ${calls}: ${last.ms} ms`);
+    assert.ok(++calls <= 6, "complete within a few calls");
+  }
+  assert.equal(t.portal.calls.length, 8, "each root asked once");
+  const warm = await kinoCall(t, () => section.section({ tab: "series" }));
+  assert.equal(warm.ms, 0, "a warm section costs nothing");
   assert.equal(t.portal.calls.length, 8, "no rebuild on later calls");
 });
 
-test("a section that keeps landing in a new runtime (Kino drops it after a timeout) never waits for a build", async () => {
-  const t = setup({ roots: realisticRoots() });
+test("a section that keeps landing in a new runtime (Kino drops it after a timeout) is delivered within one slice every time", async () => {
+  const t = onTv(setup({ roots: realisticRoots() }));
   await t.catalog.home();
   for (let i = 0; i < 3; i++) {
-    const rows = (await answersAtOnce(makeSection({ kino: t.kino, catalog: t.restart(), clock: t.clock }).section({ tab: "series" }))).rows;
-    assert.ok(rows.length > 0);
+    const { value, ms } = await kinoCall(t, () => makeSection({ kino: t.kino, catalog: t.restart(), clock: t.clock }).section({ tab: "series" }));
+    assert.ok(value.rows.length > 0);
+    assert.ok(ms <= ONE_SLICE_MS, `try ${i}: ${ms} ms`);
   }
 });
 
-test("browse and the scoped search on a cold start: the snapshot row's items at once, the whole row once built", async () => {
-  const t = setup({ roots: realisticRoots() });
+test("browse and the scoped search on a cold start: the snapshot row's items within one slice, the whole row once built", async () => {
+  const t = onTv(setup({ roots: realisticRoots() }));
   const whole = await t.catalog.browse("magis_top_peliculas", null);
   assert.equal(whole.items.length, 50);
   const cold = t.restart();
-  const page = await answersAtOnce(cold.browse("magis_top_peliculas", null));
-  assert.deepEqual(page.items.map((i) => i.ref), whole.items.slice(0, 20).map((i) => i.ref));
-  assert.equal(page.next, undefined, "no next page until the whole row is built");
-  assert.deepEqual(await answersAtOnce(cold.browse("magis_top_peliculas", "50")), { items: [] });
+  const page = await kinoCall(t, () => cold.browse("magis_top_peliculas", null));
+  assert.ok(page.ms <= ONE_SLICE_MS);
+  assert.deepEqual(page.value.items.map((i) => i.ref), whole.items.slice(0, 20).map((i) => i.ref));
+  assert.equal(page.value.next, undefined, "no next page until the whole row is built");
   const hit = whole.items[3].title;
-  const found = await answersAtOnce(cold.search({ q: hit, within: "magis_top_peliculas" }));
-  assert.ok(found.items.some((i) => i.title === hit));
-  await settle();
-  assert.equal(t.portal.calls.length, 8, "one background build");
-  assert.deepEqual(await answersAtOnce(cold.browse("magis_top_peliculas", null)), whole);
+  const found = await kinoCall(t, () => cold.search({ q: hit, within: "magis_top_peliculas" }));
+  assert.ok(found.ms <= ONE_SLICE_MS);
+  assert.ok(found.value.items.some((i) => i.title === hit));
+  let last = page;
+  for (let i = 0; i < 6 && last.value.items.length < 50; i++) last = await kinoCall(t, () => cold.browse("magis_top_peliculas", null));
+  assert.deepEqual(last.value, whole);
+  assert.equal(t.portal.calls.length, 8, "one pass over the four roots");
 });
 
 test("the stored form round-trips every field the projection reads", async () => {
