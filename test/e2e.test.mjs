@@ -565,12 +565,16 @@ test("each export's body starts with `await null` (checked in the source text)",
 
 // ---- (5) sign is pure ------------------------------------------------------------------------------------
 
-test("sign never touches storage, fetch or sleep, and never builds the other deps", async () => {
+test("sign never touches storage, fetch, sleep or kino.log, and never builds the other deps", async () => {
   const touched = [];
   const spy = (name) => () => { touched.push(name); throw new Error(name + " must not be used by sign"); };
+  // kino.log too (2.2.10): in a fresh signing lane Kino opens every sealed secret to redact the first line,
+  // ~2.3 s on a Fire TV Stick, past the 1.5 s sign budget. Recorded without throwing (a throw would be swallowed).
+  const quiet = (name) => () => { touched.push(name); };
   const base = fakeKino();
   const recording = Object.freeze({
     ...base,
+    log: Object.assign(quiet("log"), { report: quiet("log.report") }),
     fetch: spy("fetch"), sleep: spy("sleep"),
     storage: Object.freeze({ get: spy("storage.get"), set: spy("storage.set"), remove: spy("storage.remove"), keys: spy("storage.keys") }),
     config: Object.freeze({ get: spy("config.get") }),
@@ -658,7 +662,8 @@ for (const file of ["src-bundle.mjs", "built-bundle.mjs"]) {
     assert.ok(lines.includes("xuper:call start fn=resolve kind=vod"), text);
     assert.ok(lines.includes("xuper:call start fn=resolve kind=live"), text);
     assert.ok(lines.some((l) => /^xuper:call ok fn=resolve kind=live ms=\d+$/.test(l)), text);
-    assert.ok(lines.some((l) => /^xuper:sign stats n=1 fail=0 maxMs=\d+ age=\d+ kind=segment$/.test(l)), text);
+    // A working sign writes nothing: in a fresh signing lane a log line costs Kino a seal opening (2.2.10).
+    assert.ok(!lines.some((l) => l.startsWith("xuper:sign")), text);
     assert.ok(lines.some((l) => /^xuper:live open cdns=2 kept=2 primary=0 alts=1 seed=0 exp=\d+$/.test(l)), text);
     for (const secret of [HOST, APP, TOKEN, SN, USER, "live1.test", "live2.test", "LICENSE-ONE"]) assert.ok(!text.includes(secret), "logged " + secret);
     assert.deepEqual(lines.filter((l) => !l.startsWith("xuper:")), []);

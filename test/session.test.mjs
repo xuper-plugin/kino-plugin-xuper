@@ -36,7 +36,7 @@ function fakePortal(kino) {
   };
 }
 
-function setup({ config = {}, seeds = null, stored = null, fetchAnswer = [], random = () => 0 } = {}) {
+function setup({ config = {}, seeds = null, stored = null, fetchAnswer = [], fetchRaw = null, random = () => 0 } = {}) {
   const fetches = [];
   const timeouts = [];
   const kino = fakeKino({
@@ -45,6 +45,7 @@ function setup({ config = {}, seeds = null, stored = null, fetchAnswer = [], ran
       fetches.push(url);
       timeouts.push(o && o.timeoutMs);
       if (fetchAnswer instanceof Error) throw fetchAnswer;
+      if (fetchRaw) return fetchRaw;
       return reply(fetchAnswer);
     },
   });
@@ -549,6 +550,19 @@ test("refreshSeeds replaces the pool ONLY with a non-empty answer", async () => 
   assert.deepEqual(failing.session.seedPool(), [seed(1)]);
   const none = setup({ fetchAnswer: new Error("down") });
   assert.equal(await none.session.refreshSeeds(), false);
+});
+
+test("refreshSeeds: a pool file the host does not have (404) loads nothing, keeps the old pool and reaches the board", async () => {
+  const missing = { ok: false, status: 404, text: () => "404: Not Found" };
+  const none = setup({ fetchRaw: missing });
+  const reports = [];
+  none.kino.log.report = (line) => reports.push(line);
+  assert.equal(await none.session.refreshSeeds(), false);
+  assert.deepEqual(none.session.seedPool(), []);
+  assert.deepEqual(reports, ["xuper:seeds refresh ok=0 why=http status=404"]);
+  const kept = setup({ seeds: [seed(1)], fetchRaw: missing });
+  assert.equal(await kept.session.refreshSeeds(), true);
+  assert.deepEqual(kept.session.seedPool(), [seed(1)]);
 });
 
 test("refreshSeeds: 10 s single-flight cooldown, even for concurrent callers", async () => {

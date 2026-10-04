@@ -341,12 +341,14 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
 
   /** Downloads the pool; true when it stored a non-empty one. Never throws. */
   async function fetchSeeds(timeoutMs) {
-    let text;
-    try { text = (await kino.fetch(seedsUrl, { timeoutMs })).text(); }
+    let res;
+    try { res = await kino.fetch(seedsUrl, { timeoutMs }); }
     catch (e) { trace(kino, "seeds", "refresh", { ok: false, why: "fetch", code: errCode(e) }); return false; }
+    // A missing pool file (404) is not a parse error: it reaches the board, since a blocked region has no other way in.
+    if (res && res.ok === false) { report(kino, "seeds", "refresh", { ok: false, why: "http", status: res.status }); return false; }
     let list;
-    try { list = JSON.parse(text); } catch (_) { list = null; }
-    if (!Array.isArray(list)) { trace(kino, "seeds", "refresh", { ok: false, why: "parse" }); return false; }
+    try { list = JSON.parse(res.text()); } catch (_) { list = null; }
+    if (!Array.isArray(list)) { report(kino, "seeds", "refresh", { ok: false, why: "parse" }); return false; }
     const clean = list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken))
       .slice(0, MAX_SEEDS)
       .map((e) => ({ sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) }));

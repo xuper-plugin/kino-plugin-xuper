@@ -5,8 +5,7 @@ import { makeSettings } from "./settings.js";
 import { makeRegistration } from "./registration.js";
 import { isKinoError } from "./util.js";
 import { isChannelRef } from "./refs.js";
-import { contextAgeS } from "./liveSign.js";
-import { trace, traced, report, errCode, makeSignStats } from "./trace.js";
+import { trace, traced, report, errCode } from "./trace.js";
 
 
 // With `within` (Kino's scopedSearch, apiVersion 6) it searches inside one "Ver más" page; its lines say so, never the query.
@@ -29,20 +28,16 @@ export async function resolve(ref, options) {
   return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" });
 }
 // Signing lane: pure, never builds the other deps (no storage, no network); a broken context is an `unavailable`.
-// Its breadcrumbs are a running tally (makeSignStats): a line per sign would crowd everything else out of the Registro.
-let signStats = null;
+// A sign that works writes NO kino.log line: in a fresh lane runtime Kino redacts a log line by opening every
+// sealed secret first (one X25519 each, the native credential checks with it), which measured ~2.3 s on a
+// Fire TV Stick -- past the 1.5 s sign budget, so a first sign timed out, the lane was discarded, the next
+// runtime's first sign timed out too, and three in a row ended the channel with a 502 (Kino 0.9.50 + 2.2.9).
+// Kino's own sign figures (count, p50/p95, timeouts) already travel with every live playback report.
 export async function sign(request) {
   await null;
-  const t0 = clock.now();
-  let kind = "?";
   try {
-    signStats ??= makeSignStats({ kino });
-    kind = typeof request?.kind === "string" ? request.kind : "?";
-    const out = signRequest(request, t0);
-    signStats.record({ kind, ms: clock.now() - t0, ageS: contextAgeS(request && request.context, t0), ok: true });
-    return out;
+    return signRequest(request, clock.now());
   } catch (e) {
-    signStats?.record({ kind, ms: clock.now() - t0, ageS: null, ok: false });
     if (isKinoError(e)) throw e;
     // An edge case for the board (verbose level): the context the app handed over cannot sign.
     report(kino, "sign", "fail", { why: typeof e?.why === "string" ? e.why : errCode(e) });

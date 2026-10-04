@@ -240,27 +240,6 @@ async function traced(kino2, clock2, fn, body, extra = {}) {
   reportCallTime(kino2, fn, ms, true);
   return out;
 }
-function makeSignStats({ kino: kino2, every = 50, slowMs = 200 }) {
-  let n = 0;
-  let fails = 0;
-  let maxMs = 0;
-  return {
-    record({ kind, ms, ageS, ok }) {
-      try {
-        n++;
-        if (!ok) fails++;
-        const t = Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0;
-        if (t > maxMs) maxMs = t;
-        if (t >= slowMs) trace(kino2, "sign", "slow", { kind, ms: t });
-        if (n === 1 || n % every === 0) {
-          trace(kino2, "sign", "stats", { n, fail: fails, maxMs, age: Number.isFinite(ageS) ? ageS : void 0, kind });
-          maxMs = 0;
-        }
-      } catch (_) {
-      }
-    }
-  };
-}
 function seedTag(kino2, sn) {
   try {
     if (typeof sn !== "string" || sn === "") return "?";
@@ -882,21 +861,25 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     return true;
   });
   async function fetchSeeds(timeoutMs) {
-    let text2;
+    let res;
     try {
-      text2 = (await kino2.fetch(seedsUrl, { timeoutMs })).text();
+      res = await kino2.fetch(seedsUrl, { timeoutMs });
     } catch (e) {
       trace(kino2, "seeds", "refresh", { ok: false, why: "fetch", code: errCode(e) });
       return false;
     }
+    if (res && res.ok === false) {
+      report(kino2, "seeds", "refresh", { ok: false, why: "http", status: res.status });
+      return false;
+    }
     let list;
     try {
-      list = JSON.parse(text2);
+      list = JSON.parse(res.text());
     } catch (_) {
       list = null;
     }
     if (!Array.isArray(list)) {
-      trace(kino2, "seeds", "refresh", { ok: false, why: "parse" });
+      report(kino2, "seeds", "refresh", { ok: false, why: "parse" });
       return false;
     }
     const clean = list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).slice(0, MAX_SEEDS).map((e) => ({ sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) }));
@@ -3401,12 +3384,6 @@ function buildSignContext(license, cdns, builtAtMs) {
   }
   return null;
 }
-var BUILT_AT = /"b":(\d{1,12})[,}]/;
-function contextAgeS(context, nowMs) {
-  const m = BUILT_AT.exec(typeof context === "string" ? context : "");
-  if (!m) return null;
-  return Math.max(0, Math.trunc(nowMs / 1e3) - Number(m[1]));
-}
 var signError = (why, message) => Object.assign(new Error(message), { why });
 function readContext(context) {
   let ctx;
@@ -4333,19 +4310,11 @@ async function resolve(ref, options) {
   await null;
   return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" });
 }
-var signStats = null;
 async function sign(request) {
   await null;
-  const t0 = clock.now();
-  let kind = "?";
   try {
-    signStats ?? (signStats = makeSignStats({ kino }));
-    kind = typeof request?.kind === "string" ? request.kind : "?";
-    const out = signRequest(request, t0);
-    signStats.record({ kind, ms: clock.now() - t0, ageS: contextAgeS(request && request.context, t0), ok: true });
-    return out;
+    return signRequest(request, clock.now());
   } catch (e) {
-    signStats?.record({ kind, ms: clock.now() - t0, ageS: null, ok: false });
     if (isKinoError(e)) throw e;
     report(kino, "sign", "fail", { why: typeof e?.why === "string" ? e.why : errCode(e) });
     throw kino.error("unavailable", "No se pudo firmar la petici\xF3n del canal");

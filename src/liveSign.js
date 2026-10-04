@@ -38,7 +38,7 @@ export function authorityOf(url) {
  * primary fits.
  */
 export function buildSignContext(license, cdns, builtAtMs) {
-  // `b`: when the context was built (epoch seconds), for the sign breadcrumb's `age=`. Optional: a context without it signs the same.
+  // `b`: when the context was built (epoch seconds). Optional: a context without it signs the same.
   const built = Number.isFinite(builtAtMs) ? { b: Math.trunc(builtAtMs / 1000) } : {};
   const encode = (list, withToken) => JSON.stringify({
     l: license,
@@ -53,15 +53,6 @@ export function buildSignContext(license, cdns, builtAtMs) {
     if (context.length <= MAX_CONTEXT_CHARS) return { context, kept };
   }
   return null;
-}
-
-const BUILT_AT = /"b":(\d{1,12})[,}]/;
-
-/** How old [context] is at [nowMs], in whole seconds, read from its `b` without parsing it; null without one. */
-export function contextAgeS(context, nowMs) {
-  const m = BUILT_AT.exec(typeof context === "string" ? context : "");
-  if (!m) return null;
-  return Math.max(0, Math.trunc(nowMs / 1000) - Number(m[1]));
 }
 
 /** A sign failure with a short `why` for the breadcrumb (the message is for nobody). */

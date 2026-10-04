@@ -147,34 +147,6 @@ export async function traced(kino, clock, fn, body, extra = {}) {
   return out;
 }
 
-/**
- * `sign` runs once per playlist and segment of a live channel (every few seconds): one start/ok pair per call
- * would push everything else out of the Registro's 200 lines. Instead a running tally -- on the first sign and
- * every [every]th: `xuper:sign stats n=<count> fail=<failures> maxMs=<slowest since the last tally> age=<the
- * context's age, s> kind=<this request>` -- and a line of its own for a sign at or over [slowMs]
- * (`xuper:sign slow kind=<kind> ms=<ms>`). A failure keeps its own line (plugin.js). Never throws.
- */
-export function makeSignStats({ kino, every = 50, slowMs = 200 }) {
-  let n = 0;
-  let fails = 0;
-  let maxMs = 0;
-  return {
-    record({ kind, ms, ageS, ok }) {
-      try {
-        n++;
-        if (!ok) fails++;
-        const t = Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0;
-        if (t > maxMs) maxMs = t;
-        if (t >= slowMs) trace(kino, "sign", "slow", { kind, ms: t });
-        if (n === 1 || n % every === 0) {
-          trace(kino, "sign", "stats", { n, fail: fails, maxMs, age: Number.isFinite(ageS) ? ageS : undefined, kind });
-          maxMs = 0;
-        }
-      } catch (_) { /* a breadcrumb never fails a call */ }
-    },
-  };
-}
-
 /** 8 hex characters of a hash of a seed's sn: tells seeds apart in a report, never the sn. */
 export function seedTag(kino, sn) {
   try {

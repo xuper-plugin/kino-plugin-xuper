@@ -4,8 +4,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { portalWorld, SEEDS, STORED } from "./helpers/portalWorld.mjs";
-import { traced, report, makeSignStats } from "../src/trace.js";
-import { signRequest, buildSignContext, contextAgeS } from "../src/liveSign.js";
+import { traced, report } from "../src/trace.js";
+import { signRequest, buildSignContext } from "../src/liveSign.js";
 import { makeRegistration } from "../src/registration.js";
 import { appScrub } from "./helpers/appScrubber.mjs";
 
@@ -177,24 +177,9 @@ test("traced: every export says when it starts and how it ended, with its time (
   has(w, /^xuper:call ok fn=resolve kind=live ms=0$/);
 });
 
-test("sign: a running tally (count, time, the context's age, failures) on the first sign and every 50th, a slow one on its own", () => {
-  const w = portalWorld({ hosts: ["a.test"] });
-  const stats = makeSignStats({ kino: w.kino, every: 50, slowMs: 200 });
-  stats.record({ kind: "playlist", ms: 3, ageS: 12, ok: true });
-  has(w, /^xuper:sign stats n=1 fail=0 maxMs=3 age=12 kind=playlist$/);
-  for (let i = 0; i < 48; i++) stats.record({ kind: "segment", ms: 1, ageS: 20, ok: true });
-  stats.record({ kind: "segment", ms: 250, ageS: 21, ok: true });
-  has(w, /^xuper:sign slow kind=segment ms=250$/);
-  has(w, /^xuper:sign stats n=50 fail=0 maxMs=250 age=21 kind=segment$/);
-  stats.record({ kind: "segment", ms: 1, ageS: null, ok: false });
-  assert.equal(w.logs.filter((l) => l.startsWith("xuper:sign stats")).length, 2);
-});
-
-test("sign context: its build time rides along (seconds), and its age is read back without parsing", () => {
+test("sign context: its build time rides along (seconds)", () => {
   const ctx = buildSignContext("L", [{ cflHost: "h.live.test", authBase: "sign_type=cfl&token=941d98961990d67e249dcd1ac57378c8" }], 1_700_000_000_123).context;
   assert.equal(JSON.parse(ctx).b, 1_700_000_000);
-  assert.equal(contextAgeS(ctx, 1_700_000_090_999), 90);
-  assert.equal(contextAgeS(JSON.stringify({ l: "L", c: [] }), 5), null);
   // Without a time (older callers): no `b`, as before.
   assert.equal("b" in JSON.parse(buildSignContext("L", [{ cflHost: "h.live.test", authBase: "token=941d98961990d67e249dcd1ac57378c8" }]).context), false);
 });
