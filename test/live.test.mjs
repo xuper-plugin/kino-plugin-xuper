@@ -558,3 +558,11 @@ test("resolve() routes a bare channel code to live with its options, and a magis
   await assert.rejects(resolver.resolve("magis1:movie:0:M1"), (e) => e.code === "unavailable");
   assert.equal(seen.length, 1, "neither went to live");
 });
+
+test("resolve() hands live the RAW portal code of a wrapped (odd-code) channel ref", async () => {
+  const seen = [];
+  const live = { resolveLive: async (code) => { seen.push(code); return { url: "http://x.live.test/live/a.m3u8" }; } };
+  const resolver = makeResolve({ kino: fakeKino(), portal: fakePortal(), session: { ensure: async () => {}, withValidSession: async (b) => b({}) }, clock: { now: () => NOW }, config: {}, portalChapters: async () => ({ items: [] }), live });
+  await resolver.resolve("xlive1:~canal ñ/1");
+  assert.deepEqual(seen, ["~canal ñ/1"]);
+});

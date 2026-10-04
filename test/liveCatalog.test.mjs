@@ -4,6 +4,8 @@ import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeLiveCatalog } from "../src/liveCatalog.js";
 import { PortalError } from "../src/portal.js";
+import { channelOf, idOfCode, codeOfId, codeOfRef } from "../src/channelId.js";
+import { isChannelRef } from "../src/refs.js";
 
 const manifest = {
   id: "xuper", name: "Xuper", version: "2.0.0", apiVersion: 6, entry: "plugin.js",
@@ -169,13 +171,13 @@ test("channels: number is the integer in 1..9999, else 0", async () => {
   assert.deepEqual(items.map((i) => i.number), [1, 9999, 0, 0, 0, 0, 0, 0, 42]);
 });
 
-test("channels: blank code or name, bad id pattern, reserved ~ prefix and in-page duplicates are skipped", async () => {
+test("channels: blank code or name and in-page duplicates are skipped; odd codes are encoded, not dropped", async () => {
   const { live } = setup({ queues: withCats({ "v6/getLiveData": [page(
     chan("ok1"), chan("  "), { name: "sin código" }, chan("with space"), chan("~hidden"),
     chan("ok1", { name: "Repetido" }), chan("ok2", { name: "   " }), chan(5), chan("ok3"),
   )] }) });
   const { items } = await live.liveChannels({ categoryId: "76183" });
-  assert.deepEqual(items.map((i) => i.id), ["ok1", "5", "ok3"]);
+  assert.deepEqual(items.map((i) => i.id), ["ok1", idOfCode("with space"), idOfCode("~hidden"), "5", "ok3"]);
   assert.equal(items[0].title, "Canal ok1");
 });
 
@@ -345,11 +347,11 @@ function loggedSetup(queues) {
 
 test("channels: each page writes one breadcrumb with the raw count, the kept count and the drops by reason (counts only)", async () => {
   const { live, logs } = loggedSetup(withCats({ "v6/getLiveData": [page(
-    chan("ok1"), chan("  "), chan("with space"), chan("~hidden"), chan("ok1", { name: "Repetido" }), chan("ok2", { name: "   " }), "junk", chan("ok3"),
+    chan("ok1"), chan("  "), chan("with space"), chan("~hidden"), chan("ok1", { name: "Repetido" }), chan("ok2", { name: "   " }), "junk", chan("a".repeat(2001)), chan("ok3"),
   )] }));
   await live.liveChannels({ categoryId: "76183" });
   assert.deepEqual(logs.filter((l) => l.startsWith("xuper:live page")), [
-    "xuper:live page cat=76183 page=1 raw=8 kept=2 blank=2 badid=1 tilde=1 dup=1 shape=1",
+    "xuper:live page cat=76183 page=1 raw=9 kept=4 blank=2 dup=1 shape=1 badid=1",
   ]);
 });
 
@@ -357,4 +359,59 @@ test("channels: a later page that fails still ends the listing, and says so in a
   const { live, logs } = loggedSetup(withCats({ "v6/getLiveData": [new PortalError("portal100024", "")] }));
   assert.deepEqual(await live.liveChannels({ categoryId: "76183", cursor: "2" }), { items: [] });
   assert.equal(logs.filter((l) => l.startsWith("xuper:live page_fail cat=76183 page=2")).length, 1);
+});
+
+// ---- odd portal codes: encoded into valid ids, raw code kept in ref -------------------------------
+
+const ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
+
+test("odd codes (spaces, slash, accents, leading ~, very long) become valid, stable, distinct ids; the ref keeps the raw code", async () => {
+  const odd = ["with space", "a/b", "canal ñandú", "~hidden", "x.looks", "z ".repeat(50), "z ".repeat(150), "日本 TV"];
+  const one = () => page(...odd.map((c) => chan(c)), chan("OK_1"));
+  const { live } = setup({ queues: { getNextColumns: [categories(), categories()], "v6/getLiveData": [one(), one()] } });
+  const run = async () => (await live.liveChannels({ categoryId: "76183" })).items;
+  const items = await run();
+  assert.equal(items.length, odd.length + 1);
+  for (const [i, c] of odd.entries()) {
+    assert.match(items[i].id, ID_RE);
+    assert.ok(items[i].id.startsWith("x."));
+    assert.equal(items[i].ref, "xlive1:" + c);
+    assert.equal(codeOfId(items[i].id), c.length <= 90 ? c : null); // reversible when it fits, hashed otherwise
+  }
+  assert.equal(new Set(items.map((i) => i.id)).size, items.length);
+  assert.deepEqual(items[odd.length], { ...items[odd.length], id: "OK_1", ref: "OK_1" }); // a valid code is untouched
+  // stable across calls and equal to what migrate answers for the raw saved code
+  assert.deepEqual((await run()).map((i) => i.id), items.map((i) => i.id));
+  for (const [i, c] of odd.entries()) assert.equal(idOfCode(c), items[i].id);
+  assert.equal(idOfCode("OK_1"), "OK_1");
+});
+
+test("odd codes: the two long codes sharing a prefix hash apart, and the same code in two spellings dedupes by id", async () => {
+  const a = "z ".repeat(150) + "1";
+  const b = "z ".repeat(150) + "2";
+  assert.notEqual(idOfCode(a), idOfCode(b));
+  assert.equal(idOfCode(a).length <= 128, true);
+  const { live } = setup({ queues: withCats({ "v6/getLiveData": [page(chan("a b"), chan("a b", { name: "Otra" }))] }) });
+  assert.equal((await live.liveChannels({ categoryId: "76183" })).items.length, 1);
+});
+
+test("odd codes: round-trip id -> code for every reversible case, wrapped refs are channel refs and unwrap", () => {
+  for (const c of ["a b", "ñ", "~x", "x.y", "a/b/c", "日本", "🙂 live"]) {
+    const { id, ref } = channelOf(c);
+    assert.match(id, ID_RE);
+    assert.equal(codeOfId(id), c);
+    assert.equal(isChannelRef(ref), true);
+    assert.equal(codeOfRef(ref), c);
+  }
+  for (const c of ["CH_01", "123", "a.b-c~d"]) assert.deepEqual(channelOf(c), { id: c, ref: c });
+  assert.equal(channelOf("  "), null);
+  assert.equal(channelOf("a".repeat(2001)), null);
+});
+
+test("liveSearch finds an odd-code channel with the same id and ref the listing gives", async () => {
+  const { live } = setup({ queues: { getNextColumns: [categories()], "v6/getLiveData": [page(), page(chan("odd code/1", { name: "Canal Raro" }))] } });
+  const out = await live.liveSearch({ query: "raro" });
+  assert.equal(out.items.length, 1);
+  assert.equal(out.items[0].id, idOfCode("odd code/1"));
+  assert.equal(out.items[0].ref, "xlive1:odd code/1");
 });

@@ -3,6 +3,7 @@
 //   legacy form: base64url(json).<hmac>, json {"s":"magis","p":{content_id,program_type,episode}};
 //                the signature and the 24 h expiry are ignored on purpose (nothing to check them with).
 
+import { isWrappedRef } from "./channelId.js";
 import { asText, isBlank } from "./util.js";
 
 export const PREFIX = "magis1";
@@ -114,5 +115,6 @@ const CHANNEL_CODE = /^[A-Za-z0-9._~-]{1,128}$/;
 
 /** A bare live channel code, not a VOD ref of either form (resolve routes it to live). */
 export function isChannelRef(ref) {
+  if (isWrappedRef(ref)) return true; // an odd portal code, wrapped by channelId.js
   return typeof ref === "string" && CHANNEL_CODE.test(ref) && !ref.startsWith("~") && decode(ref) === null;
 }

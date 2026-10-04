@@ -1334,6 +1334,44 @@ function classify(roots) {
   return [recentMoviesRow(sectionsOf), updatedSeriesRow(sectionsOf)].filter(Boolean).concat(topRatedRows(byKind), [cinemaRow(sectionsOf)].filter(Boolean), genreRows(byKind));
 }
 
+// src/channelId.js
+var ID = /^[A-Za-z0-9._~-]{1,128}$/;
+var REF_PREFIX = "xlive1:";
+var MAX_CODE_CHARS = 2e3;
+var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+var plainCode = (code) => ID.test(code) && !code.startsWith("~") && !code.startsWith("x.");
+function b64url(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = bytes[i] << 16 | (bytes[i + 1] ?? 0) << 8 | (bytes[i + 2] ?? 0);
+    out += B64[n >> 18 & 63] + B64[n >> 12 & 63];
+    if (i + 1 < bytes.length) out += B64[n >> 6 & 63];
+    if (i + 2 < bytes.length) out += B64[n & 63];
+  }
+  return out;
+}
+function hash128(s) {
+  const lanes = [2166136261, 16777619 ^ 2654435769, 3735928559, 1103547991];
+  const mul = [16777619, 2246822519, 3266489917, 668265263];
+  for (const b of new TextEncoder().encode(s)) {
+    for (let i = 0; i < 4; i++) {
+      lanes[i] = Math.imul(lanes[i] ^ b + i, mul[i]);
+      lanes[i] ^= lanes[(i + 1) % 4] >>> 13;
+    }
+  }
+  return lanes.map((n) => (n >>> 0).toString(16).padStart(8, "0")).join("");
+}
+function channelOf(code) {
+  if (typeof code !== "string" || code.trim() === "" || code.length > MAX_CODE_CHARS) return null;
+  if (plainCode(code)) return { id: code, ref: code };
+  const body = b64url(new TextEncoder().encode(code));
+  const id = ("x.b" + body).length <= 128 ? "x.b" + body : "x.h" + hash128(code);
+  return { id, ref: REF_PREFIX + code };
+}
+var idOfCode = (code) => channelOf(code)?.id ?? null;
+var isWrappedRef = (ref) => typeof ref === "string" && ref.startsWith(REF_PREFIX) && ref.length > REF_PREFIX.length && ref.length <= 4096;
+var codeOfRef = (ref) => isWrappedRef(ref) ? ref.slice(REF_PREFIX.length) : ref;
+
 // src/refs.js
 var PREFIX = "magis1";
 var SERIES = /* @__PURE__ */ new Set(["teleplay", "series", "variety"]);
@@ -1445,6 +1483,7 @@ function decode(ref) {
 }
 var CHANNEL_CODE = /^[A-Za-z0-9._~-]{1,128}$/;
 function isChannelRef(ref) {
+  if (isWrappedRef(ref)) return true;
   return typeof ref === "string" && CHANNEL_CODE.test(ref) && !ref.startsWith("~") && decode(ref) === null;
 }
 
@@ -2628,7 +2667,7 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
     };
   }
   async function resolve2(ref, options) {
-    if (live2 && isChannelRef(ref)) return live2.resolveLive(ref, options);
+    if (live2 && isChannelRef(ref)) return live2.resolveLive(codeOfRef(ref), options);
     const deadline = callDeadline(clock2, CALL_BUDGET_MS.resolve);
     try {
       const magis = decode(ref);
@@ -2650,7 +2689,7 @@ var CATEGORIES_PAGE_SIZE = 200;
 var CHANNELS_PAGE_SIZE = 500;
 var MAX_PAGES = 10;
 var MAX_CATEGORIES = 200;
-var ID = /^[A-Za-z0-9._~-]{1,128}$/;
+var ID2 = /^[A-Za-z0-9._~-]{1,128}$/;
 var POSITIVE = /^\d{1,9}$/;
 var SEARCH_INDEX_TTL_MS = 60 * 6e4;
 var PARTIAL_INDEX_TTL_MS = 3 * 6e4;
@@ -2695,7 +2734,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   }
   async function liveCategories2() {
     const all = await readCategories(callDeadline(clock2, CALL_BUDGET_MS.liveCategories));
-    return all.filter((c) => ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => c.adult ? { id: c.id, title: c.name, adult: true } : { id: c.id, title: c.name });
+    return all.filter((c) => ID2.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => c.adult ? { id: c.id, title: c.name, adult: true } : { id: c.id, title: c.name });
   }
   async function isAdultCategory(id, deadline) {
     if (adultIds === null) {
@@ -2730,21 +2769,18 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
         drop("blank");
         continue;
       }
-      if (!ID.test(code)) {
+      const channel = channelOf(code);
+      if (!channel) {
         drop("badid");
         continue;
       }
-      if (code.startsWith("~")) {
-        drop("tilde");
-        continue;
-      }
-      if (seen.has(code)) {
+      if (seen.has(channel.id)) {
         drop("dup");
         continue;
       }
-      seen.add(code);
+      seen.add(channel.id);
       const n = intOrNull(c.channelNumber);
-      const item = { id: code, title: title2, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
+      const item = { id: channel.id, title: title2, ref: channel.ref, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
       if (adult) item.adult = true;
       const logo = logoOf(c);
       if (logo) item.logo = logo;
@@ -2797,7 +2833,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     const channels = /* @__PURE__ */ new Map();
     let complete = true;
     try {
-      const all = (await readCategories(deadline)).filter((c) => ID.test(c.id) && POSITIVE.test(c.id));
+      const all = (await readCategories(deadline)).filter((c) => ID2.test(c.id) && POSITIVE.test(c.id));
       if (all.length === 0) throw kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
       for (const c of all.filter((c2) => c2.adult)) await sweepCategory(c, channels, deadline);
       const everything = all.find((c) => c.all && !c.adult);
@@ -3697,7 +3733,8 @@ function chapter(input) {
 }
 function live(input) {
   if (!LIVE_PROVIDERS.has(input.provider)) return null;
-  return typeof input.code === "string" && ITEM_ID3.test(input.code) ? { kind: "live", code: input.code } : null;
+  const id = typeof input.code === "string" ? idOfCode(input.code) : null;
+  return id === null ? null : { kind: "live", code: id };
 }
 function makeMigrate() {
   async function migrate2(input) {

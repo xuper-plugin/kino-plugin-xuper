@@ -112,7 +112,8 @@ test("a live channel of the xuper provider answers its bare code", async () => {
 test("another provider's live channel, or a code that is no id, is not claimed", async () => {
   assert.equal(await migrate({ kind: "live", provider: "plugin:other", code: "CH_01" }), null);
   assert.equal(await migrate({ kind: "live", provider: "own", code: "CH_01" }), null);
-  assert.equal(await migrate({ kind: "live", provider: "xuper", code: "bad code" }), null);
+  const odd = await migrate({ kind: "live", provider: "xuper", code: "bad code" });
+  assert.match(odd.code, /^x\.b[A-Za-z0-9_-]+$/); // an odd saved code is answered as its encoded id
   assert.equal(await migrate({ kind: "live", provider: "xuper", code: "" }), null);
 });
 
@@ -147,5 +148,5 @@ test("a live channel under Kino's neutral legacy key answers its bare code; xupe
   assert.deepEqual(kept(input, out), out);
   assert.deepEqual(await migrate({ kind: "live", provider: "xuper", code: "123" }), { kind: "live", code: "123" });
   assert.equal(await migrate({ kind: "live", provider: "plugin:x", code: "123" }), null);
-  assert.equal(await migrate({ kind: "live", provider: "legacy", code: "bad code" }), null);
+  assert.equal((await migrate({ kind: "live", provider: "legacy", code: "bad code" })).kind, "live");
 });

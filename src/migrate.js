@@ -5,6 +5,7 @@
 // which the app remembers.
 import { decode, encode, encodeChapter } from "./refs.js";
 import { isObject } from "./util.js";
+import { idOfCode } from "./channelId.js";
 
 /**
  * The provider keys the app files native Xuper live favorites/recents under: "xuper" (LiveChannelKeys.XUPER)
@@ -51,7 +52,9 @@ function chapter(input) {
 
 function live(input) {
   if (!LIVE_PROVIDERS.has(input.provider)) return null;
-  return typeof input.code === "string" && ITEM_ID.test(input.code) ? { kind: "live", code: input.code } : null;
+  // The saved code is the portal's raw one: a valid id stays itself, an odd one answers its encoded id.
+  const id = typeof input.code === "string" ? idOfCode(input.code) : null;
+  return id === null ? null : { kind: "live", code: id };
 }
 
 export function makeMigrate() {

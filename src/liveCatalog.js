@@ -6,6 +6,7 @@ import { PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS } from "./por
 import { logoOf } from "./homeTree.js";
 import { isObject, asText, isBlank, isKinoError, intOrNull } from "./util.js";
 import { trace, errCode } from "./trace.js";
+import { channelOf } from "./channelId.js";
 
 const LIVE_ROOT = "masnew_live";
 const CATEGORIES_PAGE_SIZE = 200; // 30 lost eight of the 38 real categories
@@ -104,12 +105,13 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
       const code = asText(c.channelCode);
       const title = asText(c.name);
       if (isBlank(code) || isBlank(title)) { drop("blank"); continue; }
-      if (!ID.test(code)) { drop("badid"); continue; }
-      if (code.startsWith("~")) { drop("tilde"); continue; }
-      if (seen.has(code)) { drop("dup"); continue; }
-      seen.add(code);
+      // Any non-blank code gets a valid id (channelId.js); only an absurdly long one is `badid`.
+      const channel = channelOf(code);
+      if (!channel) { drop("badid"); continue; }
+      if (seen.has(channel.id)) { drop("dup"); continue; }
+      seen.add(channel.id);
       const n = intOrNull(c.channelNumber);
-      const item = { id: code, title, ref: code, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
+      const item = { id: channel.id, title, ref: channel.ref, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
       if (adult) item.adult = true;
       const logo = logoOf(c);
       if (logo) item.logo = logo;

@@ -8,6 +8,7 @@
 import { PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { UA_CDN, FIXED_MAC } from "./config.js";
 import { decode, isChannelRef } from "./refs.js";
+import { codeOfRef } from "./channelId.js";
 import { findChapter } from "./episodes.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
 import { trace } from "./trace.js";
@@ -226,7 +227,7 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
 
   async function resolve(ref, options) {
     // A live channel's ref is its bare code (liveCatalog.js): routed before the VOD path, untouched.
-    if (live && isChannelRef(ref)) return live.resolveLive(ref, options);
+    if (live && isChannelRef(ref)) return live.resolveLive(codeOfRef(ref), options);
     const deadline = callDeadline(clock, CALL_BUDGET_MS.resolve);
     try {
       const magis = decode(ref);
