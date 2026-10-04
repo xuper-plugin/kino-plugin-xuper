@@ -186,6 +186,34 @@ function report(kino2, area, event, fields = {}) {
   } catch (_) {
   }
 }
+var PERF_AREAS = Object.freeze({ slow: "perf_slow", timeout: "perf_timeout", cold: "perf_cold", store: "perf_store", decode: "perf_decode" });
+var SLOW_CALL_MS = 8e3;
+var TIMEOUT_CALL_MS = 2e4;
+function msBucket(ms) {
+  const s = Number.isFinite(ms) ? ms / 1e3 : 0;
+  const edges = [[1, "lt1s"], [2, "1-2s"], [4, "2-4s"], [8, "4-8s"], [12, "8-12s"], [16, "12-16s"], [20, "16-20s"], [30, "20-30s"], [60, "30-60s"]];
+  for (const [limit, word2] of edges) if (s < limit) return word2;
+  return "ge60s";
+}
+function kbBucket(bytes) {
+  const kb = Number.isFinite(bytes) ? bytes / 1024 : 0;
+  const edges = [[256, "lt256k"], [512, "256-512k"], [1024, "512k-1m"], [2048, "1-2m"], [4096, "2-4m"]];
+  for (const [limit, word2] of edges) if (kb < limit) return word2;
+  return "ge4m";
+}
+function reportCallTime(kino2, fn, ms, ok) {
+  if (!(ms >= SLOW_CALL_MS)) return;
+  report(kino2, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok });
+  if (ms >= TIMEOUT_CALL_MS) report(kino2, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok });
+}
+function makeDecodeReporter(kino2) {
+  let done = false;
+  return ({ how, bytes, ms }) => {
+    if (done || !(bytes >= 1e6)) return;
+    done = true;
+    report(kino2, PERF_AREAS.decode, "wire", { how, kb: kbBucket(bytes), b: msBucket(ms) });
+  };
+}
 function errCode(e) {
   if (e === null || typeof e !== "object") return "error";
   const name = typeof e.name === "string" ? e.name : "";
@@ -202,10 +230,14 @@ async function traced(kino2, clock2, fn, body, extra = {}) {
   try {
     out = await body();
   } catch (e) {
-    trace(kino2, "call", "fail", { fn, ...extra, code: errCode(e), ms: clock2.now() - t0 });
+    const ms2 = clock2.now() - t0;
+    trace(kino2, "call", "fail", { fn, ...extra, code: errCode(e), ms: ms2 });
+    reportCallTime(kino2, fn, ms2, false);
     throw e;
   }
-  trace(kino2, "call", "ok", { fn, ...extra, ms: clock2.now() - t0, n: Array.isArray(out) ? out.length : void 0 });
+  const ms = clock2.now() - t0;
+  trace(kino2, "call", "ok", { fn, ...extra, ms, n: Array.isArray(out) ? out.length : void 0 });
+  reportCallTime(kino2, fn, ms, true);
   return out;
 }
 function makeSignStats({ kino: kino2, every = 50, slowMs = 200 }) {
@@ -2383,6 +2415,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     dirty = false;
     const { rows: rows2, roots } = current;
     if (rows2.length === 0) return;
+    const startedAt = clock2.now();
     const keepFull = homeRowsCount(rows2);
     const fit = fitRows(rows2, { keepFull });
     if (fit === null) {
@@ -2394,6 +2427,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const whole2 = Object.keys(roots).filter((r) => current.whole.has(r) && !cut.has(r));
     try {
       store.write(fit.text, Math.min(...Object.values(roots)), roots, whole2);
+      report(kino2, PERF_AREAS.store, "write", { b: msBucket(clock2.now() - startedAt), kb: kbBucket(fit.text.length), step: fit.step });
     } catch (e) {
       trace(kino2, "store", "full", { what: "rows", code: errCode(e) });
     }
@@ -2472,6 +2506,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const startedAt = clock2.now();
     const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
     getCurrent();
+    const storedBefore = current ? Object.keys(current.roots).length : 0;
     const failed = [];
     let ensured = false;
     const asked = /* @__PURE__ */ new Set();
@@ -2493,6 +2528,15 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
       if (r.error !== null) failed.push(r);
     }
     if (dirty) save();
+    const storedAfter = current ? Object.keys(current.roots).length : 0;
+    if (storedAfter > storedBefore && storedBefore < KINDS.length) {
+      report(
+        kino2,
+        PERF_AREAS.cold,
+        storedAfter === KINDS.length ? "done" : "progress",
+        { stored: storedAfter, of: KINDS.length, b: msBucket(clock2.now() - startedAt) }
+      );
+    }
     if (current) return current.rows;
     if (failed.length > 0) {
       summarizeFailure(failed, 1);
@@ -3901,14 +3945,7 @@ var deps = null;
 var clock = { now: () => Date.now() };
 function getDeps() {
   if (deps) return deps;
-  let decodeLogged = false;
-  const crypto = makeCrypto(kino, {
-    onDecode: ({ how, bytes, ms }) => {
-      if (decodeLogged || bytes < 1e6) return;
-      decodeLogged = true;
-      trace(kino, "portal", "decode", { how, kb: Math.round(bytes / 1024), ms });
-    }
-  });
+  const crypto = makeCrypto(kino, { onDecode: makeDecodeReporter(kino) });
   const config = { hosts, appId: APP_ID, apkVersion: APK_VERSION };
   let session = null;
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn, modeOf: () => session.mode() });

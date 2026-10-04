@@ -8,7 +8,7 @@ import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { isKinoError } from "./util.js";
-import { trace, errCode } from "./trace.js";
+import { trace, report, errCode, msBucket, kbBucket, PERF_AREAS } from "./trace.js";
 
 export { parseShelveTime };
 
@@ -152,6 +152,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     dirty = false;
     const { rows, roots } = current;
     if (rows.length === 0) return; // nothing worth keeping: asked again next time
+    const startedAt = clock.now();
     const keepFull = homeRowsCount(rows);
     const fit = fitRows(rows, { keepFull });
     if (fit === null) { trace(kino, "store", "skip", { what: "rows" }); return; }
@@ -159,8 +160,10 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     // Past Home's rows a trimmed snapshot keeps one item per row: a root with such a row is not whole.
     const cut = fit.step === 0 ? new Set() : new Set(rows.slice(keepFull).filter((r) => r.shown.length > 1).map((r) => rootOfRow(r.id)));
     const whole = Object.keys(roots).filter((r) => current.whole.has(r) && !cut.has(r));
-    try { store.write(fit.text, Math.min(...Object.values(roots)), roots, whole); }
-    catch (e) { trace(kino, "store", "full", { what: "rows", code: errCode(e) }); /* served from memory */ }
+    try {
+      store.write(fit.text, Math.min(...Object.values(roots)), roots, whole);
+      report(kino, PERF_AREAS.store, "write", { b: msBucket(clock.now() - startedAt), kb: kbBucket(fit.text.length), step: fit.step });
+    } catch (e) { trace(kino, "store", "full", { what: "rows", code: errCode(e) }); /* served from memory */ }
   }
   // `{ sections, error }`: a failing root shows as empty, but its error is kept so that a Home where
   // EVERY root failed can say so instead of being a silent blank (main 2d285106 + 465773f1).
@@ -259,6 +262,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const startedAt = clock.now();
     const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
     getCurrent();
+    const storedBefore = current ? Object.keys(current.roots).length : 0;
     const failed = [];
     let ensured = false;
     const asked = new Set(); // a root at most once per call
@@ -275,6 +279,12 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       if (r.error !== null) failed.push(r);
     }
     if (dirty) save();
+    // A start that brought a catalog not complete yet closer: how far, and what it cost.
+    const storedAfter = current ? Object.keys(current.roots).length : 0;
+    if (storedAfter > storedBefore && storedBefore < KINDS.length) {
+      report(kino, PERF_AREAS.cold, storedAfter === KINDS.length ? "done" : "progress",
+        { stored: storedAfter, of: KINDS.length, b: msBucket(clock.now() - startedAt) });
+    }
     if (current) return current.rows;
     if (failed.length > 0) { summarizeFailure(failed, 1); throw worstOf(failed); }
     return [];

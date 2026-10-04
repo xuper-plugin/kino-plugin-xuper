@@ -335,3 +335,100 @@ test("live: a retry's HTTP status is logged when the app sends one", async () =>
   await w.resolve.resolve("cyx-RCNHD", { retry: { reason: "expired", attempt: 2, status: 403 } });
   has(w, /^xuper:live retry reason=expired attempt=2 status=403$/);
 });
+
+// ---- performance reports (2.2.9): what reaches the error board, by area ------------------------------
+
+import { msBucket, kbBucket, reportCallTime, makeDecodeReporter, PERF_AREAS } from "../src/trace.js";
+import { makeCatalog } from "../src/catalog.js";
+import { makeCrypto } from "../src/crypto.js";
+import { fakeKino, STAND_IN_KEY } from "./helpers/fakeKino.mjs";
+
+const PERF_LINE = /^xuper:perf_(slow|timeout|cold|store|decode) [a-z]+( [a-z][a-zA-Z0-9]*=[A-Za-z0-9_\/-]+)*$/;
+const AREA_WORD = /^(?=[a-z0-9_:]*[_:])[a-z0-9_:]{1,24}$/; // what Kino files as an area (anything else is "other")
+function reportingKino() {
+  const reports = [];
+  const logs = [];
+  const base = fakeKino();
+  const log = Object.assign((...a) => { logs.push(a.join(" ")); }, { report: (...a) => { const l = a.join(" "); reports.push(l); logs.push(l); } });
+  return { kino: Object.freeze({ ...base, log }), reports, logs };
+}
+// No value that could be a host, an id, a title or a secret: only short words, buckets and small numbers.
+function clean(line) {
+  assert.match(line, PERF_LINE);
+  assert.match(line.split(" ")[0], AREA_WORD);
+  assert.equal(appScrub(line), line, "the app's scrubber leaves it whole");
+  assert.ok(!/[0-9a-fA-F]{12}|\d{6}|\.test|https?:|@/.test(line), line);
+}
+
+test("perf areas: five namespaced words Kino files as areas", () => {
+  assert.deepEqual(Object.values(PERF_AREAS).map((a) => "xuper:" + a), ["xuper:perf_slow", "xuper:perf_timeout", "xuper:perf_cold", "xuper:perf_store", "xuper:perf_decode"]);
+  for (const a of Object.values(PERF_AREAS)) assert.match("xuper:" + a, AREA_WORD);
+});
+
+test("buckets: times and sizes as words, never the exact value", () => {
+  assert.deepEqual([0, 999, 1000, 3999, 7999, 8000, 15_000, 19_999, 20_000, 45_000, 60_000, NaN].map(msBucket),
+    ["lt1s", "lt1s", "1-2s", "2-4s", "4-8s", "8-12s", "12-16s", "16-20s", "20-30s", "30-60s", "ge60s", "lt1s"]);
+  assert.deepEqual([0, 300_000, 600_000, 1_100_000, 3_000_000, 5_000_000].map(kbBucket), ["lt256k", "256-512k", "512k-1m", "1-2m", "2-4m", "ge4m"]);
+});
+
+test("a call of 8 s or more is reported as slow, one of 20 s or more also as a timeout; a quick one is not", async () => {
+  const { kino, reports, logs } = reportingKino();
+  const clock = { t: 0, now() { return this.t; } };
+  const run = (fn, ms, fail) => traced(kino, clock, fn, async () => { clock.t += ms; if (fail) throw new Error("x"); return []; }).catch(() => {});
+  await run("categories", 2_000);
+  await run("section", 11_000);
+  await run("liveChannels", 21_300, true);
+  assert.deepEqual(reports, [
+    "xuper:perf_slow call fn=section b=8-12s ok=1",
+    "xuper:perf_slow call fn=liveChannels b=20-30s ok=0",
+    "xuper:perf_timeout call fn=liveChannels b=20-30s ok=0",
+  ]);
+  reports.forEach(clean);
+  assert.ok(logs.some((l) => l === "xuper:call ok fn=categories ms=2000 n=0"), "the Registro keeps the exact breadcrumbs");
+});
+
+test("the first big answer of a sandbox reports how it was decoded, once", () => {
+  const { kino, reports } = reportingKino();
+  const onDecode = makeDecodeReporter(kino);
+  onDecode({ how: "host", bytes: 400_000, ms: 300 });
+  onDecode({ how: "host", bytes: 2_200_000, ms: 5_500 });
+  onDecode({ how: "engine", bytes: 3_000_000, ms: 9_000 });
+  assert.deepEqual(reports, ["xuper:perf_decode wire how=host kb=2-4m b=4-8s"]);
+  reports.forEach(clean);
+  // Wired to the real crypto: a megabyte wire through the host's way.
+  const real = reportingKino();
+  const k = Object.freeze({ ...fakeKino({ secrets: { magisKey: STAND_IN_KEY } }), log: real.kino.log });
+  const c = makeCrypto(k, { onDecode: makeDecodeReporter(k) });
+  const plain = JSON.stringify({ list: Array.from({ length: 6000 }, (_, i) => ({ n: "Canal " + i, x: "y".repeat(40) })) });
+  assert.equal(c.decryptBlob(c.encryptBody(plain)), plain);
+  assert.equal(real.reports.length, 1);
+  assert.match(real.reports[0], /^xuper:perf_decode wire how=host kb=[0-9a-z-]+ b=[0-9a-z-]+$/);
+  clean(real.reports[0]);
+});
+
+test("a catalog built root by root reports each start's progress, then done; every snapshot write its cost", async () => {
+  const { kino, reports } = reportingKino();
+  const asset = (id) => ({ contentId: id, name: "Titulo secreto " + id, programType: "movie", tags: "Drama", score: 7, posterList: [{ fileType: "icon", fileUrl: "https://img.host.test/p/" + id + ".jpg" }] });
+  const tree = (p) => ({ recommendList: [{ columnId: 1, name: "All", assetList: Array.from({ length: 6 }, (_, i) => asset(p + "ABCDEF0123456789" + i)) }] });
+  const codes = { masnew_movies: "p", masnew_series: "s", masnew_anime: "a", masnew_kids: "k" };
+  const clock = { t: 1_790_000_000_000, now() { return this.t; } };
+  // Each root costs 3 s, as on the TV: one root per call.
+  const portal = { async call(_p, bean) { clock.t += 3_000; await null; return tree(codes[bean.columnCode]); } };
+  const session = { ensure: async () => {}, withValidSession: async (b) => b({ userId: "u1", userToken: "tok1" }) };
+  for (let start = 0; start < 4; start++) await makeCatalog({ kino, portal, session, clock }).home();
+  const cold = reports.filter((l) => l.startsWith("xuper:perf_cold"));
+  assert.deepEqual(cold, [
+    "xuper:perf_cold progress stored=1 of=4 b=2-4s",
+    "xuper:perf_cold progress stored=2 of=4 b=2-4s",
+    "xuper:perf_cold progress stored=3 of=4 b=2-4s",
+    "xuper:perf_cold done stored=4 of=4 b=2-4s",
+  ]);
+  const writes = reports.filter((l) => l.startsWith("xuper:perf_store"));
+  assert.equal(writes.length, 4);
+  for (const w of writes) assert.match(w, /^xuper:perf_store write b=lt1s kb=lt256k step=0$/);
+  reports.forEach(clean);
+  // Complete: the next start reports nothing.
+  const before = reports.length;
+  await makeCatalog({ kino, portal, session, clock }).home();
+  assert.equal(reports.length, before);
+});

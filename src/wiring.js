@@ -13,7 +13,7 @@ import { makeCategories } from "./categories.js";
 import { makeCountryRow } from "./countryRow.js";
 import * as constants from "./config.js";
 import { isKinoError } from "./util.js";
-import { trace, errCode } from "./trace.js";
+import { trace, errCode, makeDecodeReporter } from "./trace.js";
 
 let deps = null;
 
@@ -23,17 +23,9 @@ export const clock = { now: () => Date.now() };
 
 export function getDeps() {
   if (deps) return deps;
-  // One breadcrumb per sandbox for the first big answer: how its wire was decoded and in how long
+  // One report per sandbox for the first big answer: how its wire was decoded and in how long
   // (the decoding was most of a 32-bit TV's time per answer before 2.2.8).
-  let decodeLogged = false;
-  const crypto = makeCrypto(kino, {
-    onDecode: ({ how, bytes, ms }) => {
-      if (decodeLogged || bytes < 1_000_000) return;
-      decodeLogged = true;
-      trace(kino, "portal", "decode", { how, kb: Math.round(bytes / 1024), ms });
-    },
-  });
-  const config = { hosts: constants.hosts, appId: constants.APP_ID, apkVersion: constants.APK_VERSION };
+  const crypto = makeCrypto(kino, { onDecode: makeDecodeReporter(kino) });  const config = { hosts: constants.hosts, appId: constants.APP_ID, apkVersion: constants.APK_VERSION };
   let session = null; // the portal needs the session's sn and the session needs the portal: wired lazily
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn, modeOf: () => session.mode() });
   session = makeSession({ kino, portal, clock, shared: { email: constants.SHARED_EMAIL, password: constants.SHARED_PASSWORD } });

@@ -65,6 +65,52 @@ export function report(kino, area, event, fields = {}) {
   } catch (_) { /* a breadcrumb never fails a call */ }
 }
 
+// ---- performance reports (2.2.9) ----------------------------------------------------------------
+// Sent with kino.log.report (the manifest declares "telemetry": "verbose"), so they reach Kino's error
+// board even when the call worked; Kino keeps one a minute per area and 60 per run. Codes, counts and
+// time buckets only. The areas, to query them on the board:
+//   xuper:perf_slow     a call that took 8 s or more:       fn, b (time bucket), ok
+//   xuper:perf_timeout  a call that took 20 s or more (Kino had already given up on it): fn, b, ok
+//   xuper:perf_cold     a start that stored roots of a catalog not complete yet: stored, of, b; `done` once complete
+//   xuper:perf_store    a snapshot write: b, kb (size bucket), step (how it was trimmed)
+//   xuper:perf_decode   the first big portal answer of a sandbox: how (host|engine), kb, b
+export const PERF_AREAS = Object.freeze({ slow: "perf_slow", timeout: "perf_timeout", cold: "perf_cold", store: "perf_store", decode: "perf_decode" });
+export const SLOW_CALL_MS = 8_000;
+export const TIMEOUT_CALL_MS = 20_000;
+
+/** A time as a bucket word: lt1s, 1-2s, 2-4s, 4-8s, 8-12s, 12-16s, 16-20s, 20-30s, 30-60s, ge60s. */
+export function msBucket(ms) {
+  const s = Number.isFinite(ms) ? ms / 1000 : 0;
+  const edges = [[1, "lt1s"], [2, "1-2s"], [4, "2-4s"], [8, "4-8s"], [12, "8-12s"], [16, "12-16s"], [20, "16-20s"], [30, "20-30s"], [60, "30-60s"]];
+  for (const [limit, word] of edges) if (s < limit) return word;
+  return "ge60s";
+}
+
+/** A size in bytes as a bucket word: lt256k, 256-512k, 512k-1m, 1-2m, 2-4m, ge4m. */
+export function kbBucket(bytes) {
+  const kb = Number.isFinite(bytes) ? bytes / 1024 : 0;
+  const edges = [[256, "lt256k"], [512, "256-512k"], [1024, "512k-1m"], [2048, "1-2m"], [4096, "2-4m"]];
+  for (const [limit, word] of edges) if (kb < limit) return word;
+  return "ge4m";
+}
+
+/** A call's time, reported when slow (and again when Kino had already given up on it). Never throws. */
+export function reportCallTime(kino, fn, ms, ok) {
+  if (!(ms >= SLOW_CALL_MS)) return;
+  report(kino, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok });
+  if (ms >= TIMEOUT_CALL_MS) report(kino, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok });
+}
+
+/** The crypto's onDecode: one report per sandbox, for its first answer of 1 MB or more. */
+export function makeDecodeReporter(kino) {
+  let done = false;
+  return ({ how, bytes, ms }) => {
+    if (done || !(bytes >= 1_000_000)) return;
+    done = true;
+    report(kino, PERF_AREAS.decode, "wire", { how, kb: kbBucket(bytes), b: msBucket(ms) });
+  };
+}
+
 /** A short code for an error: the portal's returnCode, a kino error's code, else its name. Never its message. */
 export function errCode(e) {
   if (e === null || typeof e !== "object") return "error";
@@ -90,10 +136,14 @@ export async function traced(kino, clock, fn, body, extra = {}) {
   try {
     out = await body();
   } catch (e) {
-    trace(kino, "call", "fail", { fn, ...extra, code: errCode(e), ms: clock.now() - t0 });
+    const ms = clock.now() - t0;
+    trace(kino, "call", "fail", { fn, ...extra, code: errCode(e), ms });
+    reportCallTime(kino, fn, ms, false);
     throw e;
   }
-  trace(kino, "call", "ok", { fn, ...extra, ms: clock.now() - t0, n: Array.isArray(out) ? out.length : undefined });
+  const ms = clock.now() - t0;
+  trace(kino, "call", "ok", { fn, ...extra, ms, n: Array.isArray(out) ? out.length : undefined });
+  reportCallTime(kino, fn, ms, true);
   return out;
 }
 
