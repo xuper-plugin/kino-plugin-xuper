@@ -2755,6 +2755,7 @@ var AUTH_MARGIN_S = 300;
 var EXPIRED = /expired=(\d+)/;
 var MAX_SUBTITLES = 30;
 var MAX_ALTERNATIVES = 8;
+var RETRY_COPIES = 3;
 var INT7 = /^[+-]?\d+$/;
 var DIGITS = /^[0-9]+$/;
 function isCfl(url) {
@@ -2903,9 +2904,9 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
         }
       }
     }
-    if (copies.length > 0 && copies.length <= MAX_ALTERNATIVES) {
-      const again = copies[0];
-      copies.push({ ...again, url: `${again.url}${again.url.includes("?") ? "&" : "?"}retry=1` });
+    const bestCopy = copies[0];
+    for (let n = 1; bestCopy && n <= RETRY_COPIES && copies.length <= MAX_ALTERNATIVES; n++) {
+      copies.push({ ...bestCopy, url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}` });
     }
     const [first, ...others] = copies;
     const alternatives = others.slice(0, MAX_ALTERNATIVES);

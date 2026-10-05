@@ -493,10 +493,13 @@ test("the kit accepts the stream; it has a downloadable shape (progressive file,
 // codec, container and license) and getSlbInfo every vod CDN (main_addr plus spared_addr, each free cfl
 // entry with its own Content-Auth). The best track on the first CDN stays `url`; the rest, best first,
 // are `alternatives` the app tries when that one cannot play. Nothing is invented: no extra portal call.
-// When a slot is left, the last alternative is `url` again under `?retry=1`: the vod server drops a share of
-// its connects at random and Kino never retries a copy it could not reach, so that copy is the second attempt.
+// While slots are left, the last alternatives are `url` again under `?retry=1`, `2`, `3`: the vod server drops a
+// share of its connects at random, ExoPlayer used to retry a failed connect 3-4 times and Kino 0.9.50+ never
+// retries a copy it could not reach, so those copies are the attempts it no longer makes. Never in a real copy's slot.
 
-const retryOf = (url) => `${url}${url.includes("?") ? "&" : "?"}retry=1`;
+const retryOf = (url, n) => `${url}${url.includes("?") ? "&" : "?"}retry=${n}`;
+// The three retry copies of a copy, in order.
+const retriesOf = (copy) => [1, 2, 3].map((n) => ({ ...copy, url: retryOf(copy.url, n) }));
 
 const AUTH = (t) => `cdn_type=1&sign_type=cfl&token=${t}&expired=${FAR}`;
 const vodCdnOf = (mainAddr, token, spare = undefined) =>
@@ -509,7 +512,7 @@ test("alternatives: another track of the title (an h265 ts behind the h264 mp4) 
   assert.equal(out.url, "https://cdn.example.com/vod/AVC_media.mp4");
   assert.deepEqual(out.alternatives, [
     { url: "https://cdn.example.com/vod/HEVC_media.ts", mime: "video/mp2t", headers: headersFor(AUTH("ABC"), "L-HEVC") },
-    { url: "https://cdn.example.com/vod/AVC_media.mp4?retry=1", mime: "video/mp4", headers: headersFor(AUTH("ABC"), "L-AVC") },
+    ...retriesOf({ url: "https://cdn.example.com/vod/AVC_media.mp4", mime: "video/mp4", headers: headersFor(AUTH("ABC"), "L-AVC") }),
   ]);
 });
 
@@ -526,7 +529,7 @@ test("alternatives: the same file on the CDN's spared_addr and on another free c
   assert.deepEqual(out.alternatives, [
     { url: "http://spare.example.com/vod/M1_media.ts", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") },
     { url: "https://two.example.com/vod/M1_media.ts", mime: "video/mp2t", headers: headersFor(AUTH("TWO"), "LIC123") },
-    { url: "http://one.example.com/vod/M1_media.ts?retry=1", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") },
+    ...retriesOf({ url: "http://one.example.com/vod/M1_media.ts", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") }),
   ]);
 });
 
@@ -540,10 +543,12 @@ test("alternatives: best track on every server first, then the next track on eve
     ["http://one.example.com/vod/B_media.ts", AUTH("ONE"), "L-B"],
     ["http://two.example.com/vod/B_media.ts", AUTH("TWO"), "L-B"],
     ["http://one.example.com/vod/A_media.mp4?retry=1", AUTH("ONE"), "L-A"],
+    ["http://one.example.com/vod/A_media.mp4?retry=2", AUTH("ONE"), "L-A"],
+    ["http://one.example.com/vod/A_media.mp4?retry=3", AUTH("ONE"), "L-A"],
   ]);
 });
 
-test("alternatives: the captured shape (one track, one cfl CDN whose spare is its main) has no other copy; its one alternative is the retry of `url`", async () => {
+test("alternatives: the captured shape (one track, one cfl CDN whose spare is its main) has no other copy; its alternatives are the three retries of `url`", async () => {
   const answer = { invalidTime: "14400", cdn_list: [
     { tag: "vod", main_addr: "x.example.com", spared_addr: "y.example.com", url_list: [{ tag: "free", url: "sign_type=cs&token=CS" }] },
     { tag: "vod", main_addr: "g.example.com", spared_addr: "g.example.com", url_list: [{ tag: "free", url: "sign_type=goog&token=G" }] },
@@ -551,13 +556,18 @@ test("alternatives: the captured shape (one track, one cfl CDN whose spare is it
   ] };
   const out = await setup({ queues: movieQueues([media("M1", "ts", "h265")], answer) }).resolve(MOVIE);
   assert.equal(out.url, "http://one.example.com/vod/M1_media.ts");
-  // The shape every title has today: the only alternative is the same file, headers and mime on a new connection.
-  assert.deepEqual(out.alternatives, [{ url: "http://one.example.com/vod/M1_media.ts?retry=1", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") }]);
+  // The shape every title has today: the only alternatives are the same file, headers and mime, each on a new connection.
+  assert.deepEqual(out.alternatives, [
+    { url: "http://one.example.com/vod/M1_media.ts?retry=1", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") },
+    { url: "http://one.example.com/vod/M1_media.ts?retry=2", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") },
+    { url: "http://one.example.com/vod/M1_media.ts?retry=3", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") },
+  ]);
   // A blank spare and a spare that only differs by a trailing slash add no copy either; a spare without a
-  // scheme is read as https, another server, and comes before the retry.
+  // scheme is read as https, another server, and comes before the retries.
   for (const spare of ["", "  ", "http://one.example.com/", "one.example.com"]) {
     const o = await setup({ queues: movieQueues([media("M1", "ts", "h265")], { invalidTime: "14400", cdn_list: [vodCdnOf("http://one.example.com", "ONE", spare)] }) }).resolve(MOVIE);
-    const expected = [...(spare === "one.example.com" ? ["https://one.example.com/vod/M1_media.ts"] : []), "http://one.example.com/vod/M1_media.ts?retry=1"];
+    const retries = [1, 2, 3].map((n) => `http://one.example.com/vod/M1_media.ts?retry=${n}`);
+    const expected = [...(spare === "one.example.com" ? ["https://one.example.com/vod/M1_media.ts"] : []), ...retries];
     assert.deepEqual(o.alternatives.map((a) => a.url), expected, JSON.stringify(spare));
   }
 });
@@ -575,50 +585,61 @@ test("alternatives: a track without a license or a contentId is never offered; a
   assert.deepEqual(out.alternatives.map((a) => [a.url, a.headers["Content-License"]]), [
     ["https://cdn.example.com/vod/TWIN_media.ts", "L-T1"],
     ["https://cdn.example.com/vod/BEST_media.mp4?retry=1", "LIC123"],
+    ["https://cdn.example.com/vod/BEST_media.mp4?retry=2", "LIC123"],
+    ["https://cdn.example.com/vod/BEST_media.mp4?retry=3", "LIC123"],
   ]);
 });
 
 test("alternatives: at most 8, and the kit keeps every one with zero drops", async () => {
-  // 20 real copies: the 8 slots are taken by real ones, so no retry copy.
+  // 20 real copies: the 8 slots are taken by real ones, so no retry copies.
   const cdns = Array.from({ length: 5 }, (_, i) => vodCdnOf(`http://c${i}.example.com`, `T${i}`, `http://s${i}.example.com`));
   const movies = [media("A", "mp4", "h264"), media("B", "ts", "h265", { licenseList: [{ license: "L-B" }] })];
   const out = await setup({ queues: movieQueues(movies, { invalidTime: "14400", cdn_list: cdns }) }).resolve(MOVIE);
   assert.equal(out.alternatives.length, 8);
   assert.ok(out.alternatives.every((a) => a.url !== out.url));
   assert.equal(new Set(out.alternatives.map((a) => a.url)).size, 8);
-  assert.ok(out.alternatives.every((a) => !a.url.includes("retry=1")));
+  assert.ok(out.alternatives.every((a) => !a.url.includes("retry=")));
   const checked = checkOutput("resolve", out, manifest);
   assert.deepEqual(checked.drops, []);
   assert.equal(checked.value.alternatives.length, 8);
   assert.deepEqual(checked.value.alternatives[0].headers, out.alternatives[0].headers);
 });
 
-test("alternatives: the retry copy is `url` plus retry=1, same headers and mime, last, and only while a slot is free", async () => {
+test("alternatives: the retry copies are `url` plus retry=1..3, same headers and mime, last, and only in free slots", async () => {
   // n vod CDNs without a spare, one track: n real copies.
   const onCdns = (n, mainAddr = (i) => `http://c${i}.example.com`) =>
     movieQueues([media("M1", "ts", "h265")], { invalidTime: "14400", cdn_list: Array.from({ length: n }, (_, i) => vodCdnOf(mainAddr(i), `T${i}`)) });
+  const real = (from, to) => Array.from({ length: to - from }, (_, i) => `http://c${from + i}.example.com/vod/M1_media.ts`);
+  const retry = (n) => `http://c0.example.com/vod/M1_media.ts?retry=${n}`;
 
-  // 8 real copies: 7 real alternatives, and the 8th slot is the retry.
-  const room = await setup({ queues: onCdns(8) }).resolve(MOVIE);
-  assert.equal(room.url, "http://c0.example.com/vod/M1_media.ts");
-  assert.equal(room.alternatives.length, 8);
-  assert.deepEqual(room.alternatives.slice(0, 7).map((a) => a.url), Array.from({ length: 7 }, (_, i) => `http://c${i + 1}.example.com/vod/M1_media.ts`));
-  assert.deepEqual(room.alternatives[7], { url: "http://c0.example.com/vod/M1_media.ts?retry=1", mime: room.mime, headers: room.headers });
-  assert.deepEqual(room.alternatives[7].headers, headersFor(AUTH("T0"), "LIC123"));
-  const checked = checkOutput("resolve", room, manifest);
+  // 6 real copies: 5 real alternatives and all three retries, exactly the 8 slots.
+  const six = await setup({ queues: onCdns(6) }).resolve(MOVIE);
+  assert.equal(six.url, "http://c0.example.com/vod/M1_media.ts");
+  assert.deepEqual(six.alternatives.map((a) => a.url), [...real(1, 6), retry(1), retry(2), retry(3)]);
+  for (const a of six.alternatives.slice(5)) assert.deepEqual({ mime: a.mime, headers: a.headers }, { mime: six.mime, headers: six.headers });
+  assert.deepEqual(six.alternatives[5].headers, headersFor(AUTH("T0"), "LIC123"));
+  const checked = checkOutput("resolve", six, manifest);
   assert.deepEqual(checked.drops, []);
-  assert.deepEqual(checked.value.alternatives[7], { url: retryOf(room.url), mime: "video/mp2t", headers: room.headers });
+  assert.deepEqual(checked.value.alternatives.slice(5), [1, 2, 3].map((n) => ({ url: retryOf(six.url, n), mime: "video/mp2t", headers: six.headers })));
 
-  // 9 real copies fill the 8 slots: no retry, the last real copy is not pushed out for it.
+  // Partial room: 7 real copies leave 2 slots, so retry=1 and retry=2 only; 8 leave 1, retry=1 only.
+  const seven = await setup({ queues: onCdns(7) }).resolve(MOVIE);
+  assert.deepEqual(seven.alternatives.map((a) => a.url), [...real(1, 7), retry(1), retry(2)]);
+  assert.deepEqual(checkOutput("resolve", seven, manifest).drops, []);
+  const eight = await setup({ queues: onCdns(8) }).resolve(MOVIE);
+  assert.deepEqual(eight.alternatives.map((a) => a.url), [...real(1, 8), retry(1)]);
+  assert.deepEqual(eight.alternatives[7], { url: retry(1), mime: eight.mime, headers: eight.headers });
+
+  // 9 real copies fill the 8 slots: no retry, and no real copy is pushed out for one.
   const full = await setup({ queues: onCdns(9) }).resolve(MOVIE);
-  assert.deepEqual(full.alternatives.map((a) => a.url), Array.from({ length: 8 }, (_, i) => `http://c${i + 1}.example.com/vod/M1_media.ts`));
+  assert.deepEqual(full.alternatives.map((a) => a.url), real(1, 9));
   assert.deepEqual(checkOutput("resolve", full, manifest).drops, []);
 
-  // A url that already carries a query (the portal has never sent one) gets `&retry=1`, still one valid URL.
+  // A url that already carries a query (the portal has never sent one) gets `&retry=n`, still one valid URL each.
   const query = await setup({ queues: onCdns(1, () => "http://c0.example.com/p?k=v") }).resolve(MOVIE);
   assert.equal(query.url, "http://c0.example.com/p?k=v/vod/M1_media.ts");
-  assert.deepEqual(query.alternatives, [{ url: "http://c0.example.com/p?k=v/vod/M1_media.ts&retry=1", mime: "video/mp2t", headers: query.headers }]);
-  assert.equal(new URL(query.alternatives[0].url).searchParams.get("retry"), "1");
+  assert.deepEqual(query.alternatives, [1, 2, 3].map((n) => ({ url: `http://c0.example.com/p?k=v/vod/M1_media.ts&retry=${n}`, mime: "video/mp2t", headers: query.headers })));
+  assert.deepEqual(query.alternatives.map((a) => new URL(a.url).searchParams.get("retry")), ["1", "2", "3"]);
   assert.deepEqual(checkOutput("resolve", query, manifest).drops, []);
 });
 
@@ -628,7 +649,10 @@ test("alternatives: the SLB is still asked once (cached) and a series' chapter g
   queues["v10/startPlayVOD"] = [play([media("E1", "ts", "h265")]), play([media("E1", "ts", "h265")])];
   const t = setup({ queues });
   const out = await t.resolve("magis1:teleplay:1:SERIE");
-  assert.deepEqual(out.alternatives.map((a) => a.url), ["http://two.example.com/vod/E1_media.ts", "http://one.example.com/vod/E1_media.ts?retry=1"]);
+  assert.deepEqual(out.alternatives.map((a) => a.url), [
+    "http://two.example.com/vod/E1_media.ts",
+    ...[1, 2, 3].map((n) => `http://one.example.com/vod/E1_media.ts?retry=${n}`),
+  ]);
   await t.resolve("magis1:teleplay:1:SERIE");
   assert.equal(t.portal.times("v14/getSlbInfo"), 1);
 });

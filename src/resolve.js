@@ -20,6 +20,7 @@ const AUTH_MARGIN_S = 300;
 const EXPIRED = /expired=(\d+)/;
 const MAX_SUBTITLES = 30; // SDK cap
 const MAX_ALTERNATIVES = 8; // SDK cap (contract.json output.maxAlternatives)
+const RETRY_COPIES = 3; // the connect attempts ExoPlayer used to make on its own
 const INT = /^[+-]?\d+$/;
 const DIGITS = /^[0-9]+$/;
 
@@ -214,11 +215,13 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
       }
     }
     // The vod server drops a share of its TCP connects at random (CacheFly, measured 2026-10-05: 8 of 17 opens
-    // timed out on one phone), and Kino gives up on an unreachable copy without retrying it. The best copy again,
-    // last and under a different query, is that retry: a new connection, the same file and headers.
-    if (copies.length > 0 && copies.length <= MAX_ALTERNATIVES) {
-      const again = copies[0];
-      copies.push({ ...again, url: `${again.url}${again.url.includes("?") ? "&" : "?"}retry=1` });
+    // timed out on one phone). The native code survived it because ExoPlayer retried a failed connect 3-4 times;
+    // Kino 0.9.50-0.9.52 gives up on an unreachable copy without retrying it. The best copy again, last and under
+    // retry=1..3, is those retries: a new connection each, the same file and headers. Only free slots take one,
+    // so a real copy is never pushed out for a retry.
+    const bestCopy = copies[0];
+    for (let n = 1; bestCopy && n <= RETRY_COPIES && copies.length <= MAX_ALTERNATIVES; n++) {
+      copies.push({ ...bestCopy, url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}` });
     }
     const [first, ...others] = copies;
     const alternatives = others.slice(0, MAX_ALTERNATIVES);
