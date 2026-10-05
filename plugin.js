@@ -2903,6 +2903,10 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
         }
       }
     }
+    if (copies.length > 0 && copies.length <= MAX_ALTERNATIVES) {
+      const again = copies[0];
+      copies.push({ ...again, url: `${again.url}${again.url.includes("?") ? "&" : "?"}retry=1` });
+    }
     const [first, ...others] = copies;
     const alternatives = others.slice(0, MAX_ALTERNATIVES);
     if (alternatives.length > 0) trace(kino2, "resolve", "alts", { n: alternatives.length, tracks: seenTracks.size, cdns: cdns.length });

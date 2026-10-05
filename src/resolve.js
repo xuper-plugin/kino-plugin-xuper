@@ -213,6 +213,13 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
         }
       }
     }
+    // The vod server drops a share of its TCP connects at random (CacheFly, measured 2026-10-05: 8 of 17 opens
+    // timed out on one phone), and Kino gives up on an unreachable copy without retrying it. The best copy again,
+    // last and under a different query, is that retry: a new connection, the same file and headers.
+    if (copies.length > 0 && copies.length <= MAX_ALTERNATIVES) {
+      const again = copies[0];
+      copies.push({ ...again, url: `${again.url}${again.url.includes("?") ? "&" : "?"}retry=1` });
+    }
     const [first, ...others] = copies;
     const alternatives = others.slice(0, MAX_ALTERNATIVES);
     if (alternatives.length > 0) trace(kino, "resolve", "alts", { n: alternatives.length, tracks: seenTracks.size, cdns: cdns.length });
