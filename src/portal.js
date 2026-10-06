@@ -52,6 +52,18 @@ export const told = (kino, code, message, sentence) => kino.error(code, message,
 
 const GENERIC = "Xuper no está disponible ahora";
 
+// What a call with nothing kept to show says when the portal did not answer in time (2.2.14): a typed
+// `unavailable`, thrown well before Kino's own limit, so a slow portal never counts toward "No responde".
+export const PORTAL_SLOW = "Xuper no responde en este momento; intenta de nuevo en unos minutos.";
+/**
+ * `e` as what the person reads when the portal was too slow or unreachable: a plain `unavailable` (no
+ * sentence of its own) gets [PORTAL_SLOW], keeping its message for the log; any other error passes as is.
+ */
+export function slowPortal(kino, e) {
+  if (!e || e.name !== "KinoError_unavailable" || typeof e.userMessage === "string") return e;
+  return kino.error("unavailable", typeof e.message === "string" && e.message !== "" ? e.message : GENERIC, { userMessage: PORTAL_SLOW });
+}
+
 /**
  * `goneMessage`: what a `portal100006` says ([EPISODE_GONE] for a playback, [SERIES_GONE] for a listing).
  * `accountLinked`: the person's own account's session code (still dead after the re-logins, or open
@@ -193,7 +205,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
   }
 
   async function call(path, bean = {}, opts = {}) {
-    const { baseFields = true, userId = "", userToken = "", sn = null, timeoutMs, deadline } = opts;
+    const { baseFields = true, userId = "", userToken = "", sn = null, timeoutMs, deadline, onFetchMs } = opts;
     // Optional bounds for callers with a cap of their own: a per-request timeout (default
     // REQUEST_TIMEOUT_MS, clamped like kino.fetch) and an absolute `deadline` on the injected
     // clock that no request, failover included, may run past.
@@ -240,9 +252,12 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
       let stage = "fetch";
       let res = null, bodyText = null;
       try {
+        const sentAt = clock.now();
         res = await kino.fetch(`https://${host}/api/portalCore/${path}`, {
           method: "POST", headers, body: wire, cookies: false, timeoutMs: requestMs,
         });
+        // The network's share of this answer (never the decoding after it), for a caller that sizes its own work by it.
+        if (typeof onFetchMs === "function") { try { onFetchMs(clock.now() - sentAt); } catch (_) { /* a probe never fails a call */ } }
         stage = "body";
         bodyText = res.text();
         answer = JSON.parse(bodyText);

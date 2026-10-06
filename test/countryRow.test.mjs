@@ -13,7 +13,7 @@ import {
 import { catalogSetup, manifest } from "./helpers/fakeCatalog.mjs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { portalWorld } from "./helpers/portalWorld.mjs";
-import { makeCatalog } from "../src/catalog.js";
+import { makeCatalog, LIVE_ROW_MS } from "../src/catalog.js";
 import { callDeadline, CALL_BUDGET_MS } from "../src/portal.js";
 
 const chan = (code, extra = {}) => ({ id: code, title: "Canal " + code, ref: code, categoryId: "41", number: 0, logo: `https://img.test/${code}.png`, ...extra });
@@ -113,13 +113,14 @@ function homeWith({ country, live = fakeLive(), roots } = {}) {
   return { ...w, kino, catalog, live };
 }
 
-test("home() appends the country row after the VOD rows, inside home's own deadline", async () => {
+test("home() appends the country row after the VOD rows, inside LIVE_ROW_MS (2.2.14: never home's whole 18 s)", async () => {
   const h = homeWith({ country: "CO" });
   const rows = await h.catalog.home();
   assert.equal(rows.at(-1).id, "live-country");
   assert.ok(rows.length >= 2, "the VOD rows are still there");
   assert.ok(rows.slice(0, -1).every((r) => r.items.every((i) => i.kind !== "live")));
-  assert.equal(h.live.calls[0][1], callDeadline(h.clock, CALL_BUDGET_MS.home));
+  assert.equal(h.live.calls[0][1], Math.min(h.clock.now() + LIVE_ROW_MS, callDeadline(h.clock, CALL_BUDGET_MS.home)));
+  assert.ok(h.live.calls[0][1] - h.clock.now() <= 8_000, "the live row gets 8 s at most");
 });
 
 test("home() with none: no live row; the country row failing or missing: home still answers its VOD rows", async () => {

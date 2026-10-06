@@ -94,11 +94,14 @@ export function kbBucket(bytes) {
   return "ge4m";
 }
 
-/** A call's time, reported when slow (and again when Kino had already given up on it). Never throws. */
-export function reportCallTime(kino, fn, ms, ok) {
+/**
+ * A call's time, reported when slow (and again when Kino had already given up on it). `more`: short fields
+ * of the call's own (`served=cache got=0 fail=1`), counts and words only. Never throws.
+ */
+export function reportCallTime(kino, fn, ms, ok, more = {}) {
   if (!(ms >= SLOW_CALL_MS)) return;
-  report(kino, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok });
-  if (ms >= TIMEOUT_CALL_MS) report(kino, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok });
+  report(kino, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok, ...more });
+  if (ms >= TIMEOUT_CALL_MS) report(kino, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok, ...more });
 }
 
 /** The crypto's onDecode: one report per sandbox, for its first answer of 1 MB or more. */
@@ -127,23 +130,30 @@ export function errCode(e) {
  * `xuper:call ok fn=<fn> ms=<elapsed>` (with `n=<count>` for a list) or `xuper:call fail fn=<fn> code=<code> ms=<elapsed>`
  * (the error itself is rethrown untouched). [extra]: short fields of Kino's own (`kind=live`) on both lines.
  * A success's lines never reach the board on their own (only a failed call's travel), but a debug install reads them in
- * its Registro and in logcat (`KinoPlugin/xuper`).
+ * its Registro and in logcat (`KinoPlugin/xuper`). [late]: a function answering fields known only once the body ended
+ * (`served=fresh|cache|partial got= fail=`, 2.2.14), added to the end line and the perf reports; it never fails the call.
  */
-export async function traced(kino, clock, fn, body, extra = {}) {
+export async function traced(kino, clock, fn, body, extra = {}, late = null) {
   const t0 = clock.now();
   trace(kino, "call", "start", { fn, ...extra });
+  const lateFields = () => {
+    if (typeof late !== "function") return {};
+    try { const f = late(); return f !== null && typeof f === "object" ? f : {}; } catch (_) { return {}; }
+  };
   let out;
   try {
     out = await body();
   } catch (e) {
     const ms = clock.now() - t0;
-    trace(kino, "call", "fail", { fn, ...extra, code: errCode(e), ms });
-    reportCallTime(kino, fn, ms, false);
+    const more = lateFields();
+    trace(kino, "call", "fail", { fn, ...extra, code: errCode(e), ms, ...more });
+    reportCallTime(kino, fn, ms, false, more);
     throw e;
   }
   const ms = clock.now() - t0;
-  trace(kino, "call", "ok", { fn, ...extra, ms, n: Array.isArray(out) ? out.length : undefined });
-  reportCallTime(kino, fn, ms, true);
+  const more = lateFields();
+  trace(kino, "call", "ok", { fn, ...extra, ms, n: Array.isArray(out) ? out.length : undefined, ...more });
+  reportCallTime(kino, fn, ms, true, more);
   return out;
 }
 

@@ -14,7 +14,11 @@ import { trace, errCode } from "./trace.js";
  * `valid(payload)` lets the owner reject a payload of an older or foreign shape (a miss).
  * Only the caller knows what is worth caching: it simply never writes an empty result.
  */
-export function makeByteCache({ kino, key, budgetBytes, clock, ttlMs, valid = () => true }) {
+/**
+ * `keepMs` (default `ttlMs`): how long an entry stays stored once it is no longer fresh, for `getStale`
+ * (a stale answer served while the source is too slow to answer a fresh one).
+ */
+export function makeByteCache({ kino, key, budgetBytes, clock, ttlMs, valid = () => true, keepMs = ttlMs }) {
   const what = String(key).split(":")[0]; // "search", "chapters": the cache, for a breadcrumb
   const decode = (raw) => {
     try {
@@ -42,16 +46,24 @@ export function makeByteCache({ kino, key, budgetBytes, clock, ttlMs, valid = ()
     return hit === undefined ? undefined : hit.i;
   }
 
+  const kept = (entry, nowMs) => nowMs - entry.s < Math.max(ttlMs, keepMs);
+
+  /** The payload stored under `k`, fresh or not, while it is kept (`keepMs`); else undefined. */
+  function getStale(k, entries = read(), nowMs = clock.now()) {
+    const hit = entries.find((e) => e.k === k && kept(e, nowMs));
+    return hit === undefined ? undefined : hit.i;
+  }
+
   /**
    * Merge `added` ([{ k, i }]) into what is stored NOW (another call may have written since this one
-   * read), move the keys the caller `touched` to the newest end, drop stale entries and evict the
+   * read), move the keys the caller `touched` to the newest end, drop entries past `keepMs` and evict the
    * oldest until the key fits. An added entry that alone does not fit is skipped without evicting
    * anyone. A storage failure is swallowed.
    */
   function write(added, touched = []) {
     try {
       const now = clock.now();
-      let entries = read().filter((e) => fresh(e, now));
+      let entries = read().filter((e) => kept(e, now));
       for (const k of touched) {
         const at = entries.findIndex((e) => e.k === k);
         if (at >= 0) entries.push(...entries.splice(at, 1));
@@ -75,5 +87,5 @@ export function makeByteCache({ kino, key, budgetBytes, clock, ttlMs, valid = ()
     } catch (e) { trace(kino, "store", "full", { what, code: errCode(e) }); /* serve uncached */ }
   }
 
-  return { read, get, fresh, write };
+  return { read, get, getStale, fresh, write };
 }

@@ -6,7 +6,7 @@ import { fitRows, makeRowsStore } from "./rowsStore.js";
 import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
-import { viewOpts, callDeadline, CALL_BUDGET_MS } from "./portal.js";
+import { viewOpts, callDeadline, CALL_BUDGET_MS, slowPortal } from "./portal.js";
 import { isKinoError } from "./util.js";
 import { trace, report, errCode, msBucket, kbBucket, PERF_AREAS } from "./trace.js";
 
@@ -25,11 +25,28 @@ const SNAPSHOT_TTL_MS = 14 * 24 * 3600_000;
 const TREE_PAGE_SIZE = 60;
 // A root whose fetch failed is not asked again for this long while something is served.
 const REFRESH_GAP_MS = 5 * 60_000;
-// A call fetches roots only while it has run for less than this; a root's fetch gets this budget (the
-// call's margin taken off, never past the calling export's cap).
+// A call fetches roots only while it has run for less than this.
 const SLICE_START_MS = 1_500;
 const SLICE_MARGIN_MS = 2_000; // as callDeadline's: what a slice leaves of the calling export's cap
-const SLICE_FETCH_MS = 14_000;
+// Deadlines (2.2.14). Kino gives home, section, categories and browse 20 s each (search 15 s) and switches
+// the plugin off ("No responde") after 3 timeouts in a row; a typed error never counts. Since 2026-10-06 the
+// portal often takes 10-20 s an answer, and a call that waited for one root (18 s, split between the two
+// hosts) plus its parsing on a slow TV ran past Kino's 20 s. Each call's portal work now ends early:
+// - with kept rows, a refresh may take WARM_REFRESH_MS from the call's start; the kept rows are served
+//   whatever happens (stale-while-revalidate: what is not refreshed now is tried again by a later call);
+// - with nothing kept, the roots in by COLD_DEADLINE_MS are served and the rest dropped; none is a typed
+//   `unavailable` with its own sentence (PORTAL_SLOW).
+// Both leave 8 s or more of Kino's 20 s for the parsing after the last answer (seconds on a 32-bit TV).
+export const WARM_REFRESH_MS = 8_000;
+export const COLD_DEADLINE_MS = 12_000;
+// Home's "Canales en vivo" row is never kept: it gets what a warm refresh gets.
+export const LIVE_ROW_MS = WARM_REFRESH_MS;
+// A cold build asks this many roots at once, but only once the portal was measured slow (its network time
+// alone, never the decoding): on a fast portal a 32-bit TV's CPU is the cost, and two roots would double it.
+const COLD_PARALLEL = 2;
+const SLOW_FETCH_MS = 4_000;
+const SLOW_KEY = "portalSlow";
+const SLOW_MEMORY_MS = 30 * 60_000;
 
 const BROWSE_PAGE = 50;
 const MAX_HOME_ROWS = 20; // SDK output caps
@@ -165,6 +182,23 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       report(kino, PERF_AREAS.store, "write", { b: msBucket(clock.now() - startedAt), kb: kbBucket(fit.text.length), step: fit.step });
     } catch (e) { trace(kino, "store", "full", { what: "rows", code: errCode(e) }); /* served from memory */ }
   }
+  // The portal measured slow (a root's network time over SLOW_FETCH_MS), kept a while in storage so that
+  // the next sandbox knows it too. Never throws.
+  let slowAt = null;
+  const portalSlow = () => {
+    if (slowAt === null) {
+      try { const v = Number(kino.storage.get(SLOW_KEY)); slowAt = Number.isFinite(v) && v > 0 ? v : 0; } catch (_) { slowAt = 0; }
+    }
+    const age = clock.now() - slowAt;
+    return slowAt > 0 && age >= 0 && age < SLOW_MEMORY_MS;
+  };
+  const noteFetchMs = (ms) => {
+    const slow = ms >= SLOW_FETCH_MS;
+    if (slow === portalSlow()) { if (slow) slowAt = clock.now(); return; }
+    slowAt = slow ? clock.now() : 0;
+    try { if (slow) kino.storage.set(SLOW_KEY, String(slowAt), { ttlMs: SLOW_MEMORY_MS }); else kino.storage.remove(SLOW_KEY); } catch (_) { /* memory only */ }
+  };
+
   // `{ sections, error }`: a failing root shows as empty, but its error is kept so that a Home where
   // EVERY root failed can say so instead of being a silent blank (main 2d285106 + 465773f1).
   async function fetchRoot(root, deadline) {
@@ -172,7 +206,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       const response = await session.withValidSession((v) => portal.call(
         "getNextColumns",
         { columnCode: ROOT_CODES[root], pageNum: 1, pageSize: TREE_PAGE_SIZE, version: "" },
-        viewOpts(v),
+        { ...viewOpts(v), onFetchMs: noteFetchMs },
       ), { seedFallback: true, deadline });
       const sections = parseTree(response);
       return { sections: hasItems(sections) ? sections : [], error: null };
@@ -252,6 +286,17 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     return r;
   }
 
+  // How the last rows call was served, for its call's lines (counts only): `fresh` every root in and none
+  // older than 2 h, `cache` every root in but some kept past 2 h (the refresh failed or waits), `partial`
+  // some root missing; `got`/`fail` the roots this call fetched or failed. Read once by `servedBy`.
+  let served = null;
+  const servedNow = () => {
+    const cur = getCurrent();
+    if (!cur) return "none";
+    if (KINDS.some(({ root }) => !(root in cur.roots))) return "partial";
+    return KINDS.some(({ root }) => stale(cur.roots[root])) ? "cache" : "fresh";
+  };
+
   /**
    * The classified rows. `need`: "home" and "categories" read only `shown` of the first rows; "section"
    * every shown item of `root`'s rows (the tab); "full" also `all` of `root`'s rows (the row browse or the
@@ -260,24 +305,30 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
    */
   async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home, root = null) {
     const startedAt = clock.now();
-    const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
     getCurrent();
-    const storedBefore = current ? Object.keys(current.roots).length : 0;
+    const warm = current !== null;
+    // Every portal exchange of this call (session included) ends by `phaseEnd`; see WARM_REFRESH_MS.
+    const phaseEnd = Math.min(startedAt + (warm ? WARM_REFRESH_MS : COLD_DEADLINE_MS), startedAt + budgetMs - SLICE_MARGIN_MS);
+    const storedBefore = warm ? Object.keys(current.roots).length : 0;
     const failed = [];
-    let ensured = false;
+    let got = 0;
+    let ensuring = null;
+    let ensureError = null;
     const asked = new Set(); // a root at most once per call
-    let next;
-    while (clock.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked)) !== null) {
-      asked.add(next);
-      // A root's own budget, and never past the calling export's (search has 15 s, the rest 20 s).
-      const deadline = Math.min(callDeadline(clock, SLICE_FETCH_MS), callEnd);
-      if (!ensured) {
-        try { await session.ensure({ deadline }); ensured = true; } catch (e) { if (!current) throw e; break; }
+    async function lane() {
+      let next;
+      while (ensureError === null && clock.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked)) !== null) {
+        asked.add(next);
+        try { await (ensuring ??= session.ensure({ deadline: phaseEnd })); } catch (e) { ensureError = e; break; }
+        if (current === null && failed.length === 0 && got === 0) trace(kino, "home", "refresh", { why: "cold" });
+        const r = await rootSlice(next, phaseEnd);
+        if (r.error !== null) failed.push(r); else got++;
       }
-      if (current === null && failed.length === 0) trace(kino, "home", "refresh", { why: "cold" });
-      const r = await rootSlice(next, deadline);
-      if (r.error !== null) failed.push(r);
     }
+    // Kept rows: one lane (the refresh is a bonus). Nothing kept on a portal measured slow: COLD_PARALLEL
+    // lanes, each root's request bound by the same deadline, so whatever is in by then is served.
+    await Promise.all(Array.from({ length: !warm && portalSlow() ? COLD_PARALLEL : 1 }, lane));
+    if (ensureError !== null && !current) throw slowPortal(kino, ensureError);
     if (dirty) save();
     // A start that brought a catalog not complete yet closer: how far, and what it cost.
     const storedAfter = current ? Object.keys(current.roots).length : 0;
@@ -285,8 +336,9 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       report(kino, PERF_AREAS.cold, storedAfter === KINDS.length ? "done" : "progress",
         { stored: storedAfter, of: KINDS.length, b: msBucket(clock.now() - startedAt) });
     }
+    served = { served: servedNow(), got, fail: failed.length };
     if (current) return current.rows;
-    if (failed.length > 0) { summarizeFailure(failed, 1); throw worstOf(failed); }
+    if (failed.length > 0) { summarizeFailure(failed, 1); throw slowPortal(kino, worstOf(failed)); }
     return [];
   }
 
@@ -300,8 +352,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   }
 
   async function home() {
-    // Asked alongside the VOD rows, inside home's own deadline; its failure is no row (never a throw).
-    const live = countryRow ? countryRow(callDeadline(clock, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
+    // Asked alongside the VOD rows, inside LIVE_ROW_MS; its failure is no row (never a throw).
+    const live = countryRow ? countryRow(Math.min(clock.now() + LIVE_ROW_MS, callDeadline(clock, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
     const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now());
     const row = await live;
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
@@ -332,8 +384,14 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     return adultInflight;
   }
 
+  // The 18+ root is never kept: asked inside COLD_DEADLINE_MS, a slow portal is the typed sentence.
+  const adultWithin = async (budgetMs) => {
+    try { return await adultMovies(Math.min(clock.now() + COLD_DEADLINE_MS, callDeadline(clock, budgetMs))); }
+    catch (e) { throw slowPortal(kino, e); }
+  };
+
   async function browseAdult(cursor) {
-    const all = await adultMovies(callDeadline(clock, CALL_BUDGET_MS.browse));
+    const all = await adultWithin(CALL_BUDGET_MS.browse);
     const offset = offsetOf(cursor);
     const nowMs = clock.now();
     const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null)
@@ -370,7 +428,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const adult = within === ADULT_REF;
     let pool;
     if (adult) {
-      pool = await adultMovies(callDeadline(clock, CALL_BUDGET_MS.search));
+      pool = await adultWithin(CALL_BUDGET_MS.search);
     } else {
       const row = typeof within === "string" ? (await buildRows("full", CALL_BUDGET_MS.search, rootOfRow(within))).find((r) => r.id === within) : undefined;
       // Not one of our refs: null is scopedSearch's "can't search there" (Kino filters the page itself), not a failure.
@@ -392,12 +450,15 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   }
 
   // The chapter list is shared with resolve, which looks a chapter up by its number.
-  const portalChapters = makePortalChapters({ kino, portal, session, clock });
+  const portalChapters = makePortalChapters({ kino, portal, session, clock, onServed: (how) => { served = { served: how }; } });
   const episodes = makeEpisodes({ kino, tmdb, portalChapters, clock });
 
   // The classified rows of the four roots (the same kept rows Home reads), for section and categories:
   // `need` is "section" or "categories" (see buildRows).
   const rows = (need = "full", root = null) => buildRows(need, CALL_BUDGET_MS[need] ?? CALL_BUDGET_MS.home, root);
 
-  return { home, browse, rows, search, episodes, portalChapters };
+  /** How the call that just ended was served (see `served`), then forgotten: {} when it read no rows. */
+  const servedBy = () => { const out = served ?? {}; served = null; return out; };
+
+  return { home, browse, rows, search, episodes, portalChapters, servedBy };
 }

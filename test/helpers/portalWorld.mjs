@@ -53,6 +53,7 @@ export function portalWorld({
   seedsDead = false, config = {}, aliveMs = 200, tmdbDead = false, withTmdb = false, shared,
 } = {}) {
   const clock = { t: START, now() { return this.t; } };
+  let alive = aliveMs; // what one answered request costs; `setAliveMs` changes it (a portal that turns slow)
   const requests = [];
   const seedDownloads = [];
   const tmdbRequests = [];
@@ -65,21 +66,21 @@ export function portalWorld({
     if (u.host === "raw.githubusercontent.com") {
       seedDownloads.push({ timeoutMs: opts.timeoutMs, at: clock.t });
       if (seedsDead) { clock.t += opts.timeoutMs; throw new Error("timeout"); }
-      clock.t += aliveMs;
+      clock.t += alive;
       return { ok: true, status: 200, text: () => seedsText };
     }
     if (u.host === "api.themoviedb.org") {
       tmdbRequests.push({ timeoutMs: opts.timeoutMs, at: clock.t });
       if (tmdbDead) { clock.t += opts.timeoutMs; throw new Error("timeout"); }
-      clock.t += aliveMs;
+      clock.t += alive;
       return { ok: false, status: 404, text: () => "{}" };
     }
     const path = u.pathname.slice("/api/portalCore/".length);
     const bean = JSON.parse(crypto.decryptBlob(opts.body));
     requests.push({ host: u.host, path, bean, timeoutMs: opts.timeoutMs, at: clock.t });
     if (dead.includes(u.host)) { clock.t += opts.timeoutMs; throw new Error("timeout"); }
-    clock.t += Math.min(aliveMs, opts.timeoutMs);
-    if (aliveMs > opts.timeoutMs) throw new Error("timeout");
+    clock.t += Math.min(alive, opts.timeoutMs);
+    if (alive > opts.timeoutMs) throw new Error("timeout");
     const route = all[path];
     if (route === undefined) throw new Error("unscripted portal path " + path);
     const out = typeof route === "function" ? route(bean) : route;
@@ -109,6 +110,7 @@ export function portalWorld({
   return {
     kino, clock, requests, seedDownloads, tmdbRequests, logs, reports, portal, session: sess, catalog, resolve, live,
     elapsed: () => clock.t - START,
+    setAliveMs: (ms) => { alive = ms; },
     stored: () => JSON.parse(kino.storage.get("session")),
     paths: () => requests.map((r) => r.path),
   };

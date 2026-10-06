@@ -124,7 +124,9 @@ test("home asks the four roots (never adultos) with getNextColumns, pageSize 60,
   for (const c of portal.calls) {
     assert.equal(c.path, "getNextColumns");
     assert.deepEqual(c.bean, { columnCode: c.bean.columnCode, pageNum: 1, pageSize: 60, version: "" });
-    assert.deepEqual(c.opts, { baseFields: true, userId: "u1", userToken: "tok1" });
+    const { onFetchMs, ...opts } = c.opts;
+    assert.deepEqual(opts, { baseFields: true, userId: "u1", userToken: "tok1" });
+    assert.equal(typeof onFetchMs, "function", "the network time is measured (a slow portal: cold roots two at a time)");
   }
   assert.equal(session.ensures, 1, "ensure() once, before the first portal call");
 });

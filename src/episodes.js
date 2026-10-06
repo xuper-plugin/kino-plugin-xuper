@@ -4,8 +4,9 @@
 // `makePortalChapters` is shared with resolve (a chapter is looked up by its seriesNumber), which is
 // why the chapter list is cached here, once, for both.
 import {
-  PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS, EPISODE_GONE, SERIES_GONE,
+  PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS, EPISODE_GONE, SERIES_GONE, slowPortal,
 } from "./portal.js";
+import { trace, errCode } from "./trace.js";
 import { FIXED_MAC } from "./config.js";
 import { decode, encode, encodeChapter } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
@@ -17,6 +18,14 @@ import { isObject, isKinoError, optStringStrict } from "./util.js";
 const CACHE_KEY = "chapters:v1";
 const CACHE_BUDGET_BYTES = 32_000;
 const CACHE_FRESH_MS = 6 * 3600_000;
+// Past its 6 h a list stays stored for a week, served when the portal cannot answer a fresh one in time.
+const CACHE_KEEP_MS = 7 * 24 * 3600_000;
+// Deadlines (2.2.14; see catalog.js WARM_REFRESH_MS): the chapter list asked with a kept one to fall back
+// on gets CHAPTERS_REFRESH_MS, with none CHAPTERS_COLD_MS; the whole export (TMDB's enrichment included)
+// ends by EPISODES_DEADLINE_MS, 5 s before Kino's 20 s.
+export const CHAPTERS_REFRESH_MS = 8_000;
+export const CHAPTERS_COLD_MS = 12_000;
+export const EPISODES_DEADLINE_MS = 15_000;
 
 const IMDB = /^tt\d{7,}$/;
 const MAX_EPISODES = 5000; // SDK caps
@@ -87,8 +96,10 @@ const unpack = (p) => ({
  * imdb, season (null = unknown), declared (null = not given), seasons: [{ id, number }] }`. Cached
  * 6 h, never when empty. Failures arrive as kino errors (portal codes mapped, the rest `unavailable`).
  */
-export function makePortalChapters({ kino, portal, session, clock }) {
-  const cache = makeByteCache({ kino, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, valid: validPayload });
+export function makePortalChapters({ kino, portal, session, clock, onServed = () => {} }) {
+  const cache = makeByteCache({
+    kino, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, keepMs: CACHE_KEEP_MS, valid: validPayload,
+  });
 
   async function fetchDetail(seriesId, deadline) {
     let response;
@@ -110,10 +121,26 @@ export function makePortalChapters({ kino, portal, session, clock }) {
   }
 
   // `deadline`: the calling export's (resolve passes its own); by default the episodes budget from now.
+  // A list older than 6 h is asked again, but a portal that cannot answer in time (any `unavailable`: no
+  // answer, a deadline, an unreadable one) serves the kept list; a series gone, a geo-block or an account
+  // problem is the portal's verdict and is thrown as ever.
   return async function portalChapters(seriesId, deadline = callDeadline(clock, CALL_BUDGET_MS.episodes)) {
-    const cached = cache.get(seriesId);
-    if (cached !== undefined) return unpack(cached);
-    const data = await fetchDetail(seriesId, deadline);
+    const entries = cache.read();
+    const cached = cache.get(seriesId, entries);
+    if (cached !== undefined) { onServed("cache"); return unpack(cached); }
+    const kept = cache.getStale(seriesId, entries);
+    const portalEnd = Math.min(deadline, clock.now() + (kept !== undefined ? CHAPTERS_REFRESH_MS : CHAPTERS_COLD_MS));
+    let data;
+    try {
+      data = await fetchDetail(seriesId, portalEnd);
+    } catch (e) {
+      if (kept !== undefined && isKinoError(e) && e.name === "KinoError_unavailable") {
+        trace(kino, "episodes", "kept", { code: errCode(e) });
+        onServed("cache");
+        return unpack(kept);
+      }
+      throw slowPortal(kino, e);
+    }
     const items = (Array.isArray(data.simpleProgramList) ? data.simpleProgramList : []).filter(isObject).map((it) => {
       const seriesNumber = typeof it.seriesNumber === "string" ? it.seriesNumber : typeof it.seriesNumber === "number" ? String(it.seriesNumber) : null;
       const item = { seriesNumber, contentId: optStringStrict(it.contentId), name: optStringStrict(it.name), duration: undefined };
@@ -124,6 +151,7 @@ export function makePortalChapters({ kino, portal, session, clock }) {
     const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull(data.volumnCount), seasons: seasonList.all };
     // Only cached with chapters: an empty list over a transient failure would stick for hours.
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
+    onServed("fresh");
     return raw;
   };
 }
@@ -168,8 +196,8 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }
   return async function episodes(ref) {
     const magis = decode(ref);
     if (!magis) throw kino.error("unavailable", "ese ref no es de Xuper: no se pueden listar capítulos");
-    // One deadline for the whole export (the app's 20 s): the chapter list, then TMDB's enrichment.
-    const deadline = clock ? callDeadline(clock, CALL_BUDGET_MS.episodes) : undefined;
+    // One deadline for the whole export (EPISODES_DEADLINE_MS of the app's 20 s): the chapter list, then TMDB's enrichment.
+    const deadline = clock ? Math.min(clock.now() + EPISODES_DEADLINE_MS, callDeadline(clock, CALL_BUDGET_MS.episodes)) : undefined;
     let raw;
     try {
       raw = await portalChapters(magis.contentId, deadline);

@@ -7,6 +7,9 @@ import { isKinoError } from "./util.js";
 import { isChannelRef } from "./refs.js";
 import { trace, traced, report, errCode } from "./trace.js";
 
+// How the call that just ended was served (`served=fresh|cache|partial`, `got`, `fail`: counts only), for its lines;
+// read (and forgotten) at the end of every call that may read the kept rows or a chapter list.
+const servedBy = () => getDeps().catalog.servedBy();
 
 // With `within` (Kino's scopedSearch, apiVersion 6) it searches inside one "Ver más" page; its lines say so, never the query.
 export async function search(query) {
@@ -14,18 +17,18 @@ export async function search(query) {
   let scoped = false;
   // An argument that throws on first touch fails inside guarded (the Spanish unavailable), never here.
   try { scoped = query !== null && typeof query === "object" && query.within !== undefined && query.within !== null; } catch (_) { scoped = false; }
-  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {});
+  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {}, servedBy);
 }
-export async function home() { await null; return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home())); }
-export async function browse(ref, cursor) { await null; return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor))); }
+export async function home() { await null; return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy); }
+export async function browse(ref, cursor) { await null; return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor)), {}, servedBy); }
 // apiVersion 6: Xuper's own section (one tab per root) and its Categorías tiles, over Home's trees.
-export async function section(arg) { await null; return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg))); }
-export async function categories() { await null; return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories())); }
-export async function episodes(ref) { await null; return traced(kino, clock, "episodes", () => guarded(({ catalog }) => catalog.episodes(ref))); }
+export async function section(arg) { await null; return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg)), {}, servedBy); }
+export async function categories() { await null; return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories()), {}, servedBy); }
+export async function episodes(ref) { await null; return traced(kino, clock, "episodes", () => guarded(({ catalog }) => catalog.episodes(ref)), {}, servedBy); }
 // `options` (the retry reason) drives a live channel's reopen; VOD ignores it.
 export async function resolve(ref, options) {
   await null;
-  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" });
+  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" }, servedBy);
 }
 // Signing lane: pure, never builds the other deps (no storage, no network); a broken context is an `unavailable`.
 // A sign that works writes NO kino.log line: in a fresh lane runtime Kino redacts a log line by opening every

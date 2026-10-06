@@ -201,10 +201,10 @@ function kbBucket(bytes) {
   for (const [limit, word2] of edges) if (kb < limit) return word2;
   return "ge4m";
 }
-function reportCallTime(kino2, fn, ms, ok) {
+function reportCallTime(kino2, fn, ms, ok, more = {}) {
   if (!(ms >= SLOW_CALL_MS)) return;
-  report(kino2, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok });
-  if (ms >= TIMEOUT_CALL_MS) report(kino2, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok });
+  report(kino2, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok, ...more });
+  if (ms >= TIMEOUT_CALL_MS) report(kino2, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok, ...more });
 }
 function makeDecodeReporter(kino2) {
   let done = false;
@@ -223,21 +223,32 @@ function errCode(e) {
   else c = name;
   return VALUE.test(c) ? c : "error";
 }
-async function traced(kino2, clock2, fn, body, extra = {}) {
+async function traced(kino2, clock2, fn, body, extra = {}, late = null) {
   const t0 = clock2.now();
   trace(kino2, "call", "start", { fn, ...extra });
+  const lateFields = () => {
+    if (typeof late !== "function") return {};
+    try {
+      const f = late();
+      return f !== null && typeof f === "object" ? f : {};
+    } catch (_) {
+      return {};
+    }
+  };
   let out;
   try {
     out = await body();
   } catch (e) {
     const ms2 = clock2.now() - t0;
-    trace(kino2, "call", "fail", { fn, ...extra, code: errCode(e), ms: ms2 });
-    reportCallTime(kino2, fn, ms2, false);
+    const more2 = lateFields();
+    trace(kino2, "call", "fail", { fn, ...extra, code: errCode(e), ms: ms2, ...more2 });
+    reportCallTime(kino2, fn, ms2, false, more2);
     throw e;
   }
   const ms = clock2.now() - t0;
-  trace(kino2, "call", "ok", { fn, ...extra, ms, n: Array.isArray(out) ? out.length : void 0 });
-  reportCallTime(kino2, fn, ms, true);
+  const more = lateFields();
+  trace(kino2, "call", "ok", { fn, ...extra, ms, n: Array.isArray(out) ? out.length : void 0, ...more });
+  reportCallTime(kino2, fn, ms, true, more);
   return out;
 }
 function seedTag(kino2, sn) {
@@ -275,6 +286,11 @@ var EPISODE_GONE = "Este cap\xEDtulo ya no est\xE1 disponible.";
 var SERIES_GONE = "Esta serie ya no est\xE1 disponible.";
 var told = (kino2, code, message, sentence) => kino2.error(code, message, { userMessage: sentence });
 var GENERIC = "Xuper no est\xE1 disponible ahora";
+var PORTAL_SLOW = "Xuper no responde en este momento; intenta de nuevo en unos minutos.";
+function slowPortal(kino2, e) {
+  if (!e || e.name !== "KinoError_unavailable" || typeof e.userMessage === "string") return e;
+  return kino2.error("unavailable", typeof e.message === "string" && e.message !== "" ? e.message : GENERIC, { userMessage: PORTAL_SLOW });
+}
 function mapPortalError(code, message, kino2, { accountLinked = false, sharedAccount = false, goneMessage = EPISODE_GONE } = {}) {
   const msg = typeof message === "string" ? message : "";
   const accountText = accountLinked ? accountProblemMessage(code) : null;
@@ -390,7 +406,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
     };
   }
   async function call(path, bean = {}, opts = {}) {
-    const { baseFields = true, userId = "", userToken = "", sn = null, timeoutMs, deadline } = opts;
+    const { baseFields = true, userId = "", userToken = "", sn = null, timeoutMs, deadline, onFetchMs } = opts;
     const requested = Math.trunc(Number(timeoutMs));
     const perRequest = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_REQUEST_MS) : REQUEST_TIMEOUT_MS;
     const tp = tracePath(path);
@@ -431,6 +447,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
       let stage = "fetch";
       let res = null, bodyText = null;
       try {
+        const sentAt = clock2.now();
         res = await kino2.fetch(`https://${host}/api/portalCore/${path}`, {
           method: "POST",
           headers,
@@ -438,6 +455,12 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
           cookies: false,
           timeoutMs: requestMs
         });
+        if (typeof onFetchMs === "function") {
+          try {
+            onFetchMs(clock2.now() - sentAt);
+          } catch (_) {
+          }
+        }
         stage = "body";
         bodyText = res.text();
         answer = JSON.parse(bodyText);
@@ -1845,7 +1868,7 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
 }
 
 // src/byteCache.js
-function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid = () => true }) {
+function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid = () => true, keepMs = ttlMs }) {
   const what = String(key).split(":")[0];
   const decode2 = (raw) => {
     try {
@@ -1870,10 +1893,15 @@ function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, va
     const hit = entries.find((e) => e.k === k && fresh(e, nowMs));
     return hit === void 0 ? void 0 : hit.i;
   }
+  const kept = (entry, nowMs) => nowMs - entry.s < Math.max(ttlMs, keepMs);
+  function getStale(k, entries = read(), nowMs = clock2.now()) {
+    const hit = entries.find((e) => e.k === k && kept(e, nowMs));
+    return hit === void 0 ? void 0 : hit.i;
+  }
   function write(added, touched = []) {
     try {
       const now = clock2.now();
-      let entries = read().filter((e) => fresh(e, now));
+      let entries = read().filter((e) => kept(e, now));
       for (const k of touched) {
         const at = entries.findIndex((e) => e.k === k);
         if (at >= 0) entries.push(...entries.splice(at, 1));
@@ -1901,7 +1929,7 @@ function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, va
       trace(kino2, "store", "full", { what, code: errCode(e) });
     }
   }
-  return { read, get, fresh, write };
+  return { read, get, getStale, fresh, write };
 }
 
 // src/search.js
@@ -2141,6 +2169,10 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
 var CACHE_KEY2 = "chapters:v1";
 var CACHE_BUDGET_BYTES2 = 32e3;
 var CACHE_FRESH_MS2 = 6 * 36e5;
+var CACHE_KEEP_MS = 7 * 24 * 36e5;
+var CHAPTERS_REFRESH_MS = 8e3;
+var CHAPTERS_COLD_MS = 12e3;
+var EPISODES_DEADLINE_MS = 15e3;
 var IMDB = /^tt\d{7,}$/;
 var MAX_EPISODES = 5e3;
 var MAX_SEASONS = 50;
@@ -2187,8 +2219,17 @@ var unpack = (p) => ({
   declared: p.d,
   seasons: p.a.map((x) => ({ id: x[0], number: x[1] }))
 });
-function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
-  const cache = makeByteCache({ kino: kino2, key: CACHE_KEY2, budgetBytes: CACHE_BUDGET_BYTES2, clock: clock2, ttlMs: CACHE_FRESH_MS2, valid: validPayload });
+function makePortalChapters({ kino: kino2, portal, session, clock: clock2, onServed = () => {
+} }) {
+  const cache = makeByteCache({
+    kino: kino2,
+    key: CACHE_KEY2,
+    budgetBytes: CACHE_BUDGET_BYTES2,
+    clock: clock2,
+    ttlMs: CACHE_FRESH_MS2,
+    keepMs: CACHE_KEEP_MS,
+    valid: validPayload
+  });
   async function fetchDetail(seriesId, deadline) {
     let response;
     try {
@@ -2208,9 +2249,25 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
     return data;
   }
   return async function portalChapters(seriesId, deadline = callDeadline(clock2, CALL_BUDGET_MS.episodes)) {
-    const cached = cache.get(seriesId);
-    if (cached !== void 0) return unpack(cached);
-    const data = await fetchDetail(seriesId, deadline);
+    const entries = cache.read();
+    const cached = cache.get(seriesId, entries);
+    if (cached !== void 0) {
+      onServed("cache");
+      return unpack(cached);
+    }
+    const kept = cache.getStale(seriesId, entries);
+    const portalEnd = Math.min(deadline, clock2.now() + (kept !== void 0 ? CHAPTERS_REFRESH_MS : CHAPTERS_COLD_MS));
+    let data;
+    try {
+      data = await fetchDetail(seriesId, portalEnd);
+    } catch (e) {
+      if (kept !== void 0 && isKinoError(e) && e.name === "KinoError_unavailable") {
+        trace(kino2, "episodes", "kept", { code: errCode(e) });
+        onServed("cache");
+        return unpack(kept);
+      }
+      throw slowPortal(kino2, e);
+    }
     const items = (Array.isArray(data.simpleProgramList) ? data.simpleProgramList : []).filter(isObject).map((it) => {
       const seriesNumber = typeof it.seriesNumber === "string" ? it.seriesNumber : typeof it.seriesNumber === "number" ? String(it.seriesNumber) : null;
       const item = { seriesNumber, contentId: optStringStrict(it.contentId), name: optStringStrict(it.name), duration: void 0 };
@@ -2220,6 +2277,7 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2 }) {
     const seasonList = parseSeasonList(data.sameSeasonSeriesList, seriesId);
     const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull2(data.volumnCount), seasons: seasonList.all };
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
+    onServed("fresh");
     return raw;
   };
 }
@@ -2259,7 +2317,7 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
   return async function episodes2(ref) {
     const magis = decode(ref);
     if (!magis) throw kino2.error("unavailable", "ese ref no es de Xuper: no se pueden listar cap\xEDtulos");
-    const deadline = clock2 ? callDeadline(clock2, CALL_BUDGET_MS.episodes) : void 0;
+    const deadline = clock2 ? Math.min(clock2.now() + EPISODES_DEADLINE_MS, callDeadline(clock2, CALL_BUDGET_MS.episodes)) : void 0;
     let raw;
     try {
       raw = await portalChapters(magis.contentId, deadline);
@@ -2317,7 +2375,13 @@ var TREE_PAGE_SIZE = 60;
 var REFRESH_GAP_MS = 5 * 6e4;
 var SLICE_START_MS = 1500;
 var SLICE_MARGIN_MS = 2e3;
-var SLICE_FETCH_MS = 14e3;
+var WARM_REFRESH_MS = 8e3;
+var COLD_DEADLINE_MS = 12e3;
+var LIVE_ROW_MS = WARM_REFRESH_MS;
+var COLD_PARALLEL = 2;
+var SLOW_FETCH_MS = 4e3;
+var SLOW_KEY = "portalSlow";
+var SLOW_MEMORY_MS = 30 * 6e4;
 var BROWSE_PAGE = 50;
 var MAX_HOME_ROWS = 20;
 var MAX_ROW_ITEMS = 60;
@@ -2415,12 +2479,38 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
       trace(kino2, "store", "full", { what: "rows", code: errCode(e) });
     }
   }
+  let slowAt = null;
+  const portalSlow = () => {
+    if (slowAt === null) {
+      try {
+        const v = Number(kino2.storage.get(SLOW_KEY));
+        slowAt = Number.isFinite(v) && v > 0 ? v : 0;
+      } catch (_) {
+        slowAt = 0;
+      }
+    }
+    const age = clock2.now() - slowAt;
+    return slowAt > 0 && age >= 0 && age < SLOW_MEMORY_MS;
+  };
+  const noteFetchMs = (ms) => {
+    const slow = ms >= SLOW_FETCH_MS;
+    if (slow === portalSlow()) {
+      if (slow) slowAt = clock2.now();
+      return;
+    }
+    slowAt = slow ? clock2.now() : 0;
+    try {
+      if (slow) kino2.storage.set(SLOW_KEY, String(slowAt), { ttlMs: SLOW_MEMORY_MS });
+      else kino2.storage.remove(SLOW_KEY);
+    } catch (_) {
+    }
+  };
   async function fetchRoot(root, deadline) {
     try {
       const response = await session.withValidSession((v) => portal.call(
         "getNextColumns",
         { columnCode: ROOT_CODES[root], pageNum: 1, pageSize: TREE_PAGE_SIZE, version: "" },
-        viewOpts(v)
+        { ...viewOpts(v), onFetchMs: noteFetchMs }
       ), { seedFallback: true, deadline });
       const sections = parseTree(response);
       return { sections: hasItems(sections) ? sections : [], error: null };
@@ -2485,31 +2575,42 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     if (news) dirty = true;
     return r;
   }
+  let served = null;
+  const servedNow = () => {
+    const cur = getCurrent();
+    if (!cur) return "none";
+    if (KINDS.some(({ root }) => !(root in cur.roots))) return "partial";
+    return KINDS.some(({ root }) => stale(cur.roots[root])) ? "cache" : "fresh";
+  };
   async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home, root = null) {
     const startedAt = clock2.now();
-    const callEnd = startedAt + budgetMs - SLICE_MARGIN_MS;
     getCurrent();
-    const storedBefore = current ? Object.keys(current.roots).length : 0;
+    const warm = current !== null;
+    const phaseEnd = Math.min(startedAt + (warm ? WARM_REFRESH_MS : COLD_DEADLINE_MS), startedAt + budgetMs - SLICE_MARGIN_MS);
+    const storedBefore = warm ? Object.keys(current.roots).length : 0;
     const failed = [];
-    let ensured = false;
+    let got = 0;
+    let ensuring = null;
+    let ensureError = null;
     const asked = /* @__PURE__ */ new Set();
-    let next;
-    while (clock2.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked)) !== null) {
-      asked.add(next);
-      const deadline = Math.min(callDeadline(clock2, SLICE_FETCH_MS), callEnd);
-      if (!ensured) {
+    async function lane() {
+      let next;
+      while (ensureError === null && clock2.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked)) !== null) {
+        asked.add(next);
         try {
-          await session.ensure({ deadline });
-          ensured = true;
+          await (ensuring ?? (ensuring = session.ensure({ deadline: phaseEnd })));
         } catch (e) {
-          if (!current) throw e;
+          ensureError = e;
           break;
         }
+        if (current === null && failed.length === 0 && got === 0) trace(kino2, "home", "refresh", { why: "cold" });
+        const r = await rootSlice(next, phaseEnd);
+        if (r.error !== null) failed.push(r);
+        else got++;
       }
-      if (current === null && failed.length === 0) trace(kino2, "home", "refresh", { why: "cold" });
-      const r = await rootSlice(next, deadline);
-      if (r.error !== null) failed.push(r);
     }
+    await Promise.all(Array.from({ length: !warm && portalSlow() ? COLD_PARALLEL : 1 }, lane));
+    if (ensureError !== null && !current) throw slowPortal(kino2, ensureError);
     if (dirty) save();
     const storedAfter = current ? Object.keys(current.roots).length : 0;
     if (storedAfter > storedBefore && storedBefore < KINDS.length) {
@@ -2520,10 +2621,11 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
         { stored: storedAfter, of: KINDS.length, b: msBucket(clock2.now() - startedAt) }
       );
     }
+    served = { served: servedNow(), got, fail: failed.length };
     if (current) return current.rows;
     if (failed.length > 0) {
       summarizeFailure(failed, 1);
-      throw worstOf(failed);
+      throw slowPortal(kino2, worstOf(failed));
     }
     return [];
   }
@@ -2535,7 +2637,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     throw kino2.error("not_found", "No se encontr\xF3 esa lista");
   }
   async function home2() {
-    const live2 = countryRow ? countryRow(callDeadline(clock2, CALL_BUDGET_MS.home)).catch(() => null) : Promise.resolve(null);
+    const live2 = countryRow ? countryRow(Math.min(clock2.now() + LIVE_ROW_MS, callDeadline(clock2, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
     const rows2 = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock2.now());
     const row2 = await live2;
     return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
@@ -2565,8 +2667,15 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     });
     return adultInflight;
   }
+  const adultWithin = async (budgetMs) => {
+    try {
+      return await adultMovies(Math.min(clock2.now() + COLD_DEADLINE_MS, callDeadline(clock2, budgetMs)));
+    } catch (e) {
+      throw slowPortal(kino2, e);
+    }
+  };
   async function browseAdult(cursor) {
-    const all = await adultMovies(callDeadline(clock2, CALL_BUDGET_MS.browse));
+    const all = await adultWithin(CALL_BUDGET_MS.browse);
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
     const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null).map((i) => ({ ...i, adult: true }));
@@ -2592,7 +2701,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const adult = within === ADULT_REF;
     let pool;
     if (adult) {
-      pool = await adultMovies(callDeadline(clock2, CALL_BUDGET_MS.search));
+      pool = await adultWithin(CALL_BUDGET_MS.search);
     } else {
       const row2 = typeof within === "string" ? (await buildRows("full", CALL_BUDGET_MS.search, rootOfRow(within))).find((r) => r.id === within) : void 0;
       if (!row2) return null;
@@ -2609,10 +2718,17 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     if (query !== null && typeof query === "object" && query.within !== void 0 && query.within !== null) return searchWithin(query);
     return globalSearch(query);
   }
-  const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2 });
+  const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2, onServed: (how) => {
+    served = { served: how };
+  } });
   const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
   const rows = (need = "full", root = null) => buildRows(need, CALL_BUDGET_MS[need] ?? CALL_BUDGET_MS.home, root);
-  return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters };
+  const servedBy2 = () => {
+    const out = served ?? {};
+    served = null;
+    return out;
+  };
+  return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters, servedBy: servedBy2 };
 }
 
 // src/tmdb.js
@@ -4281,6 +4397,7 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
 }
 
 // src/plugin.js
+var servedBy = () => getDeps().catalog.servedBy();
 async function search(query) {
   await null;
   let scoped = false;
@@ -4289,31 +4406,31 @@ async function search(query) {
   } catch (_) {
     scoped = false;
   }
-  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {});
+  return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {}, servedBy);
 }
 async function home() {
   await null;
-  return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()));
+  return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy);
 }
 async function browse(ref, cursor) {
   await null;
-  return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor)));
+  return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor)), {}, servedBy);
 }
 async function section(arg) {
   await null;
-  return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg)));
+  return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg)), {}, servedBy);
 }
 async function categories() {
   await null;
-  return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories()));
+  return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories()), {}, servedBy);
 }
 async function episodes(ref) {
   await null;
-  return traced(kino, clock, "episodes", () => guarded(({ catalog }) => catalog.episodes(ref)));
+  return traced(kino, clock, "episodes", () => guarded(({ catalog }) => catalog.episodes(ref)), {}, servedBy);
 }
 async function resolve(ref, options) {
   await null;
-  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" });
+  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" }, servedBy);
 }
 async function sign(request) {
   await null;
