@@ -4,12 +4,13 @@
 // the CDN headers per request from the signContext; the other CDNs of the same answer go out as
 // `alternateHosts`, so the app's proxy fails over between them as the native proxy did.
 import {
-  PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS, ACCOUNT_SESSION_LOST, ACCOUNT_IN_USE_ELSEWHERE_TEXT,
+  PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS, ACCOUNT_SENTENCES,
 } from "./portal.js";
 import { isCfl, slbBean } from "./resolve.js";
 import { buildSignContext, tokenOf } from "./liveSign.js";
 import { makeLiveRotation, MAX_ROTATIONS } from "./liveRotation.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
+import { say } from "./i18n.js";
 import { trace, report, errCode, seedTag } from "./trace.js";
 
 // A rotation outcome as a breadcrumb word short enough for the app's scrubber ("already_exhausted"
@@ -20,7 +21,6 @@ const DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime (nati
 const MIN_EXPIRES_S = 30; // SDK range of expiresInSeconds
 const MAX_EXPIRES_S = 86400;
 const MAX_ALTERNATE_HOSTS = 6; // SDK cap
-const ACCOUNT_SENTENCES = new Set([ACCOUNT_SESSION_LOST, ACCOUNT_IN_USE_ELSEWHERE_TEXT]);
 const NOT_LOGGED_IN = "aaa100028"; // a channel that genuinely needs a real account
 const INT = /^[+-]?\d+$/;
 const ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/; // SDK alternateHosts pattern
@@ -29,7 +29,6 @@ const SLB_RESERVE_MS = 3_000; // startPlayLive stops early enough to leave getSl
 
 // The person-facing texts of the native live failures (code in English, texts in Spanish).
 const TEXT = {
-  noAccount: "Este canal necesita una cuenta de Xuper (para películas y series no hace falta). Vincúlala en Ajustes ▸ Xuper.",
   noAddresses: "No se pudo abrir el canal: Xuper no dio la dirección de la señal", // live_no_addresses
   noCdn: "No se pudo abrir el canal: Xuper no dio un servidor de vivo", // live_no_cfl_cdn
   noLicense: "No se pudo abrir el canal: Xuper no dio la licencia de la señal", // live_no_license
@@ -142,7 +141,7 @@ export function makeLive({ kino, portal, session, clock, config, random }) {
         || (isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN);
       // A linked account's sentence (still dead after the re-logins, or open elsewhere) stays as it is.
       if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.userMessage))) {
-        throw kino.error("auth_required", "el canal necesita una cuenta (aaa100028)", { userMessage: TEXT.noAccount });
+        throw kino.error("auth_required", "el canal necesita una cuenta (aaa100028)", { userMessage: say(kino, "liveNeedsAccount") });
       }
       throw e;
     }

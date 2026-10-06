@@ -72,9 +72,19 @@ test("categories: ChannelList is Todos, ids are decimal text, the adult one is m
   const { live } = setup({ queues: { getNextColumns: [categories()] } });
   assert.deepEqual(await live.liveCategories(), [
     { id: "76182", title: "Todos" },
-    { id: "76183", title: "Deportes" },
+    { id: "76183", title: "Deportes", genre: "deportes" },
     { id: "76184", title: "18+", adult: true },
   ]);
+});
+
+test("categories: a genre only for a name that IS one of the contract's genres (whole name, accents and case ignored); never on 18+", async () => {
+  const names = ["Deportes", " NOTICIAS ", "Música", "Niños", "Infantil", "Documentales", "Entretenimiento", "Noticias Colombia", "Colombia", "Cine", "Todos", "18+"];
+  const recommendList = names.map((name, i) => ({ columnId: 300 + i, name }));
+  const { live } = setup({ queues: { getNextColumns: [{ recommendList }] } });
+  const out = await live.liveCategories();
+  assert.deepEqual(out.map((c) => c.genre ?? null), ["deportes", "noticias", "musica", "infantil", "infantil", "documentales", "entretenimiento", null, null, null, null, null]);
+  const checked = checkOutput("liveCategories", out, manifest);
+  assert.equal(checked.value.categories.find((c) => c.id === "300").genre, "deportes", "the kit keeps it");
 });
 
 test("categories: asks masnew_live with pageSize 200, the session's credentials, after ensure", async () => {

@@ -12,6 +12,7 @@ import { codeOfRef } from "./channelId.js";
 import { findChapter } from "./episodes.js";
 import { isObject, isKinoError, optStringStrict, objects, notBlank } from "./util.js";
 import { trace } from "./trace.js";
+import { say } from "./i18n.js";
 
 const SLB_DEFAULT_TTL_S = 300; // when the portal does not declare invalidTime
 // Time kept back for each portal call that still has to follow (play -> getSlbInfo; chapters -> play).
@@ -21,6 +22,9 @@ const EXPIRED = /expired=(\d+)/;
 const MAX_SUBTITLES = 30; // SDK cap
 const MAX_ALTERNATIVES = 8; // SDK cap (contract.json output.maxAlternatives)
 const RETRY_COPIES = 3; // the connect attempts ExoPlayer used to make on its own
+const MAX_LABEL_CHARS = 48; // SDK cap on a copy's label
+const EXPIRES_MIN_S = 30; // SDK range of expiresInSeconds
+const EXPIRES_MAX_S = 86_400;
 const INT = /^[+-]?\d+$/;
 const DIGITS = /^[0-9]+$/;
 
@@ -57,6 +61,28 @@ function rankedMedia(play) {
   // A track with no contentId has no media path (`/vod/_media.mp4`): it is not a track at all.
   const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList)).filter((m) => notBlank(optStringStrict(m.contentId)));
   return candidates.map((m, i) => ({ m, i, s: mediaScore(m) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.m);
+}
+
+// What the player's Servidor menu shows for a track's codec; any other value as the portal writes it, upper case.
+const CODEC_NAMES = { h264: "H.264", avc: "H.264", h265: "H.265", hevc: "H.265", av1: "AV1", vp9: "VP9" };
+const codecName = (m) => {
+  const raw = optStringStrict(m.encodeFormat).trim();
+  return CODEC_NAMES[raw.toLowerCase()] ?? raw.toUpperCase();
+};
+
+/** A copy's label for the player's Servidor menu, at most MAX_LABEL_CHARS. */
+const labelOf = (text) => (text.length <= MAX_LABEL_CHARS ? text : text.slice(0, MAX_LABEL_CHARS).trimEnd());
+
+/**
+ * Seconds the copy signed with `auth` keeps playing: its Content-Auth's `expired=<unix>` minus now and
+ * AUTH_MARGIN_S, within the SDK's 30..86400; null when the token names no expiry.
+ */
+export function expiresInSeconds(auth, nowMs) {
+  const m = EXPIRED.exec(typeof auth === "string" ? auth : "");
+  if (!m) return null;
+  const left = Number(m[1]) - Math.floor(nowMs / 1000) - AUTH_MARGIN_S;
+  if (!Number.isFinite(left)) return null;
+  return Math.min(EXPIRES_MAX_S, Math.max(EXPIRES_MIN_S, left));
 }
 
 /** A track's own license, or "" (MagisResolve: `licenseList[0].license`). */
@@ -185,23 +211,37 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
     // Every copy the portal offers, best first: the best track on each server (main_addr, spared_addr,
     // the next free cfl vod CDN), then the next track the same way. The first is `url`, the rest the
     // app's alternatives. Each server keeps its own Content-Auth, each track its own license.
+    // Each copy is labelled for the player's Servidor menu (apiVersion 6; "Opción N" without one):
+    // "Servidor k" (the k-th CDN), "· respaldo" on its spared_addr, and another track's codec in front.
     const copies = [];
     const seen = new Set();
     const seenTracks = new Set();
+    const prefixes = new Set();
     for (const track of tracks) {
       const id = optStringStrict(track.contentId);
       const trackLicense = track === best ? license : licenseOf(track);
       if (track !== best && (!notBlank(id) || !notBlank(trackLicense) || seenTracks.has(id))) continue;
       seenTracks.add(id);
+      // The best track has no prefix; another one its codec ("Versión N" when the portal names none),
+      // numbered when two tracks would read the same.
+      let prefix = "";
+      if (track !== best) {
+        const codec = codecName(track);
+        prefix = codec !== "" ? codec : say(kino, "versionN", { n: seenTracks.size });
+        if (prefixes.has(prefix)) prefix = `${prefix} (${seenTracks.size})`;
+        prefixes.add(prefix);
+      }
       // `ts` iff the portal says so; asking for `.mp4` otherwise is all that can be done.
       const ext = optStringStrict(track.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
-      for (const cdn of cdns) {
-        for (const base of cdn.bases) {
+      for (const [ci, cdn] of cdns.entries()) {
+        for (const [bi, base] of cdn.bases.entries()) {
           const url = `${base}/vod/${id}_media.${ext}`;
           if (seen.has(url)) continue;
           seen.add(url);
+          const server = `${say(kino, "server", { n: ci + 1 })}${bi > 0 ? ` · ${say(kino, "backup")}` : ""}`;
           copies.push({
             url,
+            label: labelOf(prefix !== "" ? `${prefix} · ${server}` : server),
             mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
             headers: {
               "Content-Auth": cdn.auth, // the querystring verbatim: VOD is not re-signed
@@ -221,16 +261,23 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
     // so a real copy is never pushed out for a retry.
     const bestCopy = copies[0];
     for (let n = 1; bestCopy && n <= RETRY_COPIES && copies.length <= MAX_ALTERNATIVES; n++) {
-      copies.push({ ...bestCopy, url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}` });
+      copies.push({
+        ...bestCopy,
+        url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}`,
+        label: labelOf(`${bestCopy.label} · ${say(kino, "retry", { n })}`),
+      });
     }
     const [first, ...others] = copies;
     const alternatives = others.slice(0, MAX_ALTERNATIVES);
     if (alternatives.length > 0) trace(kino, "resolve", "alts", { n: alternatives.length, tracks: seenTracks.size, cdns: cdns.length });
+    // When the url returned stops working: its own Content-Auth's expiry (Kino resolves again past it).
+    const expires = expiresInSeconds(first.headers["Content-Auth"], clock.now());
     return {
       ...first,
       subtitles: readSubtitles(play),
       // A chapter's own declared duration wins (the portal sends it empty for most series).
       durationMs: chapter ? portalDurationMs(chapter.duration) : portalDurationMs(best.duration),
+      ...(expires !== null ? { expiresInSeconds: expires } : {}),
       ...(alternatives.length > 0 ? { alternatives } : {}),
     };
   }

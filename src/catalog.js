@@ -1,11 +1,13 @@
 // Home and browse over the Magis catalog (native-magis.md §4.1, §4.2); `search` lives in search.js
 // (§4.4) and `episodes` in episodes.js (§4.3); both are composed in. Each public function is self-contained.
-import { classify, mergeRoot, rootOfRow, KINDS } from "./homeClassifier.js";
+import { classify, mergeRoot, rootOfRow, genreOfRow, localizedRowTitle, KINDS } from "./homeClassifier.js";
+import { isEnglish, say } from "./i18n.js";
 import { parseTree, refOf, parseShelveTime } from "./homeTree.js";
 import { fitRows, makeRowsStore } from "./rowsStore.js";
 import { isSeries } from "./refs.js";
 import { makeSearch } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
+import { makeIdsStore } from "./idsStore.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS, slowPortal } from "./portal.js";
 import { isKinoError } from "./util.js";
 import { trace, report, errCode, msBucket, kbBucket, PERF_AREAS } from "./trace.js";
@@ -55,8 +57,13 @@ const MAX_GENRES = 5;
 const NEW_WINDOW_MS = 48 * 3600_000;
 const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 
-/** One classified item as the SDK's item shape; null when its id cannot be used. */
-function projectItem(item, nowMs) {
+const noIds = () => null;
+
+/**
+ * One classified item as the SDK's item shape; null when its id cannot be used. `idsOf(contentId)`: the ids
+ * a detail read already stored (idsStore.js), or null. `english`: Kino's language (the "new" badge).
+ */
+function projectItem(item, nowMs, idsOf = noIds, english = false) {
   if (!ITEM_ID.test(item.id)) return null;
   const out = {
     id: item.id,
@@ -72,7 +79,9 @@ function projectItem(item, nowMs) {
   const minutes = Math.trunc(item.durationS / 60);
   if (minutes >= 1 && minutes <= 1000) out.runtimeMinutes = minutes;
   // Uploaded in the last 48 h: the mark rides in `badges`, so the cards need no new field.
-  if (item.shelvedAtMs > 0 && nowMs - item.shelvedAtMs <= NEW_WINDOW_MS) out.badges = ["NUEVO"];
+  if (item.shelvedAtMs > 0 && nowMs - item.shelvedAtMs <= NEW_WINDOW_MS) out.badges = [english ? "NEW" : "NUEVO"];
+  const ids = idsOf(item.id);
+  if (ids) out.ids = ids;
   return out;
 }
 
@@ -96,12 +105,18 @@ export function rankWithin(kino, pool, q) {
   return kino.rank.sortBySimilarity(hits, forms, titlesOf);
 }
 
-/** Classified rows as home rows: `ref` is the row id, empty rows dropped, SDK caps applied. */
-export function projectRows(rows, nowMs) {
+/**
+ * Classified rows as home rows: `ref` is the row id, `genre` its root's (genreOfRow), the title in Kino's
+ * language (`english`), empty rows dropped, SDK caps applied.
+ */
+export function projectRows(rows, nowMs, idsOf = noIds, english = false) {
   const out = [];
   for (const r of rows) {
-    const items = r.shown.map((i) => projectItem(i, nowMs)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
-    if (items.length > 0) out.push({ id: r.id, title: r.title, ref: r.id, items });
+    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
+    if (items.length === 0) continue;
+    const title = localizedRowTitle(r, english);
+    const genre = genreOfRow(r.id);
+    out.push(genre !== null ? { id: r.id, title, ref: r.id, items, genre } : { id: r.id, title, ref: r.id, items });
   }
   return out.slice(0, MAX_HOME_ROWS);
 }
@@ -123,6 +138,8 @@ function offsetOf(cursor) {
  */
 export function makeCatalog({ kino, portal, session, clock, tmdb = null, countryRow = null }) {
   const store = makeRowsStore({ kino, ttlMs: SNAPSHOT_TTL_MS });
+  // The ids episodes() already learned, by contentId: cards carry them, no portal call is added for them.
+  const ids = makeIdsStore({ kino, clock });
   const stale = (at) => { const age = clock.now() - at; return age < 0 || age >= ROWS_FRESH_MS; };
 
   // ---- what is served, and how it is kept up to date ----------------------------------------------
@@ -354,13 +371,16 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   async function home() {
     // Asked alongside the VOD rows, inside LIVE_ROW_MS; its failure is no row (never a throw).
     const live = countryRow ? countryRow(Math.min(clock.now() + LIVE_ROW_MS, callDeadline(clock, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
-    const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now());
+    const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now(), ids.lookup(), isEnglish(kino));
     const row = await live;
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
 
   // The 18+ root's movies, deduplicated in the portal's order. Concurrent pages share one fetch.
   let adultInflight = null;
+  // Every contentId the 18+ root listed when this sandbox last read it (series included): memory only, never
+  // stored, like the root. Search marks a hit found there `adult: true` (search.js).
+  let adultIds = new Set();
   async function fetchAdult(deadline) {
     await session.ensure({ deadline });
     const response = await session.withValidSession((v) => portal.call(
@@ -370,13 +390,16 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     ), { seedFallback: true, deadline });
     const seen = new Set();
     const out = [];
+    const listed = new Set();
     for (const s of parseTree(response)) {
       for (const item of s.items) {
+        listed.add(item.id);
         if (isSeries(item.type) || seen.has(item.id)) continue; // native plays the 18+ movies only
         seen.add(item.id);
         out.push(item);
       }
     }
+    if (listed.size > 0) adultIds = listed;
     return out;
   }
   function adultMovies(deadline) {
@@ -394,7 +417,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const all = await adultWithin(CALL_BUDGET_MS.browse);
     const offset = offsetOf(cursor);
     const nowMs = clock.now();
-    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null)
+    const idsOf = ids.lookup();
+    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino))).filter((i) => i !== null)
       .map((i) => ({ ...i, adult: true }));
     const next = offset + BROWSE_PAGE;
     return next < all.length ? { items, next: String(next) } : { items };
@@ -409,12 +433,13 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     // A row from the snapshot has no `all`: its shown items are the page, with no next (the full rows
     // are being built in the background for the next visit).
     const list = row.all ?? (offset === 0 ? row.shown : []);
-    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null);
+    const idsOf = ids.lookup();
+    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino))).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
     return row.all && next < list.length ? { items, next: String(next) } : { items };
   }
 
-  const { search: globalSearch } = makeSearch({ kino, portal, session, clock, tmdb });
+  const { search: globalSearch } = makeSearch({ kino, portal, session, clock, tmdb, isAdultId: (id) => adultIds.has(id), idsLookup: ids.lookup });
 
   // Kino's scopedSearch (apiVersion 6): `within` is the browse ref of a "Ver más" page. Those rows are Xuper's own
   // classification across the portal's sections (type x genre, featured), so no portal column matches one and its
@@ -438,7 +463,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const ranked = rankWithin(kino, pool, q);
     const offset = offsetOf(query.cursor);
     const nowMs = clock.now();
-    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null)
+    const idsOf = ids.lookup();
+    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino))).filter((i) => i !== null)
       .map((i) => (adult ? { ...i, adult: true } : i));
     const next = offset + BROWSE_PAGE;
     return next < ranked.length ? { items, next: String(next) } : { items };
@@ -450,8 +476,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   }
 
   // The chapter list is shared with resolve, which looks a chapter up by its number.
-  const portalChapters = makePortalChapters({ kino, portal, session, clock, onServed: (how) => { served = { served: how }; } });
-  const episodes = makeEpisodes({ kino, tmdb, portalChapters, clock });
+  const portalChapters = makePortalChapters({ kino, portal, session, clock, onServed: (how) => { served = { served: how }; }, ids });
+  const episodes = makeEpisodes({ kino, tmdb, portalChapters, clock, ids });
 
   // The classified rows of the four roots (the same kept rows Home reads), for section and categories:
   // `need` is "section" or "categories" (see buildRows).
@@ -460,5 +486,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   /** How the call that just ended was served (see `served`), then forgotten: {} when it read no rows. */
   const servedBy = () => { const out = served ?? {}; served = null; return out; };
 
-  return { home, browse, rows, search, episodes, portalChapters, servedBy };
+  /** A lookup of the stored ids (idsStore.js) for the section's cards: `(contentId) => ids | null`. */
+  const idsLookup = () => ids.lookup();
+
+  return { home, browse, rows, search, episodes, portalChapters, servedBy, idsLookup };
 }

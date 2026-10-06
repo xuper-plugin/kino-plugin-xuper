@@ -62,9 +62,17 @@ export function sortSeasons(items) {
 // ---- portal answers -> compact items ---------------------------------------------------------
 // The internal (and stored) form of a portal item, keeping only what ranking and output read:
 //   c contentId, t title (name | viewPoint | alias), a alias when it differs, p programType when
-//   not "movie", y release year, n episode count, m poster (icon), b backdrop (poster).
+//   not "movie", y release year, n episode count, m poster (icon), b backdrop (poster), x 1 when the
+//   portal tags it "Adult" (IMDb's adult genre; see ADULT_TAG).
 const str = (v) => (typeof v === "string" ? v : "");
 const INT = /^[+-]?\d+$/;
+// v3/searchByName (columnId "") searches the whole VOD library, and nothing in its items says which root a
+// title is listed under: no column, no category, no rating (captured answers: fixtures/xuper-parity
+// search-1..4). The portal's `tags` are IMDb's genres ("Action,Sci-Fi", "Reality-TV"), and IMDb's genre
+// for pornography is "Adult": a title tagged so is marked 18+. The other signal is the 18+ root itself:
+// a hit listed there (when this sandbox read it, see catalog.js) is marked too.
+const ADULT_TAG = "adult";
+const taggedAdult = (tags) => str(tags).split(",").some((t) => t.trim().toLowerCase() === ADULT_TAG);
 
 function wholeNumberOrNull(v) {
   if (typeof v === "number") return Number.isInteger(v) ? v : null;
@@ -89,6 +97,7 @@ function slim(raw) {
   if (/^[0-9]{4}$/.test(year)) out.y = year;
   const n = wholeNumberOrNull(raw.volumnCount) ?? wholeNumberOrNull(raw.updateCount) ?? 0;
   if (n !== 0) out.n = n;
+  if (taggedAdult(raw.tags)) out.x = 1;
   if (Array.isArray(raw.posterList)) {
     for (const p of raw.posterList) {
       if (!isObject(p)) continue;
@@ -123,7 +132,9 @@ const distinctBy = (list, keyOf) => {
   return list.filter((x) => { const k = keyOf(x); if (seen.has(k)) return false; seen.add(k); return true; });
 };
 
-export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
+// `isAdultId(contentId)`: true for a title the 18+ root lists (catalog.js, from what this sandbox read of it).
+// `idsLookup()`: a lookup of the ids episodes() stored (idsStore.js), read once per search.
+export function makeSearch({ kino, portal, session, clock, tmdb = null, isAdultId = () => false, idsLookup = () => () => null }) {
   // Any failure reaches the caller as a kino error: portal codes mapped, the rest `unavailable`.
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino);
@@ -249,6 +260,8 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
     if (items.length === 0 && ctx.tmdbId > 0) trace(kino, "search", "empty", { type: ctx.type, pool: pool.length });
 
     const out = [];
+    let idsOf;
+    try { idsOf = idsLookup(); } catch (_) { idsOf = () => null; }
     for (const it of sortSeasons(items)) {
       if (!ITEM_ID.test(it.c)) continue;
       const programType = it.p ?? "movie";
@@ -264,6 +277,12 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null }) {
       };
       if (it.m) item.poster = it.m;
       if (it.b) item.backdrop = it.b;
+      // apiVersion 6: Kino shows it only while the person's 18+ code is unlocked (Home's 18+ tile does the same).
+      let adult = it.x === 1;
+      if (!adult) { try { adult = isAdultId(it.c) === true; } catch (_) { adult = false; } }
+      if (adult) item.adult = true;
+      const ids = idsOf(it.c);
+      if (ids) item.ids = ids;
       out.push(item);
       if (out.length >= MAX_OUTPUT_ITEMS) break;
     }

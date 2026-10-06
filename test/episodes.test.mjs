@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog } from "../src/catalog.js";
-import { parseSeasonList } from "../src/episodes.js";
+import { parseSeasonList, isGenericTitle } from "../src/episodes.js";
 import { makeTmdb, parseSeriesByImdb, parseSeasonEpisodes } from "../src/tmdb.js";
 import { PortalError } from "../src/portal.js";
 import { decode } from "../src/refs.js";
@@ -131,9 +131,34 @@ test("parseSeasonEpisodes: null = unanswerable, [] = answered with none, blank n
   assert.equal(parseSeasonEpisodes("[]"), null);
   assert.deepEqual(parseSeasonEpisodes("{}"), []);
   assert.deepEqual(parseSeasonEpisodes(JSON.stringify({ episodes: [tep(1, "", "o", "/s.jpg"), 5, tep(2, "Dos", null, null)] })), [
-    { episode: 1, name: "Episodio 1", overview: "o", still: "https://image.tmdb.org/t/p/w300/s.jpg" },
-    { episode: 2, name: "Dos", overview: "", still: "" },
+    { episode: 1, name: "Episodio 1", overview: "o", still: "https://image.tmdb.org/t/p/w300/s.jpg", airDate: "", runtimeMinutes: 0 },
+    { episode: 2, name: "Dos", overview: "", still: "", airDate: "", runtimeMinutes: 0 },
   ]);
+});
+
+test("parseSeasonEpisodes: air_date (YYYY-MM-DD only) and runtime (1..1000) ride along; kino.tmdb's parsed object reads like the text", () => {
+  const body = { episodes: [
+    { episode_number: 1, name: "Uno", air_date: "2011-04-17", runtime: 57 },
+    { episode_number: 2, name: "Dos", air_date: "2011", runtime: 0 },
+    { episode_number: 3, name: "Tres", air_date: null, runtime: "45" },
+    { episode_number: 4, name: "Cuatro", air_date: "17/04/2011", runtime: 5000 },
+  ] };
+  const fromText = parseSeasonEpisodes(JSON.stringify(body));
+  assert.deepEqual(fromText.map((e) => [e.airDate, e.runtimeMinutes]), [["2011-04-17", 57], ["", 0], ["", 45], ["", 0]]);
+  assert.deepEqual(parseSeasonEpisodes(body), fromText, "an object (kino.tmdb) parses exactly like its text (kino.fetch)");
+  assert.deepEqual(parseSeriesByImdb(tvHit(12)), parseSeriesByImdb(JSON.stringify(tvHit(12))));
+  assert.equal(parseSeasonEpisodes(null), null);
+  assert.equal(parseSeasonEpisodes([]), null);
+});
+
+test("isGenericTitle: a name that only numbers the chapter (the portal's usual ones included), never a real title", () => {
+  for (const t of ["", "  ", "3", "001", "Capítulo 3", "CAPITULO 03", "Episodio 7", "Cap. 2", "Ep 4", "E05", "Chapter 1", "Episode 12",
+    "Nada Miniserie_1", "One Piece T1_8", "La Rosa de Guadalupe T17_153", "La voz kids Colombia 2021_La voz kids Colombia 2021-01", null]) {
+    assert.equal(isGenericTitle(t), true, String(t));
+  }
+  for (const t of ["El secreto", "Capítulo final", "3 - Inicio", "La casa de papel Temporada 5_La casa de Papel TEMPORADA 5 - Tráiler Español", "Foo_bar 2"]) {
+    assert.equal(isGenericTitle(t), false, t);
+  }
 });
 
 test("makeTmdb reads: the secret MARKER in the query, the right paths, es-MX default, language override, silent failures", async () => {
@@ -255,11 +280,11 @@ test("imdb + known season + matching count: still, name and synopsis from TMDB, 
     },
   });
   const out = await t.catalog.episodes(SERIES);
-  assert.equal(out.episodes[0].tmdbTitle, "El secreto");
+  assert.deepEqual(out.episodes.map((e) => e.title), ["El secreto", "La busqueda"], "the portal's 'Capitulo 1' and blank name give way to TMDB's");
   assert.equal(out.episodes[0].overview, "Sinopsis 1");
   assert.equal(out.episodes[0].still, "https://image.tmdb.org/t/p/w300/s1.jpg");
-  assert.equal(out.episodes[1].title, "Capítulo 2", "the portal's own title is kept; TMDB's rides in tmdbTitle");
-  assert.deepEqual(out.series, { ids: { imdb: "tt0088509", tmdb: 12 }, seasonNumber: 1, title: "Dragon Ball", poster: "https://image.tmdb.org/t/p/w500/p.jpg", backdrop: "https://image.tmdb.org/t/p/w1280/b.jpg" });
+  for (const e of out.episodes) assert.ok(!("tmdbTitle" in e), "no field outside the contract");
+  assert.deepEqual(out.series, { ids: { imdb: "tt0088509", tmdb: 12 }, title: "Dragon Ball", poster: "https://image.tmdb.org/t/p/w500/p.jpg", backdrop: "https://image.tmdb.org/t/p/w1280/b.jpg" });
   assert.deepEqual(out.episodes.map((e) => e.season), [1, 1], "empty season list = single season = the 1st");
   assert.deepEqual(t.world.calls, [FIND("tt0088509"), "/3/tv/12/season/1@es-MX"]);
 });
@@ -270,7 +295,8 @@ test("the guard: a season TMDB splits differently gets no per-episode data, but 
     bodies: { [FIND("tt0088509")]: find(tvHit(12, "One Piece")), "/3/tv/12/season/1@es-MX": season(tep(1, "A", "", "/a.jpg"), tep(2, "B", "", "/b.jpg"), tep(3, "C", "", "/c.jpg")) },
   });
   const out = await t.catalog.episodes(SERIES);
-  for (const e of out.episodes) assert.ok(!("still" in e) && !("tmdbTitle" in e));
+  for (const e of out.episodes) assert.ok(!("still" in e) && !("tmdbTitle" in e) && !("airDate" in e));
+  assert.deepEqual(out.episodes.map((e) => e.title), ["Capitulo 1", "Capítulo 2"], "the guard keeps the portal's names");
   assert.equal(out.series.ids.tmdb, 12);
   assert.equal(out.series.title, "One Piece");
   assert.deepEqual(t.world.calls, [FIND("tt0088509"), "/3/tv/12/season/1@es-MX"], "no en-US call when nothing was enriched");
@@ -280,10 +306,10 @@ test("an airing season: declared 3, published 2 - enriched with what is publishe
   const eps = season(tep(1, "A", "x", "/a.jpg"), tep(2, "B", "x", "/b.jpg"), tep(3, "C", "x", "/c.jpg"));
   let t = setup({ queue: [detail({ imdb: "tt0088509", volumnCount: "3" })], bodies: { [FIND("tt0088509")]: find(tvHit(12)), "/3/tv/12/season/1@es-MX": eps } });
   let out = await t.catalog.episodes(SERIES);
-  assert.deepEqual(out.episodes.map((e) => e.tmdbTitle), ["A", "B"]);
+  assert.deepEqual(out.episodes.map((e) => e.title), ["A", "B"]);
   t = setup({ queue: [detail({ imdb: "tt0088509", volumnCount: "0" })], bodies: { [FIND("tt0088509")]: find(tvHit(12)), "/3/tv/12/season/1@es-MX": season(tep(1, "A", "x", "/a.jpg"), tep(2, "B", "x", "/b.jpg")) } });
   out = await t.catalog.episodes(SERIES);
-  assert.deepEqual(out.episodes.map((e) => e.tmdbTitle), ["A", "B"]);
+  assert.deepEqual(out.episodes.map((e) => e.title), ["A", "B"]);
 });
 
 test("a synopsis TMDB lacks in Spanish is filled from en-US, and a Spanish one is never overwritten", async () => {
@@ -298,7 +324,7 @@ test("a synopsis TMDB lacks in Spanish is filled from en-US, and a Spanish one i
   const out = await t.catalog.episodes(SERIES);
   assert.equal(out.episodes[0].overview, "The english one");
   assert.equal(out.episodes[1].overview, "La que si estaba");
-  assert.equal(out.episodes[0].tmdbTitle, "Uno");
+  assert.equal(out.episodes[0].title, "Uno");
   assert.deepEqual(t.world.calls, [FIND("tt0088509"), "/3/tv/12/season/1@es-MX", "/3/tv/12/season/1@en-US"]);
 });
 
@@ -319,8 +345,8 @@ test("an episode TMDB has nothing for (no still, name or synopsis) gets no extra
     bodies: { [FIND("tt0088509")]: find(tvHit(12)), "/3/tv/12/season/1@es-MX": { code: 200, body: { episodes: [{ episode_number: 1, name: "X", overview: "", still_path: null }, { episode_number: 2, name: "", overview: "", still_path: "" }] } } },
   });
   const out = await t.catalog.episodes(SERIES);
-  assert.equal(out.episodes[0].tmdbTitle, "X");
-  assert.equal(out.episodes[1].tmdbTitle, "Episodio 2", "a blank TMDB name reads 'Episodio N', as native");
+  assert.equal(out.episodes[0].title, "X");
+  assert.equal(out.episodes[1].title, "Capitulo 2", "a blank TMDB name ('Episodio N') never replaces the portal's");
 });
 
 test("an unknown season (the list carries others) is never enriched, asks TMDB for nothing, and carries no season", async () => {
@@ -330,7 +356,7 @@ test("an unknown season (the list carries others) is never enriched, asks TMDB f
   });
   const out = await t.catalog.episodes(SERIES);
   assert.ok(!("tmdbTitle" in out.episodes[0]) && !("season" in out.episodes[0]));
-  assert.deepEqual(out.series, { ids: { imdb: "tt0088509", tmdb: 0 }, seasonNumber: 0, title: "", poster: "", backdrop: "" });
+  assert.deepEqual(out.series, { ids: { imdb: "tt0088509" }, title: "", poster: "", backdrop: "" }, "no tmdb id when TMDB named none");
   assert.deepEqual(t.world.calls, []);
 });
 
@@ -354,7 +380,7 @@ test("TMDB failing (network, no key, junk, unknown imdb, season 404) never fails
     const catalog = makeCatalog({ kino, portal: fakePortal([detail({ imdb: "tt0088509" })]), session: fakeSession(), clock: { now: () => NOW }, tmdb: makeTmdb({ kino }) });
     const out = await catalog.episodes(SERIES);
     assert.equal(out.episodes.length, 2);
-    assert.deepEqual(out.series, { ids: { imdb: "tt0088509", tmdb: 0 }, seasonNumber: 1, title: "", poster: "", backdrop: "" });
+    assert.deepEqual(out.series, { ids: { imdb: "tt0088509" }, title: "", poster: "", backdrop: "" });
   }
   // Season 404 keeps the series TMDB found.
   const t = setup({ queue: [detail({ imdb: "tt0088509" })], bodies: { [FIND("tt0088509")]: find(tvHit(12, "Hallada")) } });
@@ -369,7 +395,7 @@ test("a tmdb dependency that throws synchronously or is absent never fails the l
     const t = setup({ queue: [detail({ imdb: "tt0088509" })], tmdb });
     const out = await t.catalog.episodes(SERIES);
     assert.equal(out.episodes.length, 2);
-    assert.equal(out.series.ids.tmdb, 0);
+    assert.ok(!("tmdb" in out.series.ids));
   }
 });
 
@@ -524,13 +550,24 @@ const sorted = (v) => {
 };
 
 // What the device's GatewayEpisode/GatewaySeries held, rebuilt from the plugin shape (the Kotlin test's `rebuilt()`).
+// 2.2.15 left two of its fields out of the plugin's answer (Kino never read them): `tmdbTitle` is the episode's
+// `title` when the portal's only numbers the chapter, and the series' `seasonNumber` rides in each episode.
 function rebuilt(data) {
   const episodes = data.episodes.map((e) => ({
-    number: e.number, title: e.title, ref: e.ref, still: e.still ?? null, tmdbTitle: e.tmdbTitle ?? null, overview: e.overview ?? null, season: null,
+    number: e.number, title: e.title, ref: e.ref, still: e.still ?? null, overview: e.overview ?? null, season: null,
   }));
   const series = data.series
-    ? { imdbId: data.series.ids.imdb, tmdbId: data.series.ids.tmdb, seasonNumber: data.series.seasonNumber, title: data.series.title, posterUrl: data.series.poster, backdropUrl: data.series.backdrop }
+    ? { imdbId: data.series.ids.imdb, tmdbId: data.series.ids.tmdb ?? 0, title: data.series.title, posterUrl: data.series.poster, backdropUrl: data.series.backdrop }
     : null;
+  return { episodes, series };
+}
+
+// The native capture as 2.2.15 answers it: TMDB's name where the portal's is generic, no tmdbTitle, no seasonNumber.
+function expectedNow(expected) {
+  const episodes = expected.episodes.map(({ tmdbTitle, ...e }) => ({
+    ...e, title: tmdbTitle && isGenericTitle(e.title) && !isGenericTitle(tmdbTitle) ? tmdbTitle : e.title,
+  }));
+  const series = expected.series ? (({ seasonNumber, ...s }) => s)(expected.series) : null;
   return { episodes, series };
 }
 
@@ -553,7 +590,7 @@ for (const [i, file] of fixtureFiles.entries()) {
       await assert.rejects(() => t.catalog.episodes(request), (e) => e.code === "not_found");
     } else {
       const out = await t.catalog.episodes(request);
-      assert.equal(sorted(rebuilt(out)), sorted({ episodes: fixture.expected.episodes, series: fixture.expected.series }));
+      assert.equal(sorted(rebuilt(out)), sorted(expectedNow(fixture.expected)));
       // The contract reader takes the season from the EPISODES, so each must carry the series block's season.
       const seasonNumber = fixture.expected.series?.seasonNumber ?? 0;
       if (seasonNumber > 0) assert.deepEqual(out.episodes.map((e) => e.season), out.episodes.map(() => seasonNumber));
@@ -578,4 +615,77 @@ test("parity: the captures cover the labelled cases (full + en-US fallback, guar
   }
   const seasons = fixtureFiles.map((f) => JSON.parse(readFileSync(f, "utf8")).expected.series?.seasonNumber ?? 0);
   assert.ok(seasons.some((s) => s > 1));
+});
+
+// ---- kino.tmdb (Kino 0.9.53+), with the sealed key as the fallback (2.2.15) -----------------------
+
+test("kino.tmdb present: every read goes through it (path without a query, params apart, parsed JSON), never kino.fetch", async () => {
+  const calls = [];
+  let fetched = 0;
+  const tmdbFn = async (path, params) => {
+    calls.push([path, params]);
+    if (path.startsWith("/find/")) return tvHit(12, "Dragon Ball");
+    if (path === "/tv/12/season/1") return { episodes: [{ episode_number: 1, name: "El secreto", overview: "S1", still_path: "/s1.jpg", air_date: "1986-02-26", runtime: 24 }, { episode_number: 2, name: "La busqueda", overview: "S2", still_path: "/s2.jpg" }] };
+    if (path === "/movie/603") return { title: "Matrix", original_title: "The Matrix", translations: { translations: [{ iso_639_1: "en", data: { title: "The Matrix" } }] } };
+    throw new Error("unscripted " + path);
+  };
+  const kino = { ...fakeKino(), tmdb: tmdbFn, secret: () => "KEYMARKER", fetch: async () => { fetched++; throw new Error("no fetch"); } };
+  const tmdb = makeTmdb({ kino });
+  const catalog = makeCatalog({ kino, portal: fakePortal([detail({ imdb: "tt0088509" })]), session: fakeSession(), clock: { now: () => NOW }, tmdb });
+  const out = await catalog.episodes(SERIES);
+  assert.deepEqual(out.episodes.map((e) => e.title), ["El secreto", "La busqueda"]);
+  assert.equal(out.episodes[0].airDate, "1986-02-26");
+  assert.equal(out.episodes[0].runtimeMinutes, 24);
+  assert.ok(!("airDate" in out.episodes[1]) && !("runtimeMinutes" in out.episodes[1]));
+  assert.deepEqual(out.series.ids, { imdb: "tt0088509", tmdb: 12 });
+  const forms = await tmdb.titleForms("movie", 603);
+  assert.equal(forms.originalTitle, "The Matrix");
+  assert.deepEqual(calls, [
+    ["/find/tt0088509", { external_source: "imdb_id", language: "es-MX" }],
+    ["/tv/12/season/1", { language: "es-MX" }],
+    ["/movie/603", { language: "es-MX", append_to_response: "translations" }],
+  ]);
+  for (const [path] of calls) assert.ok(!path.includes("?"));
+  assert.equal(fetched, 0);
+  const checked = checkOutput("episodes", out, manifest);
+  assert.equal(checked.value.episodes[0].airDate, "1986-02-26");
+  assert.equal(checked.value.episodes[0].runtimeMinutes, 24);
+});
+
+test("kino.tmdb throwing (not_allowed, rate_limited, anything) or answering a non-object falls back to kino.fetch with the sealed key", async () => {
+  for (const tmdbFn of [
+    async () => { const e = new Error("not_allowed"); e.code = "not_allowed"; throw e; },
+    async () => { throw new Error("rate_limited"); },
+    () => { throw new Error("sync"); },
+    async () => null,
+  ]) {
+    const world = tmdbWorld({ [FIND("tt0088509")]: find(tvHit(12, "Dragon Ball")), "/3/tv/12/season/1@es-MX": season(tep(1, "Uno", "x", "/a.jpg"), tep(2, "Dos", "y", "/b.jpg")) });
+    const kino = { ...fakeKino(), tmdb: tmdbFn, secret: () => "KEYMARKER", fetch: world.fetch };
+    const catalog = makeCatalog({ kino, portal: fakePortal([detail({ imdb: "tt0088509" })]), session: fakeSession(), clock: { now: () => NOW }, tmdb: makeTmdb({ kino }) });
+    const out = await catalog.episodes(SERIES);
+    assert.deepEqual(out.episodes.map((e) => e.title), ["Uno", "Dos"]);
+    assert.deepEqual(world.calls, [FIND("tt0088509"), "/3/tv/12/season/1@es-MX"]);
+  }
+});
+
+test("kino.tmdb absent (Kino before 0.9.53): the sealed-key kino.fetch path, the key in the query", async () => {
+  const urls = [];
+  const kino = { ...fakeKino(), secret: () => "KEYMARKER", fetch: async (url) => { urls.push(url); return { ok: true, status: 200, text: () => JSON.stringify({ tv_results: [{ id: 3 }] }) }; } };
+  assert.equal(typeof kino.tmdb, "undefined");
+  assert.equal((await makeTmdb({ kino }).seriesByImdb("tt1234567")).tmdbId, 3);
+  const u = new URL(urls[0]);
+  assert.equal(u.pathname, "/3/find/tt1234567");
+  assert.equal(u.searchParams.get("api_key"), "KEYMARKER");
+  assert.equal(u.searchParams.get("external_source"), "imdb_id");
+});
+
+test("the deadline rule holds for kino.tmdb too: under 500 ms left, TMDB is not asked at all", async () => {
+  let asked = 0;
+  const kino = { ...fakeKino(), tmdb: async () => { asked++; return tvHit(1); }, secret: () => "K", fetch: async () => { asked++; throw new Error("x"); } };
+  const clock = { now: () => NOW };
+  const tmdb = makeTmdb({ kino, clock });
+  assert.equal(await tmdb.seriesByImdb("tt1234567", { deadline: NOW + 499 }), null);
+  assert.equal(await tmdb.titleForms("movie", 603, { deadline: NOW + 100 }), null);
+  assert.equal(asked, 0);
+  assert.equal((await tmdb.seriesByImdb("tt1234567", { deadline: NOW + 5000 })).tmdbId, 1);
 });

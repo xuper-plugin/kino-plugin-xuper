@@ -6,6 +6,7 @@
 // caller's deadline; nothing is stored (R19: Kino caches the Home rows). Never throws: a failure is
 // simply no row.
 import { trace, errCode } from "./trace.js";
+import { say } from "./i18n.js";
 
 /**
  * Portal categories that represent a country, by ISO-3166 alpha-2 code, matched by NAME as the
@@ -102,7 +103,7 @@ export function makeCountryRow({ kino, live }) {
         if (c.adult === true) item.adult = true;
         return item;
       });
-      return items.length > 0 ? { id: COUNTRY_ROW_ID, title: COUNTRY_ROW_TITLE, items } : null;
+      return items.length > 0 ? { id: COUNTRY_ROW_ID, title: say(kino, "liveChannelsRow"), items } : null;
     } catch (e) {
       trace(kino, "home", "live_row_fail", { code: errCode(e) }); // never fails home
       return null;

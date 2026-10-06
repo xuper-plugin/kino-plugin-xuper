@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "2.2.14",
+  "version": "2.2.15",
   "apiVersion": 6,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -145,6 +145,8 @@
     }
   ],
   "section": { "label": "Xuper" },
+  "categories": ["movies", "series", "anime", "live"],
+  "theme": { "accent": "#1E90F8", "onAccent": "#050B2D", "background": "#050B2D", "surface": "#101A45", "highlight": "#8FD0FF" },
   "streamHosts": "any",
   "liveStreamHosts": "any",
   "secrets": {

@@ -6,10 +6,10 @@
 // Output: [{ id, title, shown (first 20), all }]
 
 export const KINDS = [
-  { root: "peliculas", label: "Películas" },
-  { root: "series", label: "Series" },
-  { root: "anime", label: "Anime" },
-  { root: "infantil", label: "Infantil" },
+  { root: "peliculas", label: "Películas", en: "Movies" },
+  { root: "series", label: "Series", en: "Series" },
+  { root: "anime", label: "Anime", en: "Anime" },
+  { root: "infantil", label: "Infantil", en: "Kids" },
 ];
 const byRoot = Object.fromEntries(KINDS.map((k) => [k.root, k]));
 
@@ -33,6 +33,13 @@ const GENRES = new Map(Object.entries({
   "Reality-TV": ["reality", "Reality"], "Sport": ["sport", "Deportes"], "Music": ["music", "Música"],
   "Musical": ["music", "Música"],
 }));
+// The genre rows' English names, by row key (kino.lang "en"; see localizedRowTitle).
+const GENRES_EN = Object.freeze({
+  action: "Action", adventure: "Adventure", comedy: "Comedy", drama: "Drama", thriller: "Thriller", crime: "Crime",
+  scifi: "Sci-Fi", fantasy: "Fantasy", romance: "Romance", mystery: "Mystery", horror: "Horror", family: "Family",
+  biography: "Biography", history: "History", documentary: "Documentary", western: "Western", war: "War",
+  reality: "Reality", sport: "Sports", music: "Music",
+});
 
 // A section named after a year, optionally followed by more words ("2026 Peliculas teatrales").
 const YEAR_SECTION = /^(\d{4})(.*)$/;
@@ -48,6 +55,39 @@ export function rootOfRow(rowId) {
   const rest = rowId.slice(prefix.length);
   const root = prefix === "magis_g_" ? rest.slice(0, Math.max(0, rest.indexOf("_"))) : rest;
   return Object.hasOwn(byRoot, root) ? root : null;
+}
+
+/**
+ * The contract's `genre` of a classified row (Kino's Categorías groups every plugin's rows by it): the
+ * row's root (peliculas, series, anime, infantil, all ids of the closed list), except a documentary genre
+ * row, which is `documentales`. null for any other id.
+ */
+/**
+ * A classified row's title in Kino's language: the stored (Spanish) title, or with `english` the same title
+ * rebuilt from the row id. A row id it does not know keeps its title.
+ */
+export function localizedRowTitle(row, english) {
+  if (!english) return row.title;
+  const fixed = {
+    magis_recent_peliculas: "Recently added · Movies",
+    magis_new_series: "Series with new episodes",
+    magis_top_peliculas: "Top rated movies",
+    magis_top_series: "Top rated series",
+    magis_new_peliculas: "In theaters",
+  };
+  if (Object.hasOwn(fixed, row.id)) return fixed[row.id];
+  const root = rootOfRow(row.id);
+  if (root !== null && row.id.startsWith(`magis_g_${root}_`)) {
+    const key = row.id.slice(`magis_g_${root}_`.length);
+    if (Object.hasOwn(GENRES_EN, key)) return `${GENRES_EN[key]} · ${byRoot[root].en}`;
+  }
+  return row.title;
+}
+
+export function genreOfRow(rowId) {
+  const root = rootOfRow(rowId);
+  if (root === null) return null;
+  return rowId === `magis_g_${root}_documentary` ? "documentales" : root;
 }
 
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0); // UTF-16 order, as Kotlin's String.compareTo

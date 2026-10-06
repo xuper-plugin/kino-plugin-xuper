@@ -4,13 +4,14 @@
 // `makePortalChapters` is shared with resolve (a chapter is looked up by its seriesNumber), which is
 // why the chapter list is cached here, once, for both.
 import {
-  PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS, EPISODE_GONE, SERIES_GONE, slowPortal,
+  PortalError, mapPortalError, viewOpts, callDeadline, CALL_BUDGET_MS, isEpisodeGone, SERIES_GONE, slowPortal,
 } from "./portal.js";
 import { trace, errCode } from "./trace.js";
 import { FIXED_MAC } from "./config.js";
 import { decode, encode, encodeChapter } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
 import { isObject, isKinoError, optStringStrict } from "./util.js";
+import { say } from "./i18n.js";
 
 // One kino.storage key for every cached series (the whole storage is 256 KB and shared with the home
 // trees and the search results): never over 32,000 bytes, oldest series evicted first. A full
@@ -32,6 +33,22 @@ const MAX_EPISODES = 5000; // SDK caps
 const MAX_SEASONS = 50;
 
 const INT = /^[+-]?\d+$/;
+// A chapter name that only numbers the chapter, which TMDB's own name replaces when one matched (accents
+// and case ignored): blank, digits, "Capítulo 3", "Episodio 3", "Cap. 3", "Ep 3", "Chapter 3", "E03"; and the
+// portal's usual "<series>_<that>" ("Nada Miniserie_1", "One Piece T1_8") or "<series>_<series>-01".
+const GENERIC_TITLE = /^(?:(?:capitulo|episodio|chapter|episode|cap|ep|e)\.?\s*#?\s*)?\d*$/;
+const TRAILING_NUMBER = /[\s._-]*\d+$/;
+const plainTitle = (s) => s.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
+export function isGenericTitle(s) {
+  if (typeof s !== "string") return true;
+  const t = plainTitle(s);
+  if (GENERIC_TITLE.test(t)) return true;
+  const cut = t.lastIndexOf("_");
+  if (cut < 0) return false;
+  const series = t.slice(0, cut).trim();
+  const rest = t.slice(cut + 1).trim();
+  return GENERIC_TITLE.test(rest) || (TRAILING_NUMBER.test(rest) && rest.replace(TRAILING_NUMBER, "").trim() === series);
+}
 
 // Kotlin's String.toIntOrNull over `value.toString()`: strings as they are, numbers by their text.
 function toIntOrNull(v) {
@@ -96,7 +113,8 @@ const unpack = (p) => ({
  * imdb, season (null = unknown), declared (null = not given), seasons: [{ id, number }] }`. Cached
  * 6 h, never when empty. Failures arrive as kino errors (portal codes mapped, the rest `unavailable`).
  */
-export function makePortalChapters({ kino, portal, session, clock, onServed = () => {} }) {
+// `ids` (idsStore.js, optional): a fresh detail's IMDb id is remembered for the cards.
+export function makePortalChapters({ kino, portal, session, clock, onServed = () => {}, ids = null }) {
   const cache = makeByteCache({
     kino, key: CACHE_KEY, budgetBytes: CACHE_BUDGET_BYTES, clock, ttlMs: CACHE_FRESH_MS, keepMs: CACHE_KEEP_MS, valid: validPayload,
   });
@@ -151,13 +169,15 @@ export function makePortalChapters({ kino, portal, session, clock, onServed = ()
     const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull(data.volumnCount), seasons: seasonList.all };
     // Only cached with chapters: an empty list over a transient failure would stick for hours.
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
+    if (ids) ids.remember(seriesId, raw.imdb);
     onServed("fresh");
     return raw;
   };
 }
 
 /** `episodes(ref)` over the chapter list, TMDB and the sibling seasons. */
-export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }) {
+// `ids` (idsStore.js, optional): the series' IMDb id, and TMDB's once matched, are remembered for the cards.
+export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, ids = null }) {
   // MagisSource.enrich: each chapter's still, name and synopsis from TMDB, matched exactly through the
   // series' IMDb id. Best-effort: any failure returns "nothing" (and no series).
   // `bounds` ({ deadline }): the export's; TMDB requests never run past it.
@@ -176,8 +196,15 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }
 
       const rows = new Map();
       for (const c of fromTmdb) {
-        const row = { still: c.still.trim() !== "" ? c.still : null, title: c.name.trim() !== "" ? c.name : null, overview: c.overview.trim() !== "" ? c.overview : null };
-        if (row.still !== null || row.title !== null || row.overview !== null) rows.set(c.episode, row); else rows.delete(c.episode);
+        const row = {
+          still: c.still.trim() !== "" ? c.still : null,
+          // TMDB's blank name reads "Episodio N" (parseSeasonEpisodes): no better than the portal's.
+          title: !isGenericTitle(c.name) ? c.name : null,
+          overview: c.overview.trim() !== "" ? c.overview : null,
+          airDate: c.airDate || null,
+          runtimeMinutes: c.runtimeMinutes > 0 ? c.runtimeMinutes : null,
+        };
+        if (Object.values(row).some((v) => v !== null)) rows.set(c.episode, row); else rows.delete(c.episode);
       }
       // English fallback ONLY for empty synopses, with its own catch.
       const missing = new Set([...rows].filter(([, r]) => r.overview === null).map(([n]) => n));
@@ -203,34 +230,39 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }
       raw = await portalChapters(magis.contentId, deadline);
     } catch (e) {
       // The chapter list of a gone series is the series being gone, not one chapter (native goneMessage).
-      if (isKinoError(e) && e.userMessage === EPISODE_GONE) throw mapPortalError("portal100006", "", kino, { goneMessage: SERIES_GONE });
+      if (isKinoError(e) && isEpisodeGone(e.userMessage)) throw mapPortalError("portal100006", "", kino, { goneMessage: SERIES_GONE });
       throw e;
     }
     const { extra, series } = await enrich(raw, { deadline });
+    if (ids && IMDB.test(raw.imdb)) ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
 
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull(it.seriesNumber) ?? 0;
       const ep = {
         number,
-        title: it.name.trim() !== "" ? it.name : `Capítulo ${number}`,
+        title: it.name.trim() !== "" ? it.name : say(kino, "chapterN", { n: number }),
         // The series plus the number: whoever plays it looks the chapter back up in the list.
         ref: encodeChapter(number, magis.contentId),
       };
       const t = extra.get(number);
+      // TMDB's name only where the portal's just numbers the chapter ("Capítulo 3", "3", blank).
+      if (t?.title && isGenericTitle(it.name)) ep.title = t.title;
       if (t?.still) ep.still = t.still;
-      if (t?.title) ep.tmdbTitle = t.title;
       if (t?.overview) ep.overview = t.overview;
+      if (t?.airDate) ep.airDate = t.airDate;
+      if (t?.runtimeMinutes) ep.runtimeMinutes = t.runtimeMinutes;
       // The contract reads each episode's own season (absent = 1); left out when the portal doesn't say.
       if (raw.season !== null) ep.season = raw.season;
       return ep;
     });
 
     const out = { episodes: list };
-    // The series block travels WHENEVER the portal gave an imdb, even if enrichment didn't come out.
+    // The series block travels WHENEVER the portal gave an imdb, even if enrichment didn't come out;
+    // `ids.tmdb` only when TMDB named the series (the contract wants a positive id).
     if (IMDB.test(raw.imdb)) {
+      const tmdbId = series?.tmdbId ?? 0;
       out.series = {
-        ids: { imdb: raw.imdb, tmdb: series?.tmdbId ?? 0 },
-        seasonNumber: raw.season ?? 0,
+        ids: tmdbId > 0 ? { imdb: raw.imdb, tmdb: tmdbId } : { imdb: raw.imdb },
         title: series?.title ?? "",
         poster: series?.poster ?? "",
         backdrop: series?.backdrop ?? "",
@@ -241,7 +273,7 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null }
         id: s.id,
         // A season IS a portal title of the same kind: its ref is what a search would give it.
         ref: encode({ contentId: s.id, programType: magis.programType, episode: 0 }),
-        title: `Temporada ${s.number}`,
+        title: say(kino, "seasonN", { n: s.number }),
         number: s.number,
         current: s.id === magis.contentId,
       }));

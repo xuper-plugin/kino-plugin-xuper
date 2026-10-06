@@ -7,6 +7,8 @@ import { logoOf } from "./homeTree.js";
 import { isObject, asText, isBlank, isKinoError, intOrNull } from "./util.js";
 import { trace, errCode } from "./trace.js";
 import { channelOf } from "./channelId.js";
+import { CATEGORIES_BY_COUNTRY } from "./countryRow.js";
+import { say } from "./i18n.js";
 
 const LIVE_ROOT = "masnew_live";
 const CATEGORIES_PAGE_SIZE = 200; // 30 lost eight of the 38 real categories
@@ -35,6 +37,28 @@ const ALL_CHANNELS = "ChannelList";
 const NAMES = { [ALL_CHANNELS]: "Todos" };
 // Recognized by NAME because it is the only thing the portal gives: no field marks them.
 const ADULT_NAMES = new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
+// A category's `genre` (the contract's closed list; En vivo's filter across providers), only for a name that
+// IS one (lowercase, no accents, whole name): a country, "Todos" or anything else gets none.
+const GENRE_BY_NAME = new Map(Object.entries({
+  deportes: "deportes", deporte: "deportes", sports: "deportes", futbol: "deportes",
+  noticias: "noticias", news: "noticias",
+  infantil: "infantil", infantiles: "infantil", kids: "infantil", ninos: "infantil",
+  musica: "musica", music: "musica",
+  documentales: "documentales", documental: "documentales",
+  peliculas: "peliculas",
+  series: "series",
+  anime: "anime",
+  entretenimiento: "entretenimiento",
+}));
+export const genreOfCategory = (name) => GENRE_BY_NAME.get(plain(name)) ?? null;
+// A category's `country` (ISO 3166 alpha-2): only a name that is one country's own category (countryRow.js);
+// "Centroamérica" stands for three countries and gets none.
+const COUNTRY_BY_NAME = (() => {
+  const codes = new Map();
+  for (const [cc, name] of Object.entries(CATEGORIES_BY_COUNTRY)) codes.set(plain(name), codes.has(plain(name)) ? null : cc);
+  return codes;
+})();
+export const countryOfCategory = (name) => COUNTRY_BY_NAME.get(plain(name)) ?? null;
 
 
 
@@ -78,8 +102,16 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
 
   async function liveCategories() {
     const all = await readCategories(callDeadline(clock, CALL_BUDGET_MS.liveCategories));
-    return all.filter((c) => ID.test(c.id)).slice(0, MAX_CATEGORIES)
-      .map((c) => (c.adult ? { id: c.id, title: c.name, adult: true } : { id: c.id, title: c.name }));
+    return all.filter((c) => ID.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => {
+      if (c.adult) return { id: c.id, title: c.name, adult: true };
+      // The all-channels category's name is ours ("Todos"): in Kino's language.
+      const out = { id: c.id, title: c.all ? say(kino, "allChannels") : c.name };
+      const country = countryOfCategory(c.name);
+      if (country !== null) out.country = country;
+      const genre = genreOfCategory(c.name);
+      if (genre !== null) out.genre = genre;
+      return out;
+    });
   }
 
   async function isAdultCategory(id, deadline) {

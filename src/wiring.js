@@ -37,7 +37,7 @@ export function getDeps() {
   // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).
   const resolve = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
   const section = makeSection({ kino, catalog, clock });
-  const categories = makeCategories({ catalog });
+  const categories = makeCategories({ catalog, kino });
   deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories };
   return deps;
 }

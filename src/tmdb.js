@@ -2,6 +2,8 @@
 // the title forms). TMDB is an enrichment, never a requirement: with no key declared, a failing
 // request or an unreadable body the answer is simply `null` and the search goes on without it.
 // The episodes' enrichment reads (native TmdbApi.seriesByImdb / seasonEpisodes) live here too.
+// Kino 0.9.53+ brings its own TMDB door (`kino.tmdb(path, params)`: Kino's key, its cache, parsed JSON);
+// older Kino, or a call to it that throws, falls back to kino.fetch with the sealed `tmdbKey`.
 import { isObject } from "./util.js";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
@@ -13,6 +15,17 @@ const IMDB_ID = /^tt\d{7,}$/;
 
 const text = (v) => (typeof v === "string" ? v : "");
 const blank = (s) => s.trim() === "";
+const AIR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MIN_RUNTIME = 1; // contract: runtimeMinutes 1..1000
+const MAX_RUNTIME = 1000;
+
+/** A TMDB answer as an object: kino.tmdb's parsed JSON as is, kino.fetch's text parsed; null when it is neither. */
+function bodyOf(body) {
+  if (typeof body === "string") {
+    try { return JSON.parse(body); } catch (_) { return null; }
+  }
+  return body !== null && typeof body === "object" ? body : null;
+}
 
 /**
  * The title forms inside a TMDB detail body (native TmdbApi.detail): the localized title, the
@@ -20,8 +33,7 @@ const blank = (s) => s.trim() === "";
  * variant other than the localized title. `null` when the body is not a JSON object.
  */
 export function parseTitleForms(type, body) {
-  let o;
-  try { o = JSON.parse(body); } catch (_) { return null; }
+  const o = bodyOf(body);
   if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
   const isTv = type === "tv";
   const localized = text(isTv ? o.name : o.title);
@@ -65,8 +77,7 @@ const imageUrl = (path, size) => (typeof path !== "string" || blank(path) || pat
  * positive id. `null` when the body is not JSON or has no usable tv result.
  */
 export function parseSeriesByImdb(body) {
-  let o;
-  try { o = JSON.parse(body); } catch (_) { return null; }
+  const o = bodyOf(body);
   const tv = isObject(o) && Array.isArray(o.tv_results) && isObject(o.tv_results[0]) ? o.tv_results[0] : null;
   if (tv === null) return null;
   const tmdbId = optInt(tv.id);
@@ -77,16 +88,26 @@ export function parseSeriesByImdb(body) {
 /**
  * A season's episodes (native parseSeasonEpisodes): `null` = the question could not be answered (not
  * a JSON object), `[]` = TMDB answered and the season has none. A blank name reads "Episodio N".
+ * `airDate` is TMDB's `air_date` when it is `YYYY-MM-DD` (else ""), `runtimeMinutes` its `runtime`
+ * when 1 to 1000 (else 0).
  */
 export function parseSeasonEpisodes(body) {
-  let o;
-  try { o = JSON.parse(body); } catch (_) { return null; }
+  const o = bodyOf(body);
   if (!isObject(o)) return null;
   const list = Array.isArray(o.episodes) ? o.episodes : [];
   return list.filter(isObject).map((e) => {
     const episode = optInt(e.episode_number);
     const name = text(e.name);
-    return { episode, name: blank(name) ? `Episodio ${episode}` : name, overview: text(e.overview), still: imageUrl(e.still_path, "w300") };
+    const airDate = text(e.air_date).trim();
+    const runtime = optInt(e.runtime);
+    return {
+      episode,
+      name: blank(name) ? `Episodio ${episode}` : name,
+      overview: text(e.overview),
+      still: imageUrl(e.still_path, "w300"),
+      airDate: AIR_DATE.test(airDate) ? airDate : "",
+      runtimeMinutes: runtime >= MIN_RUNTIME && runtime <= MAX_RUNTIME ? runtime : 0,
+    };
   });
 }
 
@@ -110,28 +131,35 @@ export function makeTmdb({ kino, clock = null }) {
   async function titleForms(type, id, bounds) {
     try {
       if (!Number.isInteger(id) || id <= 0) return null;
-      const timeoutMs = timeoutFor(bounds);
-      if (timeoutMs === null) return null;
-      const key = keyMarker();
-      if (!key) return null;
       const kind = type === "movie" ? "movie" : "tv";
-      const url = `${TMDB_BASE}/${kind}/${id}?api_key=${key}&language=${TMDB_LANGUAGE}&append_to_response=translations`;
-      const res = await kino.fetch(url, { cookies: false, timeoutMs });
-      if (!res || !res.ok) return null;
-      return parseTitleForms(kind, res.text());
+      const body = await read(`/${kind}/${id}`, { language: TMDB_LANGUAGE, append_to_response: "translations" }, bounds);
+      return body === null ? null : parseTitleForms(kind, body);
     } catch (_) {
       return null;
     }
   }
 
-  async function read(path, language, bounds) {
+  /**
+   * One TMDB read: `path` without a query string, `params` its query. Kino 0.9.53+'s `kino.tmdb` first (parsed
+   * JSON, Kino's key); when it is absent or throws (any code: a 0.9.53 call left behind can be `not_allowed`),
+   * kino.fetch with the sealed key, as before. The parsed object, the text, or null; never a throw.
+   */
+  async function read(path, params, bounds) {
     try {
+      // Checked before each door: with less than MIN_TIMEOUT_MS left TMDB is skipped.
+      if (timeoutFor(bounds) === null) return null;
+      if (typeof kino.tmdb === "function") {
+        try {
+          const body = await kino.tmdb(path, { ...params });
+          if (body !== null && typeof body === "object") return body;
+        } catch (_) { /* the sealed key below */ }
+      }
       const timeoutMs = timeoutFor(bounds);
       if (timeoutMs === null) return null;
       const key = keyMarker();
       if (!key) return null;
-      const sep = path.includes("?") ? "&" : "?";
-      const res = await kino.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs });
+      const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&");
+      const res = await kino.fetch(`${TMDB_BASE}${path}?api_key=${key}&${query}`, { cookies: false, timeoutMs });
       if (!res || !res.ok) return null;
       return res.text();
     } catch (_) {
@@ -142,14 +170,14 @@ export function makeTmdb({ kino, clock = null }) {
   /** `{ tmdbId, title, poster, backdrop }` of the series with that IMDb id, or null. */
   async function seriesByImdb(imdbId, bounds) {
     if (typeof imdbId !== "string" || !IMDB_ID.test(imdbId)) return null;
-    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE, bounds);
+    const body = await read(`/find/${imdbId}`, { external_source: "imdb_id", language: TMDB_LANGUAGE }, bounds);
     return body === null ? null : parseSeriesByImdb(body);
   }
 
-  /** The season's `[{ episode, name, overview, still }]`, or null when it could not be had. `language` overrides es-MX. */
+  /** The season's `[{ episode, name, overview, still, airDate, runtimeMinutes }]`, or null when it could not be had. `language` overrides es-MX. */
   async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, bounds) {
     if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
-    const body = await read(`/tv/${tvId}/season/${season}`, language, bounds);
+    const body = await read(`/tv/${tvId}/season/${season}`, { language }, bounds);
     return body === null ? null : parseSeasonEpisodes(body);
   }
 

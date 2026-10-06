@@ -260,6 +260,116 @@ function seedTag(kino2, sn) {
   }
 }
 
+// src/i18n.js
+function isEnglish(kino2) {
+  try {
+    const lang = kino2 && typeof kino2.lang === "string" ? kino2.lang.trim().toLowerCase() : "";
+    return lang === "en" || lang.startsWith("en-") || lang.startsWith("en_");
+  } catch (_) {
+    return false;
+  }
+}
+var TEXTS = Object.freeze({
+  // Where the plugin's own settings live in Kino.
+  settingsPlace: ["Ajustes \u25B8 Xuper", "Settings \u25B8 Xuper"],
+  // Errors the person reads (`userMessage`).
+  accountSessionLost: [
+    "Tu sesi\xF3n de Xuper se cerr\xF3 y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en {place}.",
+    "Your Xuper session ended and we could not sign back in with your account. Link it again in {place}."
+  ],
+  accountInUseElsewhere: [
+    "Tu cuenta de Xuper se abri\xF3 en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vinc\xFAlala de nuevo en {place}.",
+    "Your Xuper account was opened on another device, and it can only be used on one at a time. Try again, or link it again in {place}."
+  ],
+  episodeGone: ["Este cap\xEDtulo ya no est\xE1 disponible.", "This episode is no longer available."],
+  seriesGone: ["Esta serie ya no est\xE1 disponible.", "This series is no longer available."],
+  portalSlow: [
+    "Xuper no responde en este momento; intenta de nuevo en unos minutos.",
+    "Xuper is not responding right now; try again in a few minutes."
+  ],
+  liveNeedsAccount: [
+    "Este canal necesita una cuenta de Xuper (para pel\xEDculas y series no hace falta). Vinc\xFAlala en {place}.",
+    "This channel needs a Xuper account (movies and series do not). Link it in {place}."
+  ],
+  sendCodeFailed: [
+    "Xuper no pudo enviar el c\xF3digo a ese correo. Revisa que est\xE9 bien escrito en {place}.",
+    "Xuper could not send the code to that email. Check that it is spelled right in {place}."
+  ],
+  requestNotSaved: [
+    "No pudimos guardar tu pedido. Vuelve a tocar Crear cuenta.",
+    "We could not save your request. Tap Create account again."
+  ],
+  codeRefused: [
+    "Xuper no acept\xF3 el c\xF3digo, o ese correo ya tiene cuenta. Pide otro c\xF3digo o toca Iniciar sesi\xF3n.",
+    "Xuper did not accept the code, or that email already has an account. Ask for another code or tap Sign in."
+  ],
+  fillAccount: ["Faltan los datos de tu cuenta: compl\xE9talos en {place}.", "Your account details are missing: fill them in {place}."],
+  accountRefused: ["Xuper no acept\xF3 esa cuenta. Revisa los datos en {place}.", "Xuper did not accept that account. Check the details in {place}."],
+  fillEmail: ["Escribe tu correo en {place}.", "Enter your email in {place}."],
+  badEmail: ["Escribe un correo v\xE1lido en {place}.", "Enter a valid email in {place}."],
+  fillCode: ["Escribe el c\xF3digo que te enviamos en {place}.", "Enter the code we sent you in {place}."],
+  askCodeAgain: ["Pide el c\xF3digo otra vez.", "Ask for the code again."],
+  // The settings form: status line, action results, field errors.
+  statusConnecting: ["Conectando con {who}\u2026 Mientras tanto, sesi\xF3n an\xF3nima", "Connecting to {who}\u2026 Anonymous session meanwhile"],
+  whoShared: ["la cuenta compartida", "the shared account"],
+  whoOwn: ["tu cuenta", "your account"],
+  statusSharedBroken: ["La cuenta compartida ya no funciona: sesi\xF3n an\xF3nima", "The shared account no longer works: anonymous session"],
+  statusOwnRefused: [
+    "No se pudo iniciar sesi\xF3n con tu cuenta: sesi\xF3n an\xF3nima. Revisa tu correo y contrase\xF1a",
+    "Could not sign in with your account: anonymous session. Check your email and password"
+  ],
+  statusAnonymous: ["Sin cuenta: sesi\xF3n an\xF3nima", "No account: anonymous session"],
+  statusShared: ["Cuenta compartida", "Shared account"],
+  statusConnectedAs: ["Conectado como {email}", "Signed in as {email}"],
+  statusBlockedSeeds: ["Zona bloqueada: {n} semillas cargadas", "Blocked region: {n} seeds loaded"],
+  statusBlockedNoSeeds: ["Zona bloqueada: sin semillas cargadas", "Blocked region: no seeds loaded"],
+  seedsBanner: [
+    "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas",
+    "There are no sessions for your region right now; try again in a while or tap Update seeds"
+  ],
+  statusAutoRefreshOff: ["Actualizaci\xF3n autom\xE1tica desactivada", "Automatic update turned off"],
+  statusUnknown: ["No se pudo consultar el estado", "Could not check the status"],
+  signedIn: ["Sesi\xF3n iniciada", "Signed in"],
+  signedOut: ["Sesi\xF3n cerrada", "Signed out"],
+  seedSwitched: ["Semilla cambiada (intento {n})", "Seed changed (attempt {n})"],
+  offlineRetry: ["Sin conexi\xF3n, reintenta", "No connection, try again"],
+  accountNoSeeds: ["Tu cuenta no usa semillas", "Your account does not use seeds"],
+  noOtherSeed: ["No hay otra semilla para probar", "There is no other seed to try"],
+  seedsAllFailed: ["Prob\xE9 {n} semillas y ninguna funcion\xF3", "I tried {n} seeds and none worked"],
+  seedsLoaded: ["{n} semillas cargadas", "{n} seeds loaded"],
+  codeAlreadySent: ["Ya te enviamos un c\xF3digo; espera un minuto antes de pedir otro", "We already sent you a code; wait a minute before asking for another"],
+  codeSent: ["Te enviamos un c\xF3digo a {email}", "We sent a code to {email}"],
+  accountCreatedSignIn: ["Cuenta creada. Toca Iniciar sesi\xF3n para entrar.", "Account created. Tap Sign in to enter."],
+  accountCreatedSignedIn: ["Cuenta creada y sesi\xF3n iniciada", "Account created and signed in"],
+  sharedActivationFailed: ["No se pudo activar la cuenta compartida", "Could not turn on the shared account"],
+  removeAccountOrShared: ["Quita tu cuenta o apaga la cuenta compartida", "Remove your account or turn off the shared account"],
+  enterEmail: ["Escribe tu correo", "Enter your email"],
+  enterValidEmail: ["Escribe un correo v\xE1lido", "Enter a valid email"],
+  credentialsRefused: ["Credenciales de Xuper inv\xE1lidas", "Xuper did not accept these sign-in details"],
+  // Labels and titles the plugin makes (rows, tabs, chapters, copies).
+  newBadge: ["NUEVO", "NEW"],
+  liveChannelsRow: ["Canales en vivo", "Live channels"],
+  allChannels: ["Todos", "All"],
+  chapterN: ["Cap\xEDtulo {n}", "Episode {n}"],
+  seasonN: ["Temporada {n}", "Season {n}"],
+  server: ["Servidor {n}", "Server {n}"],
+  backup: ["respaldo", "backup"],
+  retry: ["reintento {n}", "retry {n}"],
+  versionN: ["Versi\xF3n {n}", "Version {n}"]
+});
+function say(kino2, key, vars = {}) {
+  const pair = TEXTS[key];
+  if (!pair) return key;
+  const en = isEnglish(kino2);
+  const all = { place: TEXTS.settingsPlace[en ? 1 : 0], ...vars };
+  return pair[en ? 1 : 0].replace(/\{(\w+)\}/g, (m, name) => Object.hasOwn(all, name) ? String(all[name]) : m);
+}
+function sayAll(key) {
+  const pair = TEXTS[key];
+  if (!pair) return [];
+  return pair.map((text2, i) => text2.replace(/\{place\}/g, TEXTS.settingsPlace[i]));
+}
+
 // src/portal.js
 var MAX_SLEEP_MS = 5e3;
 var MAX_REQUEST_MS = 3e4;
@@ -272,30 +382,35 @@ var PortalError = class extends Error {
     this.message = message || code;
   }
 };
-var SETTINGS_PLACE = "Ajustes \u25B8 Xuper";
-var ACCOUNT_SESSION_LOST = `Tu sesi\xF3n de Xuper se cerr\xF3 y no pudimos volver a entrar con tu cuenta. Vuelve a vincularla en ${SETTINGS_PLACE}.`;
-var ACCOUNT_IN_USE_ELSEWHERE_TEXT = `Tu cuenta de Xuper se abri\xF3 en otro dispositivo, y solo puede usarse en uno a la vez. Vuelve a intentarlo, o vinc\xFAlala de nuevo en ${SETTINGS_PLACE}.`;
+var SETTINGS_PLACE = sayAll("settingsPlace")[0];
+var ACCOUNT_SESSION_LOST = sayAll("accountSessionLost")[0];
+var ACCOUNT_IN_USE_ELSEWHERE_TEXT = sayAll("accountInUseElsewhere")[0];
+var ACCOUNT_SENTENCES = /* @__PURE__ */ new Set([...sayAll("accountSessionLost"), ...sayAll("accountInUseElsewhere")]);
 var ACCOUNT_IN_USE_ELSEWHERE = "aaa100083";
 var SESSION_DEAD_CODES = /* @__PURE__ */ new Set(["aaa100027", "aaa100028"]);
-function accountProblemMessage(code) {
-  if (SESSION_DEAD_CODES.has(code)) return ACCOUNT_SESSION_LOST;
-  if (code === ACCOUNT_IN_USE_ELSEWHERE) return ACCOUNT_IN_USE_ELSEWHERE_TEXT;
+function accountProblemMessage(code, kino2 = null) {
+  if (SESSION_DEAD_CODES.has(code)) return say(kino2, "accountSessionLost");
+  if (code === ACCOUNT_IN_USE_ELSEWHERE) return say(kino2, "accountInUseElsewhere");
   return null;
 }
-var EPISODE_GONE = "Este cap\xEDtulo ya no est\xE1 disponible.";
-var SERIES_GONE = "Esta serie ya no est\xE1 disponible.";
+var EPISODE_GONE = sayAll("episodeGone")[0];
+var SERIES_GONE = sayAll("seriesGone")[0];
+var isEpisodeGone = (text2) => sayAll("episodeGone").includes(text2);
 var told = (kino2, code, message, sentence) => kino2.error(code, message, { userMessage: sentence });
 var GENERIC = "Xuper no est\xE1 disponible ahora";
-var PORTAL_SLOW = "Xuper no responde en este momento; intenta de nuevo en unos minutos.";
+var PORTAL_SLOW = sayAll("portalSlow")[0];
 function slowPortal(kino2, e) {
   if (!e || e.name !== "KinoError_unavailable" || typeof e.userMessage === "string") return e;
-  return kino2.error("unavailable", typeof e.message === "string" && e.message !== "" ? e.message : GENERIC, { userMessage: PORTAL_SLOW });
+  return kino2.error("unavailable", typeof e.message === "string" && e.message !== "" ? e.message : GENERIC, { userMessage: say(kino2, "portalSlow") });
 }
 function mapPortalError(code, message, kino2, { accountLinked = false, sharedAccount = false, goneMessage = EPISODE_GONE } = {}) {
   const msg = typeof message === "string" ? message : "";
-  const accountText = accountLinked ? accountProblemMessage(code) : null;
+  const accountText = accountLinked ? accountProblemMessage(code, kino2) : null;
   if (accountText) return told(kino2, "auth_required", `cuenta propia: ${code}`, accountText);
-  if (code === "portal100006") return told(kino2, "not_found", `portal100006: ${goneMessage === SERIES_GONE ? "serie" : "cap\xEDtulo"} borrado`, goneMessage);
+  if (code === "portal100006") {
+    const series = sayAll("seriesGone").includes(goneMessage);
+    return told(kino2, "not_found", `portal100006: ${series ? "serie" : "cap\xEDtulo"} borrado`, say(kino2, series ? "seriesGone" : "episodeGone"));
+  }
   if (code === "portal100004" || msg.includes("\u4E0D\u5B58\u5728")) {
     return kino2.error("not_found", "No se encontr\xF3 en Xuper");
   }
@@ -1234,10 +1349,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
 
 // src/homeClassifier.js
 var KINDS = [
-  { root: "peliculas", label: "Pel\xEDculas" },
-  { root: "series", label: "Series" },
-  { root: "anime", label: "Anime" },
-  { root: "infantil", label: "Infantil" }
+  { root: "peliculas", label: "Pel\xEDculas", en: "Movies" },
+  { root: "series", label: "Series", en: "Series" },
+  { root: "anime", label: "Anime", en: "Anime" },
+  { root: "infantil", label: "Infantil", en: "Kids" }
 ];
 var byRoot = Object.fromEntries(KINDS.map((k) => [k.root, k]));
 var MIN_GENRE_SIZE = 6;
@@ -1268,6 +1383,28 @@ var GENRES = new Map(Object.entries({
   "Music": ["music", "M\xFAsica"],
   "Musical": ["music", "M\xFAsica"]
 }));
+var GENRES_EN = Object.freeze({
+  action: "Action",
+  adventure: "Adventure",
+  comedy: "Comedy",
+  drama: "Drama",
+  thriller: "Thriller",
+  crime: "Crime",
+  scifi: "Sci-Fi",
+  fantasy: "Fantasy",
+  romance: "Romance",
+  mystery: "Mystery",
+  horror: "Horror",
+  family: "Family",
+  biography: "Biography",
+  history: "History",
+  documentary: "Documentary",
+  western: "Western",
+  war: "War",
+  reality: "Reality",
+  sport: "Sports",
+  music: "Music"
+});
 var YEAR_SECTION = /^(\d{4})(.*)$/;
 var FEATURED_PREFIXES = ["magis_recent_", "magis_new_", "magis_top_"];
 var isFeatured = (rowId) => FEATURED_PREFIXES.some((p) => rowId.startsWith(p));
@@ -1278,6 +1415,28 @@ function rootOfRow(rowId) {
   const rest = rowId.slice(prefix.length);
   const root = prefix === "magis_g_" ? rest.slice(0, Math.max(0, rest.indexOf("_"))) : rest;
   return Object.hasOwn(byRoot, root) ? root : null;
+}
+function localizedRowTitle(row2, english) {
+  if (!english) return row2.title;
+  const fixed = {
+    magis_recent_peliculas: "Recently added \xB7 Movies",
+    magis_new_series: "Series with new episodes",
+    magis_top_peliculas: "Top rated movies",
+    magis_top_series: "Top rated series",
+    magis_new_peliculas: "In theaters"
+  };
+  if (Object.hasOwn(fixed, row2.id)) return fixed[row2.id];
+  const root = rootOfRow(row2.id);
+  if (root !== null && row2.id.startsWith(`magis_g_${root}_`)) {
+    const key = row2.id.slice(`magis_g_${root}_`.length);
+    if (Object.hasOwn(GENRES_EN, key)) return `${GENRES_EN[key]} \xB7 ${byRoot[root].en}`;
+  }
+  return row2.title;
+}
+function genreOfRow(rowId) {
+  const root = rootOfRow(rowId);
+  if (root === null) return null;
+  return rowId === `magis_g_${root}_documentary` ? "documentales" : root;
 }
 var cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 var byScore = (a, b) => cmp(b.score ?? -1, a.score ?? -1) || cmp(a.title, b.title) || cmp(a.id, b.id);
@@ -1868,13 +2027,13 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
 }
 
 // src/byteCache.js
-function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid = () => true, keepMs = ttlMs }) {
+function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid: valid2 = () => true, keepMs = ttlMs }) {
   const what = String(key).split(":")[0];
   const decode2 = (raw) => {
     try {
       const o = JSON.parse(raw);
       if (!isObject(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
-      return o.e.filter((x) => isObject(x) && typeof x.k === "string" && Number.isFinite(x.s) && x.i !== void 0 && valid(x.i));
+      return o.e.filter((x) => isObject(x) && typeof x.k === "string" && Number.isFinite(x.s) && x.i !== void 0 && valid2(x.i));
     } catch (_) {
       return [];
     }
@@ -1973,6 +2132,8 @@ function sortSeasons(items) {
 }
 var str3 = (v) => typeof v === "string" ? v : "";
 var INT3 = /^[+-]?\d+$/;
+var ADULT_TAG = "adult";
+var taggedAdult = (tags) => str3(tags).split(",").some((t) => t.trim().toLowerCase() === ADULT_TAG);
 function wholeNumberOrNull(v) {
   if (typeof v === "number") return Number.isInteger(v) ? v : null;
   if (typeof v === "string" && INT3.test(v)) {
@@ -1995,6 +2156,7 @@ function slim(raw) {
   if (/^[0-9]{4}$/.test(year)) out.y = year;
   const n = wholeNumberOrNull(raw.volumnCount) ?? wholeNumberOrNull(raw.updateCount) ?? 0;
   if (n !== 0) out.n = n;
+  if (taggedAdult(raw.tags)) out.x = 1;
   if (Array.isArray(raw.posterList)) {
     for (const p of raw.posterList) {
       if (!isObject(p)) continue;
@@ -2029,7 +2191,7 @@ var distinctBy2 = (list, keyOf) => {
     return true;
   });
 };
-function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }) {
+function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null, isAdultId = () => false, idsLookup = () => () => null }) {
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
     if (isKinoError(e)) return e;
@@ -2142,6 +2304,12 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
     }
     if (items.length === 0 && ctx.tmdbId > 0) trace(kino2, "search", "empty", { type: ctx.type, pool: pool.length });
     const out = [];
+    let idsOf;
+    try {
+      idsOf = idsLookup();
+    } catch (_) {
+      idsOf = () => null;
+    }
     for (const it of sortSeasons(items)) {
       if (!ITEM_ID.test(it.c)) continue;
       const programType = it.p ?? "movie";
@@ -2157,6 +2325,17 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null }
       };
       if (it.m) item.poster = it.m;
       if (it.b) item.backdrop = it.b;
+      let adult = it.x === 1;
+      if (!adult) {
+        try {
+          adult = isAdultId(it.c) === true;
+        } catch (_) {
+          adult = false;
+        }
+      }
+      if (adult) item.adult = true;
+      const ids = idsOf(it.c);
+      if (ids) item.ids = ids;
       out.push(item);
       if (out.length >= MAX_OUTPUT_ITEMS) break;
     }
@@ -2177,6 +2356,19 @@ var IMDB = /^tt\d{7,}$/;
 var MAX_EPISODES = 5e3;
 var MAX_SEASONS = 50;
 var INT4 = /^[+-]?\d+$/;
+var GENERIC_TITLE = /^(?:(?:capitulo|episodio|chapter|episode|cap|ep|e)\.?\s*#?\s*)?\d*$/;
+var TRAILING_NUMBER = /[\s._-]*\d+$/;
+var plainTitle = (s) => s.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
+function isGenericTitle(s) {
+  if (typeof s !== "string") return true;
+  const t = plainTitle(s);
+  if (GENERIC_TITLE.test(t)) return true;
+  const cut = t.lastIndexOf("_");
+  if (cut < 0) return false;
+  const series = t.slice(0, cut).trim();
+  const rest = t.slice(cut + 1).trim();
+  return GENERIC_TITLE.test(rest) || TRAILING_NUMBER.test(rest) && rest.replace(TRAILING_NUMBER, "").trim() === series;
+}
 function toIntOrNull2(v) {
   const text2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
   if (text2 === null || !INT4.test(text2)) return null;
@@ -2220,7 +2412,7 @@ var unpack = (p) => ({
   seasons: p.a.map((x) => ({ id: x[0], number: x[1] }))
 });
 function makePortalChapters({ kino: kino2, portal, session, clock: clock2, onServed = () => {
-} }) {
+}, ids = null }) {
   const cache = makeByteCache({
     kino: kino2,
     key: CACHE_KEY2,
@@ -2277,11 +2469,12 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2, onSer
     const seasonList = parseSeasonList(data.sameSeasonSeriesList, seriesId);
     const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull2(data.volumnCount), seasons: seasonList.all };
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
+    if (ids) ids.remember(seriesId, raw.imdb);
     onServed("fresh");
     return raw;
   };
 }
-function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 = null }) {
+function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 = null, ids = null }) {
   async function enrich(raw, bounds) {
     const none = { extra: /* @__PURE__ */ new Map(), series: null };
     if (!tmdb || !IMDB.test(raw.imdb) || raw.season === null) return none;
@@ -2294,8 +2487,15 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
       if (expected !== fromTmdb.length) return { extra: /* @__PURE__ */ new Map(), series };
       const rows = /* @__PURE__ */ new Map();
       for (const c of fromTmdb) {
-        const row2 = { still: c.still.trim() !== "" ? c.still : null, title: c.name.trim() !== "" ? c.name : null, overview: c.overview.trim() !== "" ? c.overview : null };
-        if (row2.still !== null || row2.title !== null || row2.overview !== null) rows.set(c.episode, row2);
+        const row2 = {
+          still: c.still.trim() !== "" ? c.still : null,
+          // TMDB's blank name reads "Episodio N" (parseSeasonEpisodes): no better than the portal's.
+          title: !isGenericTitle(c.name) ? c.name : null,
+          overview: c.overview.trim() !== "" ? c.overview : null,
+          airDate: c.airDate || null,
+          runtimeMinutes: c.runtimeMinutes > 0 ? c.runtimeMinutes : null
+        };
+        if (Object.values(row2).some((v) => v !== null)) rows.set(c.episode, row2);
         else rows.delete(c.episode);
       }
       const missing = new Set([...rows].filter(([, r]) => r.overview === null).map(([n]) => n));
@@ -2322,30 +2522,33 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
     try {
       raw = await portalChapters(magis.contentId, deadline);
     } catch (e) {
-      if (isKinoError(e) && e.userMessage === EPISODE_GONE) throw mapPortalError("portal100006", "", kino2, { goneMessage: SERIES_GONE });
+      if (isKinoError(e) && isEpisodeGone(e.userMessage)) throw mapPortalError("portal100006", "", kino2, { goneMessage: SERIES_GONE });
       throw e;
     }
     const { extra, series } = await enrich(raw, { deadline });
+    if (ids && IMDB.test(raw.imdb)) ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull2(it.seriesNumber) ?? 0;
       const ep = {
         number,
-        title: it.name.trim() !== "" ? it.name : `Cap\xEDtulo ${number}`,
+        title: it.name.trim() !== "" ? it.name : say(kino2, "chapterN", { n: number }),
         // The series plus the number: whoever plays it looks the chapter back up in the list.
         ref: encodeChapter(number, magis.contentId)
       };
       const t = extra.get(number);
+      if (t?.title && isGenericTitle(it.name)) ep.title = t.title;
       if (t?.still) ep.still = t.still;
-      if (t?.title) ep.tmdbTitle = t.title;
       if (t?.overview) ep.overview = t.overview;
+      if (t?.airDate) ep.airDate = t.airDate;
+      if (t?.runtimeMinutes) ep.runtimeMinutes = t.runtimeMinutes;
       if (raw.season !== null) ep.season = raw.season;
       return ep;
     });
     const out = { episodes: list };
     if (IMDB.test(raw.imdb)) {
+      const tmdbId = series?.tmdbId ?? 0;
       out.series = {
-        ids: { imdb: raw.imdb, tmdb: series?.tmdbId ?? 0 },
-        seasonNumber: raw.season ?? 0,
+        ids: tmdbId > 0 ? { imdb: raw.imdb, tmdb: tmdbId } : { imdb: raw.imdb },
         title: series?.title ?? "",
         poster: series?.poster ?? "",
         backdrop: series?.backdrop ?? ""
@@ -2356,13 +2559,47 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
         id: s.id,
         // A season IS a portal title of the same kind: its ref is what a search would give it.
         ref: encode({ contentId: s.id, programType: magis.programType, episode: 0 }),
-        title: `Temporada ${s.number}`,
+        title: say(kino2, "seasonN", { n: s.number }),
         number: s.number,
         current: s.id === magis.contentId
       }));
     }
     return out;
   };
+}
+
+// src/idsStore.js
+var KEY2 = "ids:v1";
+var BUDGET_BYTES = 1e4;
+var KEEP_MS = 60 * 24 * 36e5;
+var IMDB2 = /^tt\d{7,10}$/;
+var MAX_TMDB = 2147483647;
+var validTmdb = (n) => Number.isInteger(n) && n > 0 && n <= MAX_TMDB;
+var valid = (p) => Array.isArray(p) && typeof p[0] === "string" && IMDB2.test(p[0]) && Number.isInteger(p[1]) && p[1] >= 0;
+var idsOfPayload = (p) => valid(p) ? validTmdb(p[1]) ? { imdb: p[0], tmdb: p[1] } : { imdb: p[0] } : null;
+function makeIdsStore({ kino: kino2, clock: clock2 }) {
+  const cache = makeByteCache({ kino: kino2, key: KEY2, budgetBytes: BUDGET_BYTES, clock: clock2, ttlMs: KEEP_MS, valid });
+  function remember(contentId, imdb, tmdb = 0) {
+    try {
+      if (typeof contentId !== "string" || contentId.trim() === "" || typeof imdb !== "string" || !IMDB2.test(imdb)) return;
+      const entries = cache.read();
+      const old = cache.get(contentId, entries);
+      const keptTmdb = validTmdb(tmdb) ? tmdb : old && old[0] === imdb ? old[1] : 0;
+      if (old && old[0] === imdb && old[1] === keptTmdb) return;
+      cache.write([{ k: contentId, i: [imdb, keptTmdb] }]);
+    } catch (_) {
+    }
+  }
+  function lookup() {
+    let byId;
+    try {
+      byId = new Map(cache.read().map((e) => [e.k, e.i]));
+    } catch (_) {
+      byId = /* @__PURE__ */ new Map();
+    }
+    return (contentId) => byId.has(contentId) ? idsOfPayload(byId.get(contentId)) : null;
+  }
+  return { remember, lookup };
 }
 
 // src/catalog.js
@@ -2388,7 +2625,8 @@ var MAX_ROW_ITEMS = 60;
 var MAX_GENRES = 5;
 var NEW_WINDOW_MS = 48 * 36e5;
 var ITEM_ID2 = /^[A-Za-z0-9._~-]{1,128}$/;
-function projectItem(item, nowMs) {
+var noIds = () => null;
+function projectItem(item, nowMs, idsOf = noIds, english = false) {
   if (!ITEM_ID2.test(item.id)) return null;
   const out = {
     id: item.id,
@@ -2403,7 +2641,9 @@ function projectItem(item, nowMs) {
   if (item.score !== null && Number.isFinite(item.score) && item.score >= 0 && item.score <= 10) out.rating = item.score;
   const minutes = Math.trunc(item.durationS / 60);
   if (minutes >= 1 && minutes <= 1e3) out.runtimeMinutes = minutes;
-  if (item.shelvedAtMs > 0 && nowMs - item.shelvedAtMs <= NEW_WINDOW_MS) out.badges = ["NUEVO"];
+  if (item.shelvedAtMs > 0 && nowMs - item.shelvedAtMs <= NEW_WINDOW_MS) out.badges = [english ? "NEW" : "NUEVO"];
+  const ids = idsOf(item.id);
+  if (ids) out.ids = ids;
   return out;
 }
 var plainWords = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -2419,11 +2659,14 @@ function rankWithin(kino2, pool, q) {
   });
   return kino2.rank.sortBySimilarity(hits, forms, titlesOf);
 }
-function projectRows(rows, nowMs) {
+function projectRows(rows, nowMs, idsOf = noIds, english = false) {
   const out = [];
   for (const r of rows) {
-    const items = r.shown.map((i) => projectItem(i, nowMs)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
-    if (items.length > 0) out.push({ id: r.id, title: r.title, ref: r.id, items });
+    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
+    if (items.length === 0) continue;
+    const title2 = localizedRowTitle(r, english);
+    const genre = genreOfRow(r.id);
+    out.push(genre !== null ? { id: r.id, title: title2, ref: r.id, items, genre } : { id: r.id, title: title2, ref: r.id, items });
   }
   return out.slice(0, MAX_HOME_ROWS);
 }
@@ -2436,6 +2679,7 @@ function offsetOf(cursor) {
 }
 function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null, countryRow = null }) {
   const store = makeRowsStore({ kino: kino2, ttlMs: SNAPSHOT_TTL_MS });
+  const ids = makeIdsStore({ kino: kino2, clock: clock2 });
   const stale = (at) => {
     const age = clock2.now() - at;
     return age < 0 || age >= ROWS_FRESH_MS;
@@ -2638,11 +2882,12 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   async function home2() {
     const live2 = countryRow ? countryRow(Math.min(clock2.now() + LIVE_ROW_MS, callDeadline(clock2, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
-    const rows2 = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock2.now());
+    const rows2 = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock2.now(), ids.lookup(), isEnglish(kino2));
     const row2 = await live2;
     return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
   }
   let adultInflight = null;
+  let adultIds = /* @__PURE__ */ new Set();
   async function fetchAdult(deadline) {
     await session.ensure({ deadline });
     const response = await session.withValidSession((v) => portal.call(
@@ -2652,13 +2897,16 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     ), { seedFallback: true, deadline });
     const seen = /* @__PURE__ */ new Set();
     const out = [];
+    const listed = /* @__PURE__ */ new Set();
     for (const s of parseTree(response)) {
       for (const item of s.items) {
+        listed.add(item.id);
         if (isSeries(item.type) || seen.has(item.id)) continue;
         seen.add(item.id);
         out.push(item);
       }
     }
+    if (listed.size > 0) adultIds = listed;
     return out;
   }
   function adultMovies(deadline) {
@@ -2678,7 +2926,8 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const all = await adultWithin(CALL_BUDGET_MS.browse);
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
-    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null).map((i) => ({ ...i, adult: true }));
+    const idsOf = ids.lookup();
+    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2))).filter((i) => i !== null).map((i) => ({ ...i, adult: true }));
     const next = offset + BROWSE_PAGE;
     return next < all.length ? { items, next: String(next) } : { items };
   }
@@ -2689,11 +2938,12 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
     const list = row2.all ?? (offset === 0 ? row2.shown : []);
-    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null);
+    const idsOf = ids.lookup();
+    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2))).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
     return row2.all && next < list.length ? { items, next: String(next) } : { items };
   }
-  const { search: globalSearch } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb });
+  const { search: globalSearch } = makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb, isAdultId: (id) => adultIds.has(id), idsLookup: ids.lookup });
   async function searchWithin(query) {
     const q = typeof query.q === "string" ? query.q.trim() : "";
     if (q === "") return { items: [] };
@@ -2710,7 +2960,8 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const ranked = rankWithin(kino2, pool, q);
     const offset = offsetOf(query.cursor);
     const nowMs = clock2.now();
-    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs)).filter((i) => i !== null).map((i) => adult ? { ...i, adult: true } : i);
+    const idsOf = ids.lookup();
+    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2))).filter((i) => i !== null).map((i) => adult ? { ...i, adult: true } : i);
     const next = offset + BROWSE_PAGE;
     return next < ranked.length ? { items, next: String(next) } : { items };
   }
@@ -2720,15 +2971,16 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   const portalChapters = makePortalChapters({ kino: kino2, portal, session, clock: clock2, onServed: (how) => {
     served = { served: how };
-  } });
-  const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2 });
+  }, ids });
+  const episodes2 = makeEpisodes({ kino: kino2, tmdb, portalChapters, clock: clock2, ids });
   const rows = (need = "full", root = null) => buildRows(need, CALL_BUDGET_MS[need] ?? CALL_BUDGET_MS.home, root);
   const servedBy2 = () => {
     const out = served ?? {};
     served = null;
     return out;
   };
-  return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters, servedBy: servedBy2 };
+  const idsLookup = () => ids.lookup();
+  return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, portalChapters, servedBy: servedBy2, idsLookup };
 }
 
 // src/tmdb.js
@@ -2740,13 +2992,21 @@ var IMG = "https://image.tmdb.org/t/p";
 var IMDB_ID = /^tt\d{7,}$/;
 var text = (v) => typeof v === "string" ? v : "";
 var blank3 = (s) => s.trim() === "";
-function parseTitleForms(type, body) {
-  let o;
-  try {
-    o = JSON.parse(body);
-  } catch (_) {
-    return null;
+var AIR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+var MIN_RUNTIME = 1;
+var MAX_RUNTIME = 1e3;
+function bodyOf(body) {
+  if (typeof body === "string") {
+    try {
+      return JSON.parse(body);
+    } catch (_) {
+      return null;
+    }
   }
+  return body !== null && typeof body === "object" ? body : null;
+}
+function parseTitleForms(type, body) {
+  const o = bodyOf(body);
   if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
   const isTv = type === "tv";
   const localized = text(isTv ? o.name : o.title);
@@ -2780,12 +3040,7 @@ function optInt2(v) {
 }
 var imageUrl = (path, size) => typeof path !== "string" || blank3(path) || path === "null" ? "" : `${IMG}/${size}${path}`;
 function parseSeriesByImdb(body) {
-  let o;
-  try {
-    o = JSON.parse(body);
-  } catch (_) {
-    return null;
-  }
+  const o = bodyOf(body);
   const tv = isObject(o) && Array.isArray(o.tv_results) && isObject(o.tv_results[0]) ? o.tv_results[0] : null;
   if (tv === null) return null;
   const tmdbId = optInt2(tv.id);
@@ -2793,18 +3048,22 @@ function parseSeriesByImdb(body) {
   return { tmdbId, title: text(tv.name), poster: imageUrl(tv.poster_path, "w500"), backdrop: imageUrl(tv.backdrop_path, "w1280") };
 }
 function parseSeasonEpisodes(body) {
-  let o;
-  try {
-    o = JSON.parse(body);
-  } catch (_) {
-    return null;
-  }
+  const o = bodyOf(body);
   if (!isObject(o)) return null;
   const list = Array.isArray(o.episodes) ? o.episodes : [];
   return list.filter(isObject).map((e) => {
     const episode = optInt2(e.episode_number);
     const name = text(e.name);
-    return { episode, name: blank3(name) ? `Episodio ${episode}` : name, overview: text(e.overview), still: imageUrl(e.still_path, "w300") };
+    const airDate = text(e.air_date).trim();
+    const runtime = optInt2(e.runtime);
+    return {
+      episode,
+      name: blank3(name) ? `Episodio ${episode}` : name,
+      overview: text(e.overview),
+      still: imageUrl(e.still_path, "w300"),
+      airDate: AIR_DATE.test(airDate) ? airDate : "",
+      runtimeMinutes: runtime >= MIN_RUNTIME && runtime <= MAX_RUNTIME ? runtime : 0
+    };
   });
 }
 function makeTmdb({ kino: kino2, clock: clock2 = null }) {
@@ -2824,27 +3083,29 @@ function makeTmdb({ kino: kino2, clock: clock2 = null }) {
   async function titleForms(type, id, bounds) {
     try {
       if (!Number.isInteger(id) || id <= 0) return null;
-      const timeoutMs = timeoutFor(bounds);
-      if (timeoutMs === null) return null;
-      const key = keyMarker();
-      if (!key) return null;
       const kind = type === "movie" ? "movie" : "tv";
-      const url = `${TMDB_BASE}/${kind}/${id}?api_key=${key}&language=${TMDB_LANGUAGE}&append_to_response=translations`;
-      const res = await kino2.fetch(url, { cookies: false, timeoutMs });
-      if (!res || !res.ok) return null;
-      return parseTitleForms(kind, res.text());
+      const body = await read(`/${kind}/${id}`, { language: TMDB_LANGUAGE, append_to_response: "translations" }, bounds);
+      return body === null ? null : parseTitleForms(kind, body);
     } catch (_) {
       return null;
     }
   }
-  async function read(path, language, bounds) {
+  async function read(path, params, bounds) {
     try {
+      if (timeoutFor(bounds) === null) return null;
+      if (typeof kino2.tmdb === "function") {
+        try {
+          const body = await kino2.tmdb(path, { ...params });
+          if (body !== null && typeof body === "object") return body;
+        } catch (_) {
+        }
+      }
       const timeoutMs = timeoutFor(bounds);
       if (timeoutMs === null) return null;
       const key = keyMarker();
       if (!key) return null;
-      const sep = path.includes("?") ? "&" : "?";
-      const res = await kino2.fetch(`${TMDB_BASE}${path}${sep}api_key=${key}&language=${language}`, { cookies: false, timeoutMs });
+      const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&");
+      const res = await kino2.fetch(`${TMDB_BASE}${path}?api_key=${key}&${query}`, { cookies: false, timeoutMs });
       if (!res || !res.ok) return null;
       return res.text();
     } catch (_) {
@@ -2853,12 +3114,12 @@ function makeTmdb({ kino: kino2, clock: clock2 = null }) {
   }
   async function seriesByImdb(imdbId, bounds) {
     if (typeof imdbId !== "string" || !IMDB_ID.test(imdbId)) return null;
-    const body = await read(`/find/${imdbId}?external_source=imdb_id`, TMDB_LANGUAGE, bounds);
+    const body = await read(`/find/${imdbId}`, { external_source: "imdb_id", language: TMDB_LANGUAGE }, bounds);
     return body === null ? null : parseSeriesByImdb(body);
   }
   async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, bounds) {
     if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
-    const body = await read(`/tv/${tvId}/season/${season}`, language, bounds);
+    const body = await read(`/tv/${tvId}/season/${season}`, { language }, bounds);
     return body === null ? null : parseSeasonEpisodes(body);
   }
   return { titleForms, seriesByImdb, seasonEpisodes };
@@ -2872,6 +3133,9 @@ var EXPIRED = /expired=(\d+)/;
 var MAX_SUBTITLES = 30;
 var MAX_ALTERNATIVES = 8;
 var RETRY_COPIES = 3;
+var MAX_LABEL_CHARS = 48;
+var EXPIRES_MIN_S = 30;
+var EXPIRES_MAX_S = 86400;
 var INT7 = /^[+-]?\d+$/;
 var DIGITS = /^[0-9]+$/;
 function isCfl(url) {
@@ -2896,6 +3160,19 @@ function rankedMedia(play) {
   if (!episode) return [];
   const candidates = objects(episode.totalMovieList).flatMap((tm) => objects(tm.movieList)).filter((m) => notBlank(optStringStrict(m.contentId)));
   return candidates.map((m, i) => ({ m, i, s: mediaScore(m) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.m);
+}
+var CODEC_NAMES = { h264: "H.264", avc: "H.264", h265: "H.265", hevc: "H.265", av1: "AV1", vp9: "VP9" };
+var codecName = (m) => {
+  const raw = optStringStrict(m.encodeFormat).trim();
+  return CODEC_NAMES[raw.toLowerCase()] ?? raw.toUpperCase();
+};
+var labelOf = (text2) => text2.length <= MAX_LABEL_CHARS ? text2 : text2.slice(0, MAX_LABEL_CHARS).trimEnd();
+function expiresInSeconds(auth, nowMs) {
+  const m = EXPIRED.exec(typeof auth === "string" ? auth : "");
+  if (!m) return null;
+  const left = Number(m[1]) - Math.floor(nowMs / 1e3) - AUTH_MARGIN_S;
+  if (!Number.isFinite(left)) return null;
+  return Math.min(EXPIRES_MAX_S, Math.max(EXPIRES_MIN_S, left));
 }
 var licenseOf = (m) => optStringStrict(objects(m.licenseList)[0]?.license);
 function readSubtitles(play) {
@@ -2994,19 +3271,29 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
     const copies = [];
     const seen = /* @__PURE__ */ new Set();
     const seenTracks = /* @__PURE__ */ new Set();
+    const prefixes = /* @__PURE__ */ new Set();
     for (const track of tracks) {
       const id = optStringStrict(track.contentId);
       const trackLicense = track === best ? license : licenseOf(track);
       if (track !== best && (!notBlank(id) || !notBlank(trackLicense) || seenTracks.has(id))) continue;
       seenTracks.add(id);
+      let prefix = "";
+      if (track !== best) {
+        const codec = codecName(track);
+        prefix = codec !== "" ? codec : say(kino2, "versionN", { n: seenTracks.size });
+        if (prefixes.has(prefix)) prefix = `${prefix} (${seenTracks.size})`;
+        prefixes.add(prefix);
+      }
       const ext = optStringStrict(track.videoFormat).toLowerCase() === "ts" ? "ts" : "mp4";
-      for (const cdn of cdns) {
-        for (const base of cdn.bases) {
+      for (const [ci, cdn] of cdns.entries()) {
+        for (const [bi, base] of cdn.bases.entries()) {
           const url = `${base}/vod/${id}_media.${ext}`;
           if (seen.has(url)) continue;
           seen.add(url);
+          const server = `${say(kino2, "server", { n: ci + 1 })}${bi > 0 ? ` \xB7 ${say(kino2, "backup")}` : ""}`;
           copies.push({
             url,
+            label: labelOf(prefix !== "" ? `${prefix} \xB7 ${server}` : server),
             mime: ext === "mp4" ? "video/mp4" : "video/mp2t",
             headers: {
               "Content-Auth": cdn.auth,
@@ -3022,16 +3309,22 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
     }
     const bestCopy = copies[0];
     for (let n = 1; bestCopy && n <= RETRY_COPIES && copies.length <= MAX_ALTERNATIVES; n++) {
-      copies.push({ ...bestCopy, url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}` });
+      copies.push({
+        ...bestCopy,
+        url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}`,
+        label: labelOf(`${bestCopy.label} \xB7 ${say(kino2, "retry", { n })}`)
+      });
     }
     const [first, ...others] = copies;
     const alternatives = others.slice(0, MAX_ALTERNATIVES);
     if (alternatives.length > 0) trace(kino2, "resolve", "alts", { n: alternatives.length, tracks: seenTracks.size, cdns: cdns.length });
+    const expires = expiresInSeconds(first.headers["Content-Auth"], clock2.now());
     return {
       ...first,
       subtitles: readSubtitles(play),
       // A chapter's own declared duration wins (the portal sends it empty for most series).
       durationMs: chapter2 ? portalDurationMs(chapter2.duration) : portalDurationMs(best.duration),
+      ...expires !== null ? { expiresInSeconds: expires } : {},
       ...alternatives.length > 0 ? { alternatives } : {}
     };
   }
@@ -3052,6 +3345,86 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
   return { resolve: resolve2 };
 }
 
+// src/countryRow.js
+var CATEGORIES_BY_COUNTRY = Object.freeze({
+  CO: "Colombia",
+  VE: "Venezuela",
+  EC: "Ecuador",
+  CL: "Chile",
+  MX: "M\xE9xico",
+  PE: "Per\xFA",
+  BO: "Bolivia",
+  UY: "Uruguay",
+  PY: "Paraguay",
+  PA: "Panam\xE1",
+  PR: "Puerto Rico",
+  ES: "Espa\xF1a",
+  CR: "Costa Rica",
+  US: "Estados Unidos",
+  HN: "Honduras",
+  SV: "El Salvador",
+  DO: "Rep\xFAblica Dominicana",
+  GT: "Centroam\xE9rica",
+  NI: "Centroam\xE9rica",
+  BZ: "Centroam\xE9rica"
+});
+var COUNTRY_OPTIONS = Object.freeze([
+  { value: "none", label: "Ninguno" },
+  { value: "BO", label: "Bolivia" },
+  { value: "CL", label: "Chile" },
+  { value: "CO", label: "Colombia" },
+  { value: "CR", label: "Costa Rica" },
+  { value: "EC", label: "Ecuador" },
+  { value: "SV", label: "El Salvador" },
+  { value: "ES", label: "Espa\xF1a" },
+  { value: "US", label: "Estados Unidos" },
+  { value: "GT-NI-BZ", label: "Guatemala, Nicaragua o Belice" },
+  { value: "HN", label: "Honduras" },
+  { value: "MX", label: "M\xE9xico" },
+  { value: "PA", label: "Panam\xE1" },
+  { value: "PY", label: "Paraguay" },
+  { value: "PE", label: "Per\xFA" },
+  { value: "PR", label: "Puerto Rico" },
+  { value: "DO", label: "Rep\xFAblica Dominicana" },
+  { value: "UY", label: "Uruguay" },
+  { value: "VE", label: "Venezuela" }
+]);
+var OPTION_GROUPS = Object.freeze({ "GT-NI-BZ": Object.freeze(["GT", "NI", "BZ"]) });
+function countriesOf(value) {
+  if (typeof value !== "string") return [];
+  if (Object.hasOwn(OPTION_GROUPS, value)) return [...OPTION_GROUPS[value]];
+  return Object.hasOwn(CATEGORIES_BY_COUNTRY, value) ? [value] : [];
+}
+var HOME_COUNTRY_SETTING = "homeCountry";
+var COUNTRY_ROW_ID = "live-country";
+var COUNTRY_ROW_LIMIT = 20;
+function makeCountryRow({ kino: kino2, live: live2 }) {
+  return async function countryRow(deadline) {
+    try {
+      const names = [...new Set(countriesOf(kino2.config.get(HOME_COUNTRY_SETTING)).map((cc) => CATEGORIES_BY_COUNTRY[cc]))];
+      if (names.length === 0) return null;
+      const all = await live2.categoriesWithin(deadline);
+      const categories2 = names.map((n) => all.find((c) => c.name === n)).filter(Boolean);
+      const channels = [];
+      const seen = /* @__PURE__ */ new Set();
+      for (const category of categories2) {
+        if (channels.length >= COUNTRY_ROW_LIMIT) break;
+        for (const c of await live2.channelsWithin(category.id, deadline)) if (!seen.has(c.id) && seen.add(c.id)) channels.push(c);
+      }
+      const items = channels.slice(0, COUNTRY_ROW_LIMIT).map((c) => {
+        const item = { kind: "live", id: c.id, title: c.title, ref: c.ref };
+        if (c.logo) item.poster = c.logo;
+        if (c.adult === true) item.adult = true;
+        return item;
+      });
+      return items.length > 0 ? { id: COUNTRY_ROW_ID, title: say(kino2, "liveChannelsRow"), items } : null;
+    } catch (e) {
+      trace(kino2, "home", "live_row_fail", { code: errCode(e) });
+      return null;
+    }
+  };
+}
+
 // src/liveCatalog.js
 var LIVE_ROOT = "masnew_live";
 var CATEGORIES_PAGE_SIZE = 200;
@@ -3070,6 +3443,33 @@ var plain2 = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p
 var ALL_CHANNELS = "ChannelList";
 var NAMES = { [ALL_CHANNELS]: "Todos" };
 var ADULT_NAMES = /* @__PURE__ */ new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
+var GENRE_BY_NAME = new Map(Object.entries({
+  deportes: "deportes",
+  deporte: "deportes",
+  sports: "deportes",
+  futbol: "deportes",
+  noticias: "noticias",
+  news: "noticias",
+  infantil: "infantil",
+  infantiles: "infantil",
+  kids: "infantil",
+  ninos: "infantil",
+  musica: "musica",
+  music: "musica",
+  documentales: "documentales",
+  documental: "documentales",
+  peliculas: "peliculas",
+  series: "series",
+  anime: "anime",
+  entretenimiento: "entretenimiento"
+}));
+var genreOfCategory = (name) => GENRE_BY_NAME.get(plain2(name)) ?? null;
+var COUNTRY_BY_NAME = (() => {
+  const codes = /* @__PURE__ */ new Map();
+  for (const [cc, name] of Object.entries(CATEGORIES_BY_COUNTRY)) codes.set(plain2(name), codes.has(plain2(name)) ? null : cc);
+  return codes;
+})();
+var countryOfCategory = (name) => COUNTRY_BY_NAME.get(plain2(name)) ?? null;
 function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   let adultIds = null;
   const surface = (e) => {
@@ -3105,7 +3505,15 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   }
   async function liveCategories2() {
     const all = await readCategories(callDeadline(clock2, CALL_BUDGET_MS.liveCategories));
-    return all.filter((c) => ID2.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => c.adult ? { id: c.id, title: c.name, adult: true } : { id: c.id, title: c.name });
+    return all.filter((c) => ID2.test(c.id)).slice(0, MAX_CATEGORIES).map((c) => {
+      if (c.adult) return { id: c.id, title: c.name, adult: true };
+      const out = { id: c.id, title: c.all ? say(kino2, "allChannels") : c.name };
+      const country = countryOfCategory(c.name);
+      if (country !== null) out.country = country;
+      const genre = genreOfCategory(c.name);
+      if (genre !== null) out.genre = genre;
+      return out;
+    });
   }
   async function isAdultCategory(id, deadline) {
     if (adultIds === null) {
@@ -3716,14 +4124,12 @@ var DEFAULT_TTL_S = 300;
 var MIN_EXPIRES_S = 30;
 var MAX_EXPIRES_S = 86400;
 var MAX_ALTERNATE_HOSTS = 6;
-var ACCOUNT_SENTENCES = /* @__PURE__ */ new Set([ACCOUNT_SESSION_LOST, ACCOUNT_IN_USE_ELSEWHERE_TEXT]);
 var NOT_LOGGED_IN = "aaa100028";
 var INT8 = /^[+-]?\d+$/;
 var ALTERNATE_HOST = /^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/;
 var SERVED_MEMORY = 64;
 var SLB_RESERVE_MS = 3e3;
 var TEXT = {
-  noAccount: "Este canal necesita una cuenta de Xuper (para pel\xEDculas y series no hace falta). Vinc\xFAlala en Ajustes \u25B8 Xuper.",
   noAddresses: "No se pudo abrir el canal: Xuper no dio la direcci\xF3n de la se\xF1al",
   // live_no_addresses
   noCdn: "No se pudo abrir el canal: Xuper no dio un servidor de vivo",
@@ -3816,7 +4222,7 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
       trace(kino2, "live", "open_fail", { step: "play", code: lastCode ?? errCode(e), seed: !!seed });
       const notLoggedIn = e instanceof PortalError && e.code === NOT_LOGGED_IN || isKinoError(e) && e.code === "auth_required" && lastCode === NOT_LOGGED_IN;
       if (notLoggedIn && !(isKinoError(e) && ACCOUNT_SENTENCES.has(e.userMessage))) {
-        throw kino2.error("auth_required", "el canal necesita una cuenta (aaa100028)", { userMessage: TEXT.noAccount });
+        throw kino2.error("auth_required", "el canal necesita una cuenta (aaa100028)", { userMessage: say(kino2, "liveNeedsAccount") });
       }
       throw e;
     }
@@ -3918,14 +4324,35 @@ var TABS = [
   { id: "infantil", label: "Infantil" },
   { id: "anime", label: "Anime" }
 ];
-var rowsOfTab = (rows, tab, nowMs) => projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs);
+var TAB_LABELS_EN = Object.freeze({ peliculas: "Movies", series: "Series", infantil: "Kids", anime: "Anime" });
+var MAX_HERO_TEXT = 300;
+var rowsOfTab = (rows, tab, nowMs, idsOf = void 0, english = false) => projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs, idsOf, english);
+function heroOf(rows) {
+  for (const row2 of rows) {
+    for (const item of row2.items) {
+      if (item.adult === true || !item.backdrop || typeof item.overview !== "string" || item.overview.trim() === "") continue;
+      const text2 = item.overview.trim();
+      return {
+        title: item.title,
+        text: text2.length <= MAX_HERO_TEXT ? text2 : `${text2.slice(0, MAX_HERO_TEXT - 1).trimEnd()}\u2026`,
+        image: item.backdrop
+      };
+    }
+  }
+  return null;
+}
 function makeSection({ kino: kino2, catalog, clock: clock2 }) {
   async function section2(arg) {
     const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
     const tab = asked === null || asked === void 0 || asked === "" ? TABS[0].id : asked;
     if (!TABS.some((t) => t.id === tab)) throw kino2.error("not_found", "No se encontr\xF3 esa pesta\xF1a");
     const rows = await catalog.rows("section", tab);
-    return { tabs: TABS.map((t) => ({ ...t })), tab, rows: rowsOfTab(rows, tab, clock2.now()) };
+    const idsOf = typeof catalog.idsLookup === "function" ? catalog.idsLookup() : void 0;
+    const english = isEnglish(kino2);
+    const tabRows = rowsOfTab(rows, tab, clock2.now(), idsOf, english);
+    const hero = heroOf(tabRows);
+    const tabs = TABS.map((t) => ({ id: t.id, label: english ? TAB_LABELS_EN[t.id] : t.label }));
+    return { tabs, tab, ...hero ? { hero } : {}, rows: tabRows };
   }
   return { section: section2 };
 }
@@ -3933,107 +4360,26 @@ function makeSection({ kino: kino2, catalog, clock: clock2 }) {
 // src/categories.js
 var MAX_CATEGORIES2 = 24;
 var MAX_TITLE = 40;
-function tilesOf(rows) {
+function tilesOf(rows, english = false) {
   const out = [];
   for (const r of rows) {
     if (out.length >= MAX_CATEGORIES2) break;
     if (r.shown.length === 0) continue;
     const first = r.shown[0];
     const art = first.backdrop && first.backdrop.trim() || first.poster && first.poster.trim() || null;
-    const tile = { id: r.id, title: r.title.slice(0, MAX_TITLE), ref: r.id };
+    const tile = { id: r.id, title: localizedRowTitle(r, english).slice(0, MAX_TITLE), ref: r.id };
     if (art) tile.art = art;
     out.push(tile);
   }
   return out;
 }
 var ADULT_TILE = Object.freeze({ id: ADULT_REF, title: "18+", ref: ADULT_REF, adult: true });
-function makeCategories({ catalog }) {
+function makeCategories({ catalog, kino: kino2 = null }) {
   return {
     // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
     categories: async () => {
-      const tiles = tilesOf(await catalog.rows("categories"));
+      const tiles = tilesOf(await catalog.rows("categories"), isEnglish(kino2));
       return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES2 - 1), { ...ADULT_TILE }];
-    }
-  };
-}
-
-// src/countryRow.js
-var CATEGORIES_BY_COUNTRY = Object.freeze({
-  CO: "Colombia",
-  VE: "Venezuela",
-  EC: "Ecuador",
-  CL: "Chile",
-  MX: "M\xE9xico",
-  PE: "Per\xFA",
-  BO: "Bolivia",
-  UY: "Uruguay",
-  PY: "Paraguay",
-  PA: "Panam\xE1",
-  PR: "Puerto Rico",
-  ES: "Espa\xF1a",
-  CR: "Costa Rica",
-  US: "Estados Unidos",
-  HN: "Honduras",
-  SV: "El Salvador",
-  DO: "Rep\xFAblica Dominicana",
-  GT: "Centroam\xE9rica",
-  NI: "Centroam\xE9rica",
-  BZ: "Centroam\xE9rica"
-});
-var COUNTRY_OPTIONS = Object.freeze([
-  { value: "none", label: "Ninguno" },
-  { value: "BO", label: "Bolivia" },
-  { value: "CL", label: "Chile" },
-  { value: "CO", label: "Colombia" },
-  { value: "CR", label: "Costa Rica" },
-  { value: "EC", label: "Ecuador" },
-  { value: "SV", label: "El Salvador" },
-  { value: "ES", label: "Espa\xF1a" },
-  { value: "US", label: "Estados Unidos" },
-  { value: "GT-NI-BZ", label: "Guatemala, Nicaragua o Belice" },
-  { value: "HN", label: "Honduras" },
-  { value: "MX", label: "M\xE9xico" },
-  { value: "PA", label: "Panam\xE1" },
-  { value: "PY", label: "Paraguay" },
-  { value: "PE", label: "Per\xFA" },
-  { value: "PR", label: "Puerto Rico" },
-  { value: "DO", label: "Rep\xFAblica Dominicana" },
-  { value: "UY", label: "Uruguay" },
-  { value: "VE", label: "Venezuela" }
-]);
-var OPTION_GROUPS = Object.freeze({ "GT-NI-BZ": Object.freeze(["GT", "NI", "BZ"]) });
-function countriesOf(value) {
-  if (typeof value !== "string") return [];
-  if (Object.hasOwn(OPTION_GROUPS, value)) return [...OPTION_GROUPS[value]];
-  return Object.hasOwn(CATEGORIES_BY_COUNTRY, value) ? [value] : [];
-}
-var HOME_COUNTRY_SETTING = "homeCountry";
-var COUNTRY_ROW_ID = "live-country";
-var COUNTRY_ROW_TITLE = "Canales en vivo";
-var COUNTRY_ROW_LIMIT = 20;
-function makeCountryRow({ kino: kino2, live: live2 }) {
-  return async function countryRow(deadline) {
-    try {
-      const names = [...new Set(countriesOf(kino2.config.get(HOME_COUNTRY_SETTING)).map((cc) => CATEGORIES_BY_COUNTRY[cc]))];
-      if (names.length === 0) return null;
-      const all = await live2.categoriesWithin(deadline);
-      const categories2 = names.map((n) => all.find((c) => c.name === n)).filter(Boolean);
-      const channels = [];
-      const seen = /* @__PURE__ */ new Set();
-      for (const category of categories2) {
-        if (channels.length >= COUNTRY_ROW_LIMIT) break;
-        for (const c of await live2.channelsWithin(category.id, deadline)) if (!seen.has(c.id) && seen.add(c.id)) channels.push(c);
-      }
-      const items = channels.slice(0, COUNTRY_ROW_LIMIT).map((c) => {
-        const item = { kind: "live", id: c.id, title: c.title, ref: c.ref };
-        if (c.logo) item.poster = c.logo;
-        if (c.adult === true) item.adult = true;
-        return item;
-      });
-      return items.length > 0 ? { id: COUNTRY_ROW_ID, title: COUNTRY_ROW_TITLE, items } : null;
-    } catch (e) {
-      trace(kino2, "home", "live_row_fail", { code: errCode(e) });
-      return null;
     }
   };
 }
@@ -4054,7 +4400,7 @@ function getDeps() {
   const liveStream = makeLive({ kino, portal, session, clock, config });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
   const section2 = makeSection({ kino, catalog, clock });
-  const categories2 = makeCategories({ catalog });
+  const categories2 = makeCategories({ catalog, kino });
   deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section2, categories: categories2 };
   return deps;
 }
@@ -4134,17 +4480,9 @@ var REGISTER_REQUEST_MS = 1e4;
 var REGISTER_TOTAL_MS = 25e3;
 var LOGOUT_REQUEST_MS = 1e4;
 var LOGOUT_TOTAL_MS = 25e3;
-var SEEDS_BANNER = "Por ahora no hay sesiones disponibles para tu zona; vuelve a intentar en un rato o toca Actualizar semillas";
 var str4 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
-var FILL_ACCOUNT = `Faltan los datos de tu cuenta: compl\xE9talos en ${SETTINGS_PLACE}.`;
-var ACCOUNT_REFUSED = `Xuper no acept\xF3 esa cuenta. Revisa los datos en ${SETTINGS_PLACE}.`;
-var FILL_EMAIL = `Escribe tu correo en ${SETTINGS_PLACE}.`;
-var BAD_EMAIL = `Escribe un correo v\xE1lido en ${SETTINGS_PLACE}.`;
-var FILL_CODE = `Escribe el c\xF3digo que te enviamos en ${SETTINGS_PLACE}.`;
-var ASK_CODE_AGAIN = "Pide el c\xF3digo otra vez.";
-var ACCOUNT_CREATED_LOG_IN = "Cuenta creada. Toca Iniciar sesi\xF3n para entrar.";
 function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   const surface = (e) => {
     if (isKinoError(e)) return e;
@@ -4158,31 +4496,31 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
       const account = session.kind() === "account";
       const state = session.accountState();
       const shared = session.sharedConfigured();
-      const anonymous = state === "pending" ? `Conectando con ${shared ? "la cuenta compartida" : "tu cuenta"}\u2026 Mientras tanto, sesi\xF3n an\xF3nima` : state === "refused" ? shared ? "La cuenta compartida ya no funciona: sesi\xF3n an\xF3nima" : "No se pudo iniciar sesi\xF3n con tu cuenta: sesi\xF3n an\xF3nima. Revisa tu correo y contrase\xF1a" : "Sin cuenta: sesi\xF3n an\xF3nima";
-      const who = session.usingShared() ? "Cuenta compartida" : `Conectado como ${savedAccount().email}`;
+      const anonymous = state === "pending" ? say(kino2, "statusConnecting", { who: say(kino2, shared ? "whoShared" : "whoOwn") }) : state === "refused" ? say(kino2, shared ? "statusSharedBroken" : "statusOwnRefused") : say(kino2, "statusAnonymous");
+      const who = session.usingShared() ? say(kino2, "statusShared") : say(kino2, "statusConnectedAs", { email: savedAccount().email });
       const parts = [account ? who : anonymous];
       if (!account && session.regionBlocked()) {
         const n = session.seedPool().length;
-        parts.push(n > 0 ? `Zona bloqueada: ${n} semillas cargadas` : "Zona bloqueada: sin semillas cargadas");
-        if (session.seedsExhausted()) parts.push(SEEDS_BANNER);
-        else if (kino2.config.get("autoRefreshSeeds") === false) parts.push("Actualizaci\xF3n autom\xE1tica desactivada");
+        parts.push(n > 0 ? say(kino2, "statusBlockedSeeds", { n }) : say(kino2, "statusBlockedNoSeeds"));
+        if (session.seedsExhausted()) parts.push(say(kino2, "seedsBanner"));
+        else if (kino2.config.get("autoRefreshSeeds") === false) parts.push(say(kino2, "statusAutoRefreshOff"));
       }
       const text2 = parts.length === 1 ? parts[0] : parts.join(". ") + ".";
       return { status: clip(text2, STATUS_MAX) };
     } catch (_) {
-      return { status: "No se pudo consultar el estado" };
+      return { status: say(kino2, "statusUnknown") };
     }
   }
   async function login() {
     const { email, password } = savedAccount();
-    if (email === "" || password === "") throw told(kino2, "auth_required", "Escribe tu correo y contrase\xF1a en Ajustes", FILL_ACCOUNT);
+    if (email === "" || password === "") throw told(kino2, "auth_required", "Escribe tu correo y contrase\xF1a en Ajustes", say(kino2, "fillAccount"));
     const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock2.now() + LOGIN_TOTAL_MS };
     try {
       await session.login(email, password, bounds);
     } catch (e) {
-      throw refusedCredentials(e) ? told(kino2, "auth_required", "Credenciales de Xuper inv\xE1lidas", ACCOUNT_REFUSED) : surface(e);
+      throw refusedCredentials(e) ? told(kino2, "auth_required", "Credenciales de Xuper inv\xE1lidas", say(kino2, "accountRefused")) : surface(e);
     }
-    return { message: "Sesi\xF3n iniciada", refresh: true };
+    return { message: say(kino2, "signedIn"), refresh: true };
   }
   async function logout() {
     try {
@@ -4190,7 +4528,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       throw surface(e);
     }
-    return { message: "Sesi\xF3n cerrada", refresh: true, clearSettings: ["email", "password", "useSharedAccount"] };
+    return { message: say(kino2, "signedOut"), refresh: true, clearSettings: ["email", "password", "useSharedAccount"] };
   }
   async function switchSeed() {
     let r;
@@ -4199,7 +4537,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       throw surface(e);
     }
-    const message = r.result === "ok" ? `Semilla cambiada (intento ${r.tries})` : r.result === "offline" ? "Sin conexi\xF3n, reintenta" : r.result === "account_linked" ? "Tu cuenta no usa semillas" : r.result === "no_other_seed" ? "No hay otra semilla para probar" : `Prob\xE9 ${r.tries} semillas y ninguna funcion\xF3`;
+    const message = r.result === "ok" ? say(kino2, "seedSwitched", { n: r.tries }) : r.result === "offline" ? say(kino2, "offlineRetry") : r.result === "account_linked" ? say(kino2, "accountNoSeeds") : r.result === "no_other_seed" ? say(kino2, "noOtherSeed") : say(kino2, "seedsAllFailed", { n: r.tries });
     return { message, refresh: true };
   }
   async function refreshSeeds() {
@@ -4209,19 +4547,19 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       throw surface(e);
     }
-    return { message: ok ? `${session.seedPool().length} semillas cargadas` : "Sin conexi\xF3n, reintenta", refresh: true };
+    return { message: ok ? say(kino2, "seedsLoaded", { n: session.seedPool().length }) : say(kino2, "offlineRetry"), refresh: true };
   }
   function typedEmail() {
     const { email } = savedAccount();
-    if (email === "") throw told(kino2, "auth_required", "Escribe tu correo en Ajustes", FILL_EMAIL);
-    if (!email.includes("@")) throw told(kino2, "auth_required", "Escribe un correo v\xE1lido", BAD_EMAIL);
+    if (email === "") throw told(kino2, "auth_required", "Escribe tu correo en Ajustes", say(kino2, "fillEmail"));
+    if (!email.includes("@")) throw told(kino2, "auth_required", "Escribe un correo v\xE1lido", say(kino2, "badEmail"));
     return email;
   }
   async function sendCode() {
     const email = typedEmail();
     const prev = registration.pendingFor(email);
     if (prev && prev.at !== null && clock2.now() >= prev.at && clock2.now() - prev.at < RESEND_WAIT_MS) {
-      return { message: "Ya te enviamos un c\xF3digo; espera un minuto antes de pedir otro" };
+      return { message: say(kino2, "codeAlreadySent") };
     }
     const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock2.now() + SEND_CODE_TOTAL_MS };
     try {
@@ -4229,16 +4567,16 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       throw surface(e);
     }
-    return { message: `Te enviamos un c\xF3digo a ${email}` };
+    return { message: say(kino2, "codeSent", { email }) };
   }
   async function register() {
     const email = typedEmail();
     const code = str4(kino2.config.get("verifyCode")).trim();
-    if (code === "") throw told(kino2, "auth_required", "Escribe el c\xF3digo de verificaci\xF3n", FILL_CODE);
+    if (code === "") throw told(kino2, "auth_required", "Escribe el c\xF3digo de verificaci\xF3n", say(kino2, "fillCode"));
     const { password } = savedAccount();
-    if (password === "") throw told(kino2, "auth_required", "Escribe tu contrase\xF1a en Ajustes", FILL_ACCOUNT);
+    if (password === "") throw told(kino2, "auth_required", "Escribe tu contrase\xF1a en Ajustes", say(kino2, "fillAccount"));
     const pending = registration.pendingFor(email);
-    if (!pending) throw told(kino2, "unavailable", "Pide el c\xF3digo otra vez", ASK_CODE_AGAIN);
+    if (!pending) throw told(kino2, "unavailable", "Pide el c\xF3digo otra vez", say(kino2, "askCodeAgain"));
     const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock2.now() + REGISTER_TOTAL_MS };
     let done;
     try {
@@ -4246,7 +4584,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       throw surface(e);
     }
-    const message = done && done.loggedIn === false ? ACCOUNT_CREATED_LOG_IN : "Cuenta creada y sesi\xF3n iniciada";
+    const message = done && done.loggedIn === false ? say(kino2, "accountCreatedSignIn") : say(kino2, "accountCreatedSignedIn");
     return { message, refresh: true, clearSettings: ["verifyCode"] };
   }
   const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
@@ -4268,15 +4606,15 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
         await session.useShared(bounds2);
         return null;
       } catch (e) {
-        if (refusedCredentials(e)) return { useSharedAccount: "No se pudo activar la cuenta compartida" };
+        if (refusedCredentials(e)) return { useSharedAccount: say(kino2, "sharedActivationFailed") };
         throw surface(e);
       }
     }
     if (email === "" && password === "") return null;
     const errors = {};
-    if (sharedOn) errors.useSharedAccount = "Quita tu cuenta o apaga la cuenta compartida";
-    if (email === "") errors.email = "Escribe tu correo";
-    else if (!email.includes("@")) errors.email = "Escribe un correo v\xE1lido";
+    if (sharedOn) errors.useSharedAccount = say(kino2, "removeAccountOrShared");
+    if (email === "") errors.email = say(kino2, "enterEmail");
+    else if (!email.includes("@")) errors.email = say(kino2, "enterValidEmail");
     if (Object.keys(errors).length > 0) return errors;
     if (password === "") return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
@@ -4286,7 +4624,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       if (refusedCredentials(e)) {
         const creating = str4(v.verifyCode).trim() !== "" || registration !== void 0 && registration !== null && registration.pendingFor(email) !== null;
-        return creating ? null : { password: "Credenciales de Xuper inv\xE1lidas" };
+        return creating ? null : { password: say(kino2, "credentialsRefused") };
       }
       throw surface(e);
     }
@@ -4298,11 +4636,8 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
 var PENDING_KEY = "pendingRegistration";
 var PENDING_TTL_MS = 30 * 6e4;
 var SEND_FAILED = "No se pudo enviar el c\xF3digo: revisa el email";
-var SEND_FAILED_TEXT = `Xuper no pudo enviar el c\xF3digo a ese correo. Revisa que est\xE9 bien escrito en ${SETTINGS_PLACE}.`;
 var NOT_SAVED = "No se pudo guardar el pedido; int\xE9ntalo de nuevo";
-var NOT_SAVED_TEXT = "No pudimos guardar tu pedido. Vuelve a tocar Crear cuenta.";
 var CONFIRM_FAILED = "C\xF3digo inv\xE1lido o cuenta ya registrada";
-var CONFIRM_FAILED_TEXT = "Xuper no acept\xF3 el c\xF3digo, o ese correo ya tiene cuenta. Pide otro c\xF3digo o toca Iniciar sesi\xF3n.";
 var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   const fingerprint = makeFingerprint(kino2);
@@ -4351,10 +4686,10 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
         { email, type: "1", userId: pending.userId, userToken: pending.userToken },
         { baseFields: false, sn, ...bounds }
       );
-      if (!savePending(pending)) throw told(kino2, "unavailable", NOT_SAVED, NOT_SAVED_TEXT);
+      if (!savePending(pending)) throw told(kino2, "unavailable", NOT_SAVED, say(kino2, "requestNotSaved"));
       return pending;
     } catch (e) {
-      throw failure(e, SEND_FAILED, SEND_FAILED_TEXT);
+      throw failure(e, SEND_FAILED, say(kino2, "sendCodeFailed"));
     }
   }
   async function confirmRegistration(pending, code, password, bounds = {}) {
@@ -4388,7 +4723,7 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
         dropPending();
         return { loggedIn: false };
       }
-      throw failure(e, CONFIRM_FAILED, CONFIRM_FAILED_TEXT);
+      throw failure(e, CONFIRM_FAILED, say(kino2, "codeRefused"));
     }
     dropPending();
     return { loggedIn: true };
