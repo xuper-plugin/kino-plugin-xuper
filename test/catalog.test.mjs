@@ -170,7 +170,8 @@ test("item projection: images, overview, genres cap, rating, runtime, kind, titl
   assert.deepEqual(byId.F1, {
     id: "F1", ref: "magis1:variety:0:F1", title: "Una peli", kind: "series",
     poster: "https://img.test/icon", backdrop: "https://img.test/back", overview: "Sinopsis",
-    genres: ["Action", "Drama", "Comedy", "Crime", "Horror"], rating: 8.5, runtimeMinutes: 90,
+    // Kino runs in Spanish (es-CO): the portal's IMDb genres come out in Spanish.
+    genres: ["Acción", "Drama", "Comedia", "Crimen", "Terror"], rating: 8.5, runtimeMinutes: 90,
   });
   // No name: title falls back to the id; score 11 is out of 0..10 (dropped, not clamped); 7 s is under a minute.
   assert.deepEqual(byId.L1, { id: "L1", ref: "magis1:movie:0:L1", title: "L1", kind: "movie", poster: "https://img.test/loose2" });

@@ -269,6 +269,49 @@ function isEnglish(kino2) {
     return false;
   }
 }
+function isSpanish(kino2) {
+  try {
+    const lang = kino2 && typeof kino2.lang === "string" ? kino2.lang.trim().toLowerCase() : "";
+    return lang.startsWith("es");
+  } catch (_) {
+    return false;
+  }
+}
+var GENRES_ES = Object.freeze({
+  "Action": "Acci\xF3n",
+  "Adventure": "Aventura",
+  "Animation": "Animaci\xF3n",
+  "Biography": "Biograf\xEDa",
+  "Comedy": "Comedia",
+  "Crime": "Crimen",
+  "Documentary": "Documental",
+  "Drama": "Drama",
+  "Family": "Familia",
+  "Fantasy": "Fantas\xEDa",
+  "History": "Historia",
+  "Horror": "Terror",
+  "Music": "M\xFAsica",
+  "Musical": "Musical",
+  "Mystery": "Misterio",
+  "Romance": "Romance",
+  "Sci-Fi": "Ciencia ficci\xF3n",
+  "Sport": "Deportes",
+  "Thriller": "Suspenso",
+  "War": "Guerra",
+  "Western": "Western",
+  "Reality-TV": "Reality",
+  "Talk-Show": "Programa de entrevistas",
+  "Game-Show": "Concurso",
+  "News": "Noticias",
+  "Film-Noir": "Cine negro",
+  "Short": "Cortometraje",
+  "Adult": "Adultos"
+});
+function genreName(name, spanish) {
+  if (!spanish || typeof name !== "string") return name;
+  const key = name.trim();
+  return Object.hasOwn(GENRES_ES, key) ? GENRES_ES[key] : name;
+}
 var TEXTS = Object.freeze({
   // Where the plugin's own settings live in Kino.
   settingsPlace: ["Ajustes \u25B8 Xuper", "Settings \u25B8 Xuper"],
@@ -2626,7 +2669,7 @@ var MAX_GENRES = 5;
 var NEW_WINDOW_MS = 48 * 36e5;
 var ITEM_ID2 = /^[A-Za-z0-9._~-]{1,128}$/;
 var noIds = () => null;
-function projectItem(item, nowMs, idsOf = noIds, english = false) {
+function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = false) {
   if (!ITEM_ID2.test(item.id)) return null;
   const out = {
     id: item.id,
@@ -2637,7 +2680,7 @@ function projectItem(item, nowMs, idsOf = noIds, english = false) {
   if (item.poster) out.poster = item.poster;
   if (item.backdrop) out.backdrop = item.backdrop;
   if (item.description.trim() !== "") out.overview = item.description;
-  if (item.genres.length > 0) out.genres = item.genres.slice(0, MAX_GENRES);
+  if (item.genres.length > 0) out.genres = item.genres.slice(0, MAX_GENRES).map((g) => genreName(g, spanish));
   if (item.score !== null && Number.isFinite(item.score) && item.score >= 0 && item.score <= 10) out.rating = item.score;
   const minutes = Math.trunc(item.durationS / 60);
   if (minutes >= 1 && minutes <= 1e3) out.runtimeMinutes = minutes;
@@ -2659,10 +2702,10 @@ function rankWithin(kino2, pool, q) {
   });
   return kino2.rank.sortBySimilarity(hits, forms, titlesOf);
 }
-function projectRows(rows, nowMs, idsOf = noIds, english = false) {
+function projectRows(rows, nowMs, idsOf = noIds, english = false, spanish = false) {
   const out = [];
   for (const r of rows) {
-    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
+    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english, spanish)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
     if (items.length === 0) continue;
     const title2 = localizedRowTitle(r, english);
     const genre = genreOfRow(r.id);
@@ -2882,7 +2925,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
   }
   async function home2() {
     const live2 = countryRow ? countryRow(Math.min(clock2.now() + LIVE_ROW_MS, callDeadline(clock2, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
-    const rows2 = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock2.now(), ids.lookup(), isEnglish(kino2));
+    const rows2 = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock2.now(), ids.lookup(), isEnglish(kino2), isSpanish(kino2));
     const row2 = await live2;
     return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
   }
@@ -2927,7 +2970,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
     const idsOf = ids.lookup();
-    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2))).filter((i) => i !== null).map((i) => ({ ...i, adult: true }));
+    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2), isSpanish(kino2))).filter((i) => i !== null).map((i) => ({ ...i, adult: true }));
     const next = offset + BROWSE_PAGE;
     return next < all.length ? { items, next: String(next) } : { items };
   }
@@ -2939,7 +2982,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const nowMs = clock2.now();
     const list = row2.all ?? (offset === 0 ? row2.shown : []);
     const idsOf = ids.lookup();
-    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2))).filter((i) => i !== null);
+    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2), isSpanish(kino2))).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
     return row2.all && next < list.length ? { items, next: String(next) } : { items };
   }
@@ -2961,7 +3004,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const offset = offsetOf(query.cursor);
     const nowMs = clock2.now();
     const idsOf = ids.lookup();
-    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2))).filter((i) => i !== null).map((i) => adult ? { ...i, adult: true } : i);
+    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2), isSpanish(kino2))).filter((i) => i !== null).map((i) => adult ? { ...i, adult: true } : i);
     const next = offset + BROWSE_PAGE;
     return next < ranked.length ? { items, next: String(next) } : { items };
   }
@@ -3133,10 +3176,28 @@ var EXPIRED = /expired=(\d+)/;
 var MAX_SUBTITLES = 30;
 var MAX_ALTERNATIVES = 8;
 var RETRY_COPIES = 3;
+var RETRY_COPIES_SELF_RETRYING = 1;
+var SELF_RETRYING_KINO = [0, 9, 54];
+var APP_VERSION = /^(\d+)\.(\d+)\.(\d+)/;
 var MAX_LABEL_CHARS = 48;
 var EXPIRES_MIN_S = 30;
 var EXPIRES_MAX_S = 86400;
 var INT7 = /^[+-]?\d+$/;
+function retryCopiesFor(kino2) {
+  let version = "";
+  try {
+    version = kino2 && typeof kino2.appVersion === "string" ? kino2.appVersion.trim() : "";
+  } catch (_) {
+    return RETRY_COPIES;
+  }
+  const m = APP_VERSION.exec(version);
+  if (!m) return RETRY_COPIES;
+  const parts = m.slice(1, 4).map(Number);
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] !== SELF_RETRYING_KINO[i]) return parts[i] > SELF_RETRYING_KINO[i] ? RETRY_COPIES_SELF_RETRYING : RETRY_COPIES;
+  }
+  return RETRY_COPIES_SELF_RETRYING;
+}
 var DIGITS = /^[0-9]+$/;
 function isCfl(url) {
   return url.slice(url.lastIndexOf("?") + 1).split("&").some((p) => p.trim() === "sign_type=cfl");
@@ -3308,7 +3369,8 @@ function makeResolve({ kino: kino2, portal, session, clock: clock2, config, port
       }
     }
     const bestCopy = copies[0];
-    for (let n = 1; bestCopy && n <= RETRY_COPIES && copies.length <= MAX_ALTERNATIVES; n++) {
+    const retryCopies = retryCopiesFor(kino2);
+    for (let n = 1; bestCopy && n <= retryCopies && copies.length <= MAX_ALTERNATIVES; n++) {
       copies.push({
         ...bestCopy,
         url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}`,
@@ -4326,7 +4388,7 @@ var TABS = [
 ];
 var TAB_LABELS_EN = Object.freeze({ peliculas: "Movies", series: "Series", infantil: "Kids", anime: "Anime" });
 var MAX_HERO_TEXT = 300;
-var rowsOfTab = (rows, tab, nowMs, idsOf = void 0, english = false) => projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs, idsOf, english);
+var rowsOfTab = (rows, tab, nowMs, idsOf = void 0, english = false, spanish = false) => projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs, idsOf, english, spanish);
 function heroOf(rows) {
   for (const row2 of rows) {
     for (const item of row2.items) {
@@ -4349,7 +4411,7 @@ function makeSection({ kino: kino2, catalog, clock: clock2 }) {
     const rows = await catalog.rows("section", tab);
     const idsOf = typeof catalog.idsLookup === "function" ? catalog.idsLookup() : void 0;
     const english = isEnglish(kino2);
-    const tabRows = rowsOfTab(rows, tab, clock2.now(), idsOf, english);
+    const tabRows = rowsOfTab(rows, tab, clock2.now(), idsOf, english, isSpanish(kino2));
     const hero = heroOf(tabRows);
     const tabs = TABS.map((t) => ({ id: t.id, label: english ? TAB_LABELS_EN[t.id] : t.label }));
     return { tabs, tab, ...hero ? { hero } : {}, rows: tabRows };

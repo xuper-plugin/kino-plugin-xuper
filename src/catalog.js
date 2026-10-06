@@ -1,7 +1,7 @@
 // Home and browse over the Magis catalog (native-magis.md §4.1, §4.2); `search` lives in search.js
 // (§4.4) and `episodes` in episodes.js (§4.3); both are composed in. Each public function is self-contained.
 import { classify, mergeRoot, rootOfRow, genreOfRow, localizedRowTitle, KINDS } from "./homeClassifier.js";
-import { isEnglish, say } from "./i18n.js";
+import { isEnglish, isSpanish, genreName, say } from "./i18n.js";
 import { parseTree, refOf, parseShelveTime } from "./homeTree.js";
 import { fitRows, makeRowsStore } from "./rowsStore.js";
 import { isSeries } from "./refs.js";
@@ -61,9 +61,10 @@ const noIds = () => null;
 
 /**
  * One classified item as the SDK's item shape; null when its id cannot be used. `idsOf(contentId)`: the ids
- * a detail read already stored (idsStore.js), or null. `english`: Kino's language (the "new" badge).
+ * a detail read already stored (idsStore.js), or null. `english`: Kino's language (the "new" badge); `spanish`:
+ * Kino runs in Spanish (the portal's English genre names are shown in Spanish, genreName).
  */
-function projectItem(item, nowMs, idsOf = noIds, english = false) {
+function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = false) {
   if (!ITEM_ID.test(item.id)) return null;
   const out = {
     id: item.id,
@@ -74,7 +75,7 @@ function projectItem(item, nowMs, idsOf = noIds, english = false) {
   if (item.poster) out.poster = item.poster;
   if (item.backdrop) out.backdrop = item.backdrop;
   if (item.description.trim() !== "") out.overview = item.description;
-  if (item.genres.length > 0) out.genres = item.genres.slice(0, MAX_GENRES);
+  if (item.genres.length > 0) out.genres = item.genres.slice(0, MAX_GENRES).map((g) => genreName(g, spanish));
   if (item.score !== null && Number.isFinite(item.score) && item.score >= 0 && item.score <= 10) out.rating = item.score;
   const minutes = Math.trunc(item.durationS / 60);
   if (minutes >= 1 && minutes <= 1000) out.runtimeMinutes = minutes;
@@ -109,10 +110,10 @@ export function rankWithin(kino, pool, q) {
  * Classified rows as home rows: `ref` is the row id, `genre` its root's (genreOfRow), the title in Kino's
  * language (`english`), empty rows dropped, SDK caps applied.
  */
-export function projectRows(rows, nowMs, idsOf = noIds, english = false) {
+export function projectRows(rows, nowMs, idsOf = noIds, english = false, spanish = false) {
   const out = [];
   for (const r of rows) {
-    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
+    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english, spanish)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
     if (items.length === 0) continue;
     const title = localizedRowTitle(r, english);
     const genre = genreOfRow(r.id);
@@ -371,7 +372,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   async function home() {
     // Asked alongside the VOD rows, inside LIVE_ROW_MS; its failure is no row (never a throw).
     const live = countryRow ? countryRow(Math.min(clock.now() + LIVE_ROW_MS, callDeadline(clock, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
-    const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now(), ids.lookup(), isEnglish(kino));
+    const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now(), ids.lookup(), isEnglish(kino), isSpanish(kino));
     const row = await live;
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
@@ -418,7 +419,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const offset = offsetOf(cursor);
     const nowMs = clock.now();
     const idsOf = ids.lookup();
-    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino))).filter((i) => i !== null)
+    const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null)
       .map((i) => ({ ...i, adult: true }));
     const next = offset + BROWSE_PAGE;
     return next < all.length ? { items, next: String(next) } : { items };
@@ -434,7 +435,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     // are being built in the background for the next visit).
     const list = row.all ?? (offset === 0 ? row.shown : []);
     const idsOf = ids.lookup();
-    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino))).filter((i) => i !== null);
+    const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
     return row.all && next < list.length ? { items, next: String(next) } : { items };
   }
@@ -464,7 +465,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const offset = offsetOf(query.cursor);
     const nowMs = clock.now();
     const idsOf = ids.lookup();
-    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino))).filter((i) => i !== null)
+    const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null)
       .map((i) => (adult ? { ...i, adult: true } : i));
     const next = offset + BROWSE_PAGE;
     return next < ranked.length ? { items, next: String(next) } : { items };

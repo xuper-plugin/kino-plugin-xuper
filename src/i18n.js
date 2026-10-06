@@ -12,6 +12,32 @@ export function isEnglish(kino) {
   } catch (_) { return false; }
 }
 
+/** True when Kino runs in Spanish (`kino.lang` "es" or "es-XX"). Never throws. */
+export function isSpanish(kino) {
+  try {
+    const lang = kino && typeof kino.lang === "string" ? kino.lang.trim().toLowerCase() : "";
+    return lang.startsWith("es");
+  } catch (_) { return false; }
+}
+
+// The portal's genre tags are IMDb's genre names, in English: their Spanish names for a Spanish Kino.
+export const GENRES_ES = Object.freeze({
+  "Action": "Acción", "Adventure": "Aventura", "Animation": "Animación", "Biography": "Biografía",
+  "Comedy": "Comedia", "Crime": "Crimen", "Documentary": "Documental", "Drama": "Drama", "Family": "Familia",
+  "Fantasy": "Fantasía", "History": "Historia", "Horror": "Terror", "Music": "Música", "Musical": "Musical",
+  "Mystery": "Misterio", "Romance": "Romance", "Sci-Fi": "Ciencia ficción", "Sport": "Deportes",
+  "Thriller": "Suspenso", "War": "Guerra", "Western": "Western", "Reality-TV": "Reality",
+  "Talk-Show": "Programa de entrevistas", "Game-Show": "Concurso", "News": "Noticias", "Film-Noir": "Cine negro",
+  "Short": "Cortometraje", "Adult": "Adultos",
+});
+
+/** A portal genre name as shown: in Spanish when `spanish` and it is a known IMDb genre, else unchanged. */
+export function genreName(name, spanish) {
+  if (!spanish || typeof name !== "string") return name;
+  const key = name.trim();
+  return Object.hasOwn(GENRES_ES, key) ? GENRES_ES[key] : name;
+}
+
 // key -> [Spanish, English]. `{name}` is filled by `say`'s `vars`.
 export const TEXTS = Object.freeze({
   // Where the plugin's own settings live in Kino.

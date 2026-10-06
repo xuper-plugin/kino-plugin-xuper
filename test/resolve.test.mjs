@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput, validateManifest } from "../sdk/contract.mjs";
-import { makeResolve, expiresInSeconds } from "../src/resolve.js";
+import { makeResolve, expiresInSeconds, retryCopiesFor } from "../src/resolve.js";
 import { makePortalChapters } from "../src/episodes.js";
 import { PortalError } from "../src/portal.js";
 import { UA_CDN } from "../src/config.js";
@@ -54,8 +54,8 @@ function fakePortal(queues = {}, events = []) {
   };
 }
 
-function setup({ queues = {}, config = { appId: "app.id", apkVersion: "49902" }, now = NOW, ensureError = null, token = "tok1", lang = null } = {}) {
-  const kino = lang === null ? fakeKino() : Object.freeze({ ...fakeKino(), lang });
+function setup({ queues = {}, config = { appId: "app.id", apkVersion: "49902" }, now = NOW, ensureError = null, token = "tok1", lang = null, appVersion = undefined } = {}) {
+  const kino = Object.freeze({ ...fakeKino(), ...(lang !== null ? { lang } : {}), ...(appVersion !== undefined ? { appVersion } : {}) });
   const events = [];
   const portal = fakePortal(queues, events);
   const session = {
@@ -774,4 +774,31 @@ test("labels in English when kino.lang is en: Server, backup, retry, Version", a
     "Server 1", "Server 1 · backup", "Version 2 · Server 1", "Version 2 · Server 1 · backup",
     "Server 1 · retry 1", "Server 1 · retry 2", "Server 1 · retry 3",
   ]);
+});
+
+// ---- Kino 0.9.54+ retries the connect of its last copy itself: one retry copy there -------------
+test("retryCopiesFor: 1 from Kino 0.9.54 on, 3 below it and when appVersion is missing or unparseable", () => {
+  const cases = [
+    ["0.9.53", 3], ["0.9.54", 1], ["0.9.60", 1], ["1.0.0", 1], ["0.10.0", 1], ["0.9.54-debug", 1], [" 0.9.55 ", 1],
+    ["0.9.5", 3], ["0.8.99", 3], ["garbage", 3], ["", 3], ["v0.9.54", 3], ["0.9", 3], [undefined, 3], [null, 3], [954, 3],
+  ];
+  for (const [appVersion, n] of cases) assert.equal(retryCopiesFor({ appVersion }), n, JSON.stringify(appVersion));
+  assert.equal(retryCopiesFor({}), 3);
+  assert.equal(retryCopiesFor(undefined), 3);
+  assert.equal(retryCopiesFor({ get appVersion() { throw new Error("boom"); } }), 3);
+});
+
+test("alternatives by Kino version: 0.9.54, 0.9.60 and 1.0.0 get one retry copy; 0.9.53, garbage and missing get three", async () => {
+  const url = "http://one.example.com/vod/M1_media.ts";
+  const answer = { invalidTime: "14400", cdn_list: [vodCdnOf("http://one.example.com", "ONE")] };
+  const urlsFor = async (appVersion) =>
+    (await setup({ queues: movieQueues([media("M1", "ts", "h265")], answer), appVersion }).resolve(MOVIE)).alternatives.map((a) => a.url);
+  const one = [retryOf(url, 1)];
+  const three = [1, 2, 3].map((n) => retryOf(url, n));
+  for (const v of ["0.9.54", "0.9.60", "1.0.0"]) assert.deepEqual(await urlsFor(v), one, v);
+  for (const v of ["0.9.53", "garbage", undefined]) assert.deepEqual(await urlsFor(v), three, String(v));
+  // The one copy keeps today's label, headers and mime.
+  const out = await setup({ queues: movieQueues([media("M1", "ts", "h265")], answer), appVersion: "0.9.54" }).resolve(MOVIE);
+  assert.deepEqual(out.alternatives, [{ url: retryOf(url, 1), label: "Servidor 1 · reintento 1", mime: "video/mp2t", headers: headersFor(AUTH("ONE"), "LIC123") }]);
+  assert.deepEqual(checkOutput("resolve", out, manifest).drops, []);
 });

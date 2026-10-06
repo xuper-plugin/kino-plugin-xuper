@@ -22,10 +22,30 @@ const EXPIRED = /expired=(\d+)/;
 const MAX_SUBTITLES = 30; // SDK cap
 const MAX_ALTERNATIVES = 8; // SDK cap (contract.json output.maxAlternatives)
 const RETRY_COPIES = 3; // the connect attempts ExoPlayer used to make on its own
+// Kino 0.9.54 retries the connect of its last copy itself (5 s timeout each): one retry copy is enough there.
+const RETRY_COPIES_SELF_RETRYING = 1;
+const SELF_RETRYING_KINO = [0, 9, 54];
+const APP_VERSION = /^(\d+)\.(\d+)\.(\d+)/;
 const MAX_LABEL_CHARS = 48; // SDK cap on a copy's label
 const EXPIRES_MIN_S = 30; // SDK range of expiresInSeconds
 const EXPIRES_MAX_S = 86_400;
 const INT = /^[+-]?\d+$/;
+
+/**
+ * How many `?retry=N` copies of the best copy to add: one when `kino.appVersion` reads 0.9.54 or newer (Kino
+ * retries the connect itself), three otherwise, and three when the version is missing or unparseable. Never throws.
+ */
+export function retryCopiesFor(kino) {
+  let version = "";
+  try { version = kino && typeof kino.appVersion === "string" ? kino.appVersion.trim() : ""; } catch (_) { return RETRY_COPIES; }
+  const m = APP_VERSION.exec(version);
+  if (!m) return RETRY_COPIES;
+  const parts = m.slice(1, 4).map(Number);
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] !== SELF_RETRYING_KINO[i]) return parts[i] > SELF_RETRYING_KINO[i] ? RETRY_COPIES_SELF_RETRYING : RETRY_COPIES;
+  }
+  return RETRY_COPIES_SELF_RETRYING;
+}
 const DIGITS = /^[0-9]+$/;
 
 
@@ -258,9 +278,11 @@ export function makeResolve({ kino, portal, session, clock, config, portalChapte
     // timed out on one phone). The native code survived it because ExoPlayer retried a failed connect 3-4 times;
     // Kino 0.9.50-0.9.52 gives up on an unreachable copy without retrying it. The best copy again, last and under
     // retry=1..3, is those retries: a new connection each, the same file and headers. Only free slots take one,
-    // so a real copy is never pushed out for a retry.
+    // so a real copy is never pushed out for a retry. Kino 0.9.54+ retries its last copy's connect again on its
+    // own, so there one retry copy is left (retryCopiesFor).
     const bestCopy = copies[0];
-    for (let n = 1; bestCopy && n <= RETRY_COPIES && copies.length <= MAX_ALTERNATIVES; n++) {
+    const retryCopies = retryCopiesFor(kino);
+    for (let n = 1; bestCopy && n <= retryCopies && copies.length <= MAX_ALTERNATIVES; n++) {
       copies.push({
         ...bestCopy,
         url: `${bestCopy.url}${bestCopy.url.includes("?") ? "&" : "?"}retry=${n}`,

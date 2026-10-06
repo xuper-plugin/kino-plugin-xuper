@@ -3,7 +3,7 @@
 // this order. The adult root is never a tab: the portal is never asked for it.
 import { rootOfRow } from "./homeClassifier.js";
 import { projectRows } from "./catalog.js";
-import { isEnglish } from "./i18n.js";
+import { isEnglish, isSpanish } from "./i18n.js";
 
 export const TABS = [
   { id: "peliculas", label: "Películas" },
@@ -16,8 +16,8 @@ const TAB_LABELS_EN = Object.freeze({ peliculas: "Movies", series: "Series", inf
 const MAX_HERO_TEXT = 300; // contract: section.maxHeroTextChars
 
 /** The classified rows of one root, projected as section rows (ref = row id, which `browse` pages). */
-export const rowsOfTab = (rows, tab, nowMs, idsOf = undefined, english = false) =>
-  projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs, idsOf, english);
+export const rowsOfTab = (rows, tab, nowMs, idsOf = undefined, english = false, spanish = false) =>
+  projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs, idsOf, english, spanish);
 
 /**
  * The tab's featured title, from the rows it already shows (no portal call): the first item, in row order,
@@ -46,7 +46,7 @@ export function makeSection({ kino, catalog, clock }) {
     const rows = await catalog.rows("section", tab);
     const idsOf = typeof catalog.idsLookup === "function" ? catalog.idsLookup() : undefined;
     const english = isEnglish(kino);
-    const tabRows = rowsOfTab(rows, tab, clock.now(), idsOf, english);
+    const tabRows = rowsOfTab(rows, tab, clock.now(), idsOf, english, isSpanish(kino));
     const hero = heroOf(tabRows);
     const tabs = TABS.map((t) => ({ id: t.id, label: english ? TAB_LABELS_EN[t.id] : t.label }));
     return { tabs, tab, ...(hero ? { hero } : {}), rows: tabRows };
