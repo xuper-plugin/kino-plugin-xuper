@@ -1,6 +1,9 @@
 // Live categories and channels over the Magis portal (native-magis.md §6.1, §6.2; MagisLiveCatalog.kt).
-// No plugin-side cache (controller ruling R19): the app caches both lists for an hour. The one thing
-// kept in memory is the set of adult category ids, so an adult category's channels are always marked.
+// No plugin-side cache of what En vivo shows (controller ruling R19): the app caches both lists for an hour.
+// Kept in memory: the set of adult category ids, so an adult category's channels are always marked. Kept in
+// storage: which categories are a genre (small, under its own key), read ONLY by the Categorías live tiles
+// (liveTiles.js), so opening Categorías asks the portal nothing once En vivo, the country row or a
+// previous Categorías read the list.
 // 18+ is marked `adult: true`, never hidden (D3): Kino shows it only behind the device's 18+ code.
 import { PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { logoOf } from "./homeTree.js";
@@ -30,6 +33,9 @@ const SEARCH_INDEX_TTL_MS = 60 * 60_000;
 const PARTIAL_INDEX_TTL_MS = 3 * 60_000;
 const MAX_SEARCH_HITS = 100; // SDK: liveSearch keeps 100
 const MIN_SEARCH_CHARS = 2; // SDK: asked from 2 characters
+// The genre categories for the Categorías live tiles: at most 200 [id, genre] pairs, a few KB at worst.
+export const CATEGORIES_KEY = "liveCats:v1";
+const CATEGORIES_TTL_MS = 12 * 3600_000;
 const plain = (text) => String(text).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
 
 // The portal calls the all-channels category "ChannelList": an internal English name.
@@ -96,8 +102,37 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
       if (isBlank(name)) continue;
       out.push({ id: String(id), name, adult: ADULT_NAMES.has(name.trim().toLowerCase()), ...(raw === ALL_CHANNELS ? { all: true } : {}) });
     }
-    if (out.length > 0) adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
+    if (out.length > 0) {
+      adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
+      store(out);
+    }
     return out;
+  }
+
+  // The categories whose whole name is a genre, as [id, genre]: all the live tiles need (an adult category and
+  // "Todos" are never one). A few bytes each; [] is kept too (this portal has none: nothing to ask again).
+  const genreCategoriesOf = (list) => list
+    .filter((c) => !c.adult && !c.all && POSITIVE.test(c.id) && Number(c.id) > 0)
+    .map((c) => ({ id: c.id, genre: genreOfCategory(c.name) }))
+    .filter((c) => c.genre !== null);
+
+  function store(list) {
+    try {
+      const rows = genreCategoriesOf(list).slice(0, MAX_CATEGORIES).map((c) => [c.id, c.genre]);
+      kino.storage.set(CATEGORIES_KEY, JSON.stringify(rows), { ttlMs: CATEGORIES_TTL_MS });
+    } catch (_) { /* memory only: the tiles ask the portal next time */ }
+  }
+
+  /** The kept genre categories (`{ id, genre }`), or null when none are kept (or they are unreadable). */
+  function storedGenreCategories() {
+    try {
+      const text = kino.storage.get(CATEGORIES_KEY);
+      if (typeof text !== "string") return null;
+      const rows = JSON.parse(text);
+      if (!Array.isArray(rows)) return null;
+      return rows.filter((r) => Array.isArray(r) && typeof r[0] === "string" && POSITIVE.test(r[0]) && typeof r[1] === "string")
+        .map((r) => ({ id: r[0], genre: r[1] }));
+    } catch (_) { return null; }
   }
 
   async function liveCategories() {
@@ -273,5 +308,14 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     return { items: hits.slice(0, MAX_SEARCH_HITS).map((h) => ({ ...h.c })) };
   }
 
-  return { liveCategories, liveChannels, categoriesWithin, channelsWithin, liveSearch };
+  // For the Categorías live tiles (liveTiles.js).
+  /** The categories that are a genre (`{ id, genre }`): the kept ones, else one portal read inside `deadline` (which keeps them). */
+  const genreCategories = async (deadline) => storedGenreCategories() ?? genreCategoriesOf(await readCategories(deadline));
+  /** Page `page` of category `id`, `size` channels a page (the caller checked the category is not adult). */
+  async function channelsPage(id, page, size, deadline) {
+    const list = await fetchPage(id, page, deadline, size);
+    return { items: project(list, id, false), full: list.length >= size };
+  }
+
+  return { liveCategories, liveChannels, categoriesWithin, channelsWithin, liveSearch, genreCategories, channelsPage, surface };
 }

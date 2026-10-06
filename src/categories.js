@@ -27,13 +27,22 @@ export function tilesOf(rows, english = false) {
 // portal. Kino shows it only while the device's 18+ code is unlocked.
 const ADULT_TILE = Object.freeze({ id: ADULT_REF, title: "18+", ref: ADULT_REF, adult: true });
 
-// `kino` (optional): its language picks the tiles' titles.
-export function makeCategories({ catalog, kino = null }) {
+// `kino` (optional): its language picks the tiles' titles. `liveTiles` (optional, liveTiles.js): the live
+// channel tiles, asked beside the VOD rows; they go after the VOD tiles and before the 18+ one, and the VOD
+// tiles give up their tail to make room (at most MAX_LIVE_TILES of the 24).
+export function makeCategories({ catalog, kino = null, liveTiles = null }) {
   return {
-    // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
+    // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers. Live tiles alone
+    // are shown (the VOD catalog failing must not hide them, nor they it: tiles() never throws).
     categories: async () => {
-      const tiles = tilesOf(await catalog.rows("categories"), isEnglish(kino));
-      return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES - 1), { ...ADULT_TILE }];
+      const [rows, live] = await Promise.all([
+        catalog.rows("categories").then((r) => ({ r }), (e) => ({ e })),
+        liveTiles ? liveTiles.tiles() : Promise.resolve([]),
+      ]);
+      if (rows.e && live.length === 0) throw rows.e;
+      const tiles = rows.e ? [] : tilesOf(rows.r, isEnglish(kino));
+      if (tiles.length === 0) return live;
+      return [...tiles.slice(0, MAX_CATEGORIES - 1 - live.length), ...live, { ...ADULT_TILE }];
     },
   };
 }

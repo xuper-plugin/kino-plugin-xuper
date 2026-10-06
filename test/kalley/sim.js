@@ -22,6 +22,7 @@ import { makeCatalog } from "../../src/catalog.js";
 import { makeCategories } from "../../src/categories.js";
 import { makeSection } from "../../src/section.js";
 import { makeLiveCatalog } from "../../src/liveCatalog.js";
+import { makeLiveTiles } from "../../src/liveTiles.js";
 
 const SLOWDOWN = 250;
 const HOST_BYTES_PER_MS = 25_000; // 25 MB/s through kino.crypto on the TV, marshalling included
@@ -100,6 +101,7 @@ function bodyFor(path, bean) {
 const store = {};
 let pending = 0;
 let lastRequest = null;
+const requests = [];
 const kino = {
   log: () => {},
   error: (code, msg) => { const e = new Error(msg); e.name = "KinoError_" + code; e.code = code; return e; },
@@ -107,9 +109,13 @@ const kino = {
   secret: () => "secret-marker",
   crypto: {
     // Requests (short) and the hex pass-through (AES-ECB of the wire's bytes): host time by size.
+    // A request body's "ciphertext" names the request it carries, so calls in flight together (the
+    // Categorías VOD rows beside the live categories) each get their own answer.
     encrypt: (alg, { data }) => {
       hostMs += data.length / HOST_BYTES_PER_MS;
-      return alg === "aes-128-ecb" ? { passBytes: data.length / 2 } : "QUJD";
+      if (alg === "aes-128-ecb") return { passBytes: data.length / 2 };
+      requests.push(lastRequest);
+      return "R" + (requests.length - 1);
     },
     // The host's AES (the pass-through back to text) and 3DES (the plaintext of that wire).
     decrypt: (alg, { data }) => {
@@ -123,7 +129,9 @@ const kino = {
     pending++;
     try {
       await new Promise((r) => os.setTimeout(r, 0));
-      const body = bodyFor(lastRequest.path, lastRequest.bean);
+      const token = opts.body.replace(/../g, (h) => String.fromCharCode(parseInt(h, 16)));
+      const req = requests[Number(token.slice(1))];
+      const body = bodyFor(req.path, req.bean);
       return { status: 200, text: () => body };
     } finally { pending--; }
   },
@@ -147,9 +155,11 @@ function newRuntime() {
   // The request is remembered here (the wire is opaque): which path and bean the next fetch answers.
   const wrapped = { call: (path, bean, opts) => { lastRequest = { path, bean }; return portal.call(path, bean, opts); } };
   const catalog = makeCatalog({ kino, portal: wrapped, session, clock });
+  const live = makeLiveCatalog({ kino, portal: wrapped, session, clock });
+  // As wiring.js: the Categorías live tiles are asked beside the VOD rows.
+  const liveTiles = makeLiveTiles({ kino, live, clock });
   return {
-    catalog, categories: makeCategories({ catalog }), section: makeSection({ kino, catalog, clock }),
-    live: makeLiveCatalog({ kino, portal: wrapped, session, clock }),
+    catalog, categories: makeCategories({ catalog, kino, liveTiles }), section: makeSection({ kino, catalog, clock }), live, liveTiles,
   };
 }
 

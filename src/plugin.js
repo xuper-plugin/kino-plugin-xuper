@@ -5,6 +5,7 @@ import { makeSettings } from "./settings.js";
 import { makeRegistration } from "./registration.js";
 import { isKinoError } from "./util.js";
 import { isChannelRef } from "./refs.js";
+import { isLiveTileRef } from "./liveTiles.js";
 import { trace, traced, report, errCode } from "./trace.js";
 
 // How the call that just ended was served (`served=fresh|cache|partial`, `got`, `fail`: counts only), for its lines;
@@ -20,7 +21,13 @@ export async function search(query) {
   return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {}, servedBy);
 }
 export async function home() { await null; return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy); }
-export async function browse(ref, cursor) { await null; return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor)), {}, servedBy); }
+// A Categorías live tile's ref (liveTiles.js) pages channels; every other ref is a VOD row.
+export async function browse(ref, cursor) {
+  await null;
+  const live = isLiveTileRef(ref);
+  return traced(kino, clock, "browse", () => guarded(({ catalog, liveTiles }) => (live ? liveTiles.browse(ref, cursor) : catalog.browse(ref, cursor))),
+    live ? { kind: "live" } : {}, servedBy);
+}
 // apiVersion 6: Xuper's own section (one tab per root) and its Categorías tiles, over Home's trees.
 export async function section(arg) { await null; return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg)), {}, servedBy); }
 export async function categories() { await null; return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories()), {}, servedBy); }

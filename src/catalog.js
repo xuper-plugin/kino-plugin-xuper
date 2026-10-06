@@ -10,6 +10,7 @@ import { makePortalChapters, makeEpisodes } from "./episodes.js";
 import { makeIdsStore } from "./idsStore.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS, slowPortal } from "./portal.js";
 import { isKinoError } from "./util.js";
+import { isLiveTileRef } from "./liveTiles.js";
 import { trace, report, errCode, msBucket, kbBucket, PERF_AREAS } from "./trace.js";
 
 export { parseShelveTime };
@@ -451,6 +452,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const q = typeof query.q === "string" ? query.q.trim() : "";
     if (q === "") return { items: [] };
     const within = query.within;
+    // A Categorías live tile (liveTiles.js): no row to search, and no reason to build the VOD rows to find that out.
+    if (isLiveTileRef(within)) return null;
     const adult = within === ADULT_REF;
     let pool;
     if (adult) {

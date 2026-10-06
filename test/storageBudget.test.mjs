@@ -65,6 +65,8 @@ test("worst case: every key the plugin writes, all full at once, fits the 256 KB
     refusedAcct: JSON.stringify({ key: hex(4, 64), at: 1 }), liveRotCarried: JSON.stringify({ a: hex(8, 32), at: 1790000000000, r: sns(16) }), region: '{"blocked":true}', seedsAt: "1790000000000", sharedAccount: "true",
   };
   for (let i = 0; i < 12; i++) misc["liveRot:" + "c".repeat(128) + i] = rotation;
+  // The genre categories (liveCatalog.js, for the Categorías live tiles): at most 200 [id, genre] pairs.
+  misc["liveCats:v1"] = JSON.stringify(Array.from({ length: 200 }, (_, i) => [String(100_000_000 + i), "entretenimiento"]));
   // Wrapper of a value stored with a ttl ({"v":…,"e":…}) and the key itself, per key.
   const TTL_WRAPPER = 40;
   let total = 2; // the braces of the whole map

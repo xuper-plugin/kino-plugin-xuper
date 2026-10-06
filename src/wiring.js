@@ -11,6 +11,7 @@ import { makeLive } from "./live.js";
 import { makeSection } from "./section.js";
 import { makeCategories } from "./categories.js";
 import { makeCountryRow } from "./countryRow.js";
+import { makeLiveTiles } from "./liveTiles.js";
 import * as constants from "./config.js";
 import { isKinoError } from "./util.js";
 import { trace, errCode, makeDecodeReporter } from "./trace.js";
@@ -37,8 +38,9 @@ export function getDeps() {
   // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).
   const resolve = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
   const section = makeSection({ kino, catalog, clock });
-  const categories = makeCategories({ catalog, kino });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories };
+  const liveTiles = makeLiveTiles({ kino, live, clock });
+  const categories = makeCategories({ catalog, kino, liveTiles });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories, liveTiles };
   return deps;
 }
 

@@ -393,6 +393,16 @@ var TEXTS = Object.freeze({
   newBadge: ["NUEVO", "NEW"],
   liveChannelsRow: ["Canales en vivo", "Live channels"],
   allChannels: ["Todos", "All"],
+  // Categorías tiles of live channels, one per genre (liveTiles.js).
+  liveTileSports: ["Deportes en vivo", "Live sports"],
+  liveTileNews: ["Noticias en vivo", "Live news"],
+  liveTileKids: ["Infantil en vivo", "Live kids"],
+  liveTileMovies: ["Cine en vivo", "Live movies"],
+  liveTileSeries: ["Series en vivo", "Live series"],
+  liveTileEntertainment: ["Entretenimiento en vivo", "Live entertainment"],
+  liveTileMusic: ["M\xFAsica en vivo", "Live music"],
+  liveTileDocumentaries: ["Documentales en vivo", "Live documentaries"],
+  liveTileAnime: ["Anime en vivo", "Live anime"],
   chapterN: ["Cap\xEDtulo {n}", "Episode {n}"],
   seasonN: ["Temporada {n}", "Season {n}"],
   server: ["Servidor {n}", "Server {n}"],
@@ -2645,6 +2655,88 @@ function makeIdsStore({ kino: kino2, clock: clock2 }) {
   return { remember, lookup };
 }
 
+// src/liveTiles.js
+var LIVE_TILE_PREFIX = "xlive:";
+var MAX_LIVE_TILES = 6;
+var GENRE_ORDER = ["deportes", "noticias", "infantil", "peliculas", "series", "entretenimiento", "musica", "documentales", "anime"];
+var TITLE_KEY = {
+  deportes: "liveTileSports",
+  noticias: "liveTileNews",
+  infantil: "liveTileKids",
+  peliculas: "liveTileMovies",
+  series: "liveTileSeries",
+  entretenimiento: "liveTileEntertainment",
+  musica: "liveTileMusic",
+  documentales: "liveTileDocumentaries",
+  anime: "liveTileAnime"
+};
+var LIVE_TILES_COLD_MS = 8e3;
+var PAGE_SIZE2 = 100;
+var MAX_PAGES = 20;
+var isLiveTileRef = (ref) => typeof ref === "string" && ref.startsWith(LIVE_TILE_PREFIX);
+function genresOf2(categories2) {
+  const by = /* @__PURE__ */ new Map();
+  for (const { id, genre } of categories2) {
+    if (!Object.hasOwn(TITLE_KEY, genre)) continue;
+    if (!by.has(genre)) by.set(genre, []);
+    if (!by.get(genre).includes(id)) by.get(genre).push(id);
+  }
+  return GENRE_ORDER.filter((g) => by.has(g)).map((genre) => ({ genre, ids: by.get(genre) }));
+}
+function makeLiveTiles({ kino: kino2, live: live2, clock: clock2 }) {
+  async function tiles() {
+    try {
+      const deadline = Math.min(clock2.now() + LIVE_TILES_COLD_MS, callDeadline(clock2, CALL_BUDGET_MS.categories));
+      return genresOf2(await live2.genreCategories(deadline)).slice(0, MAX_LIVE_TILES).map(({ genre }) => ({
+        id: `xlive-${genre}`,
+        title: say(kino2, TITLE_KEY[genre]).slice(0, 40),
+        ref: LIVE_TILE_PREFIX + genre
+      }));
+    } catch (e) {
+      trace(kino2, "categories", "live_tiles_fail", { code: errCode(e) });
+      return [];
+    }
+  }
+  const notFound = () => kino2.error("not_found", "No se encontr\xF3 esa categor\xEDa");
+  function cursorOf(cursor) {
+    const m = typeof cursor === "string" ? /^(\d{1,2})\.(\d{1,3})$/.exec(cursor) : null;
+    return m ? { at: Number(m[1]), page: Math.max(1, Number(m[2])) } : { at: 0, page: 1 };
+  }
+  async function browse2(ref, cursor) {
+    const genre = ref.slice(LIVE_TILE_PREFIX.length);
+    const deadline = callDeadline(clock2, CALL_BUDGET_MS.browse);
+    let ids;
+    try {
+      ids = genresOf2(await live2.genreCategories(deadline)).find((g) => g.genre === genre)?.ids;
+    } catch (e) {
+      throw live2.surface(e);
+    }
+    if (!ids) throw notFound();
+    let { at, page } = cursorOf(cursor);
+    const first = cursor === null || cursor === void 0;
+    while (at < ids.length && page <= MAX_PAGES) {
+      let got;
+      try {
+        got = await live2.channelsPage(ids[at], page, PAGE_SIZE2, deadline);
+      } catch (e) {
+        if (first && at === 0 && page === 1) throw live2.surface(e);
+        trace(kino2, "live", "tile_page_fail", { genre, page, code: errCode(e) });
+        return { items: [] };
+      }
+      const next = got.full && page < MAX_PAGES ? `${at}.${page + 1}` : at + 1 < ids.length ? `${at + 1}.1` : null;
+      const items = got.items.map((c) => {
+        const item = { kind: "live", id: c.id, title: c.title, ref: c.ref };
+        if (c.logo) item.poster = c.logo;
+        return item;
+      });
+      if (items.length > 0 || next === null) return next ? { items, next } : { items };
+      ({ at, page } = cursorOf(next));
+    }
+    return { items: [] };
+  }
+  return { tiles, browse: browse2 };
+}
+
 // src/catalog.js
 var ROOT_CODES = { peliculas: "masnew_movies", series: "masnew_series", anime: "masnew_anime", infantil: "masnew_kids" };
 var ADULT_ROOT_CODE = "masnew_adult";
@@ -2991,6 +3083,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const q = typeof query.q === "string" ? query.q.trim() : "";
     if (q === "") return { items: [] };
     const within = query.within;
+    if (isLiveTileRef(within)) return null;
     const adult = within === ADULT_REF;
     let pool;
     if (adult) {
@@ -3493,7 +3586,7 @@ var CATEGORIES_PAGE_SIZE = 200;
 var LIST_PAGE_SIZE = 250;
 var LIST_MAX_PAGES = 20;
 var SWEEP_PAGE_SIZE = 500;
-var MAX_PAGES = 10;
+var MAX_PAGES2 = 10;
 var MAX_CATEGORIES = 200;
 var ID2 = /^[A-Za-z0-9._~-]{1,128}$/;
 var POSITIVE = /^\d{1,9}$/;
@@ -3501,6 +3594,8 @@ var SEARCH_INDEX_TTL_MS = 60 * 6e4;
 var PARTIAL_INDEX_TTL_MS = 3 * 6e4;
 var MAX_SEARCH_HITS = 100;
 var MIN_SEARCH_CHARS = 2;
+var CATEGORIES_KEY = "liveCats:v1";
+var CATEGORIES_TTL_MS = 12 * 36e5;
 var plain2 = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
 var ALL_CHANNELS = "ChannelList";
 var NAMES = { [ALL_CHANNELS]: "Todos" };
@@ -3562,8 +3657,30 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
       if (isBlank(name)) continue;
       out.push({ id: String(id), name, adult: ADULT_NAMES.has(name.trim().toLowerCase()), ...raw === ALL_CHANNELS ? { all: true } : {} });
     }
-    if (out.length > 0) adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
+    if (out.length > 0) {
+      adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
+      store(out);
+    }
     return out;
+  }
+  const genreCategoriesOf = (list) => list.filter((c) => !c.adult && !c.all && POSITIVE.test(c.id) && Number(c.id) > 0).map((c) => ({ id: c.id, genre: genreOfCategory(c.name) })).filter((c) => c.genre !== null);
+  function store(list) {
+    try {
+      const rows = genreCategoriesOf(list).slice(0, MAX_CATEGORIES).map((c) => [c.id, c.genre]);
+      kino2.storage.set(CATEGORIES_KEY, JSON.stringify(rows), { ttlMs: CATEGORIES_TTL_MS });
+    } catch (_) {
+    }
+  }
+  function storedGenreCategories() {
+    try {
+      const text2 = kino2.storage.get(CATEGORIES_KEY);
+      if (typeof text2 !== "string") return null;
+      const rows = JSON.parse(text2);
+      if (!Array.isArray(rows)) return null;
+      return rows.filter((r) => Array.isArray(r) && typeof r[0] === "string" && POSITIVE.test(r[0]) && typeof r[1] === "string").map((r) => ({ id: r[0], genre: r[1] }));
+    } catch (_) {
+      return null;
+    }
   }
   async function liveCategories2() {
     const all = await readCategories(callDeadline(clock2, CALL_BUDGET_MS.liveCategories));
@@ -3661,7 +3778,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   let partial = null;
   let sweeping = null;
   async function sweepCategory(category, into, deadline, read = { pages: 0 }) {
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    for (let page = 1; page <= MAX_PAGES2; page++) {
       const list = await fetchPage(category.id, page, deadline, SWEEP_PAGE_SIZE);
       read.pages++;
       for (const item of project(list, category.id, category.adult)) {
@@ -3724,7 +3841,12 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     hits.sort((a, b) => a.rank - b.rank || a.i - b.i);
     return { items: hits.slice(0, MAX_SEARCH_HITS).map((h) => ({ ...h.c })) };
   }
-  return { liveCategories: liveCategories2, liveChannels: liveChannels2, categoriesWithin, channelsWithin, liveSearch: liveSearch2 };
+  const genreCategories = async (deadline) => storedGenreCategories() ?? genreCategoriesOf(await readCategories(deadline));
+  async function channelsPage(id, page, size, deadline) {
+    const list = await fetchPage(id, page, deadline, size);
+    return { items: project(list, id, false), full: list.length >= size };
+  }
+  return { liveCategories: liveCategories2, liveChannels: liveChannels2, categoriesWithin, channelsWithin, liveSearch: liveSearch2, genreCategories, channelsPage, surface };
 }
 
 // src/tweakedMd5.js
@@ -4436,12 +4558,19 @@ function tilesOf(rows, english = false) {
   return out;
 }
 var ADULT_TILE = Object.freeze({ id: ADULT_REF, title: "18+", ref: ADULT_REF, adult: true });
-function makeCategories({ catalog, kino: kino2 = null }) {
+function makeCategories({ catalog, kino: kino2 = null, liveTiles = null }) {
   return {
-    // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers.
+    // An empty catalog stays empty: an 18+ tile alone would be the only thing Xuper offers. Live tiles alone
+    // are shown (the VOD catalog failing must not hide them, nor they it: tiles() never throws).
     categories: async () => {
-      const tiles = tilesOf(await catalog.rows("categories"), isEnglish(kino2));
-      return tiles.length === 0 ? [] : [...tiles.slice(0, MAX_CATEGORIES2 - 1), { ...ADULT_TILE }];
+      const [rows, live2] = await Promise.all([
+        catalog.rows("categories").then((r) => ({ r }), (e) => ({ e })),
+        liveTiles ? liveTiles.tiles() : Promise.resolve([])
+      ]);
+      if (rows.e && live2.length === 0) throw rows.e;
+      const tiles = rows.e ? [] : tilesOf(rows.r, isEnglish(kino2));
+      if (tiles.length === 0) return live2;
+      return [...tiles.slice(0, MAX_CATEGORIES2 - 1 - live2.length), ...live2, { ...ADULT_TILE }];
     }
   };
 }
@@ -4462,8 +4591,9 @@ function getDeps() {
   const liveStream = makeLive({ kino, portal, session, clock, config });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
   const section2 = makeSection({ kino, catalog, clock });
-  const categories2 = makeCategories({ catalog, kino });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section2, categories: categories2 };
+  const liveTiles = makeLiveTiles({ kino, live: live2, clock });
+  const categories2 = makeCategories({ catalog, kino, liveTiles });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section2, categories: categories2, liveTiles };
   return deps;
 }
 async function guarded(body) {
@@ -4811,7 +4941,15 @@ async function home() {
 }
 async function browse(ref, cursor) {
   await null;
-  return traced(kino, clock, "browse", () => guarded(({ catalog }) => catalog.browse(ref, cursor)), {}, servedBy);
+  const live2 = isLiveTileRef(ref);
+  return traced(
+    kino,
+    clock,
+    "browse",
+    () => guarded(({ catalog, liveTiles }) => live2 ? liveTiles.browse(ref, cursor) : catalog.browse(ref, cursor)),
+    live2 ? { kind: "live" } : {},
+    servedBy
+  );
 }
 async function section(arg) {
   await null;
