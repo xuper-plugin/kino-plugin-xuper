@@ -399,6 +399,7 @@ var TEXTS = Object.freeze({
   liveTileKids: ["Infantil en vivo", "Live kids"],
   liveTileMovies: ["Cine en vivo", "Live movies"],
   liveTileSeries: ["Series en vivo", "Live series"],
+  liveTileMoviesSeries: ["Cine y series en vivo", "Live movies & series"],
   liveTileEntertainment: ["Entretenimiento en vivo", "Live entertainment"],
   liveTileMusic: ["M\xFAsica en vivo", "Live music"],
   liveTileDocumentaries: ["Documentales en vivo", "Live documentaries"],
@@ -2658,12 +2659,13 @@ function makeIdsStore({ kino: kino2, clock: clock2 }) {
 // src/liveTiles.js
 var LIVE_TILE_PREFIX = "xlive:";
 var MAX_LIVE_TILES = 6;
-var GENRE_ORDER = ["deportes", "noticias", "infantil", "peliculas", "series", "entretenimiento", "musica", "documentales", "anime"];
+var GENRE_ORDER = ["deportes", "noticias", "infantil", "cineyseries", "peliculas", "series", "entretenimiento", "musica", "documentales", "anime"];
 var TITLE_KEY = {
   deportes: "liveTileSports",
   noticias: "liveTileNews",
   infantil: "liveTileKids",
   peliculas: "liveTileMovies",
+  cineyseries: "liveTileMoviesSeries",
   series: "liveTileSeries",
   entretenimiento: "liveTileEntertainment",
   musica: "liveTileMusic",
@@ -2687,11 +2689,13 @@ function makeLiveTiles({ kino: kino2, live: live2, clock: clock2 }) {
   async function tiles() {
     try {
       const deadline = Math.min(clock2.now() + LIVE_TILES_COLD_MS, callDeadline(clock2, CALL_BUDGET_MS.categories));
-      return genresOf2(await live2.genreCategories(deadline)).slice(0, MAX_LIVE_TILES).map(({ genre }) => ({
-        id: `xlive-${genre}`,
-        title: say(kino2, TITLE_KEY[genre]).slice(0, 40),
-        ref: LIVE_TILE_PREFIX + genre
-      }));
+      const genres = genresOf2(await live2.genreCategories(deadline)).slice(0, MAX_LIVE_TILES);
+      const logos = live2.genreLogos();
+      return genres.map(({ genre }) => {
+        const tile = { id: `xlive-${genre}`, title: say(kino2, TITLE_KEY[genre]).slice(0, 40), ref: LIVE_TILE_PREFIX + genre };
+        if (Object.hasOwn(logos, genre)) tile.art = logos[genre];
+        return tile;
+      });
     } catch (e) {
       trace(kino2, "categories", "live_tiles_fail", { code: errCode(e) });
       return [];
@@ -3594,8 +3598,12 @@ var SEARCH_INDEX_TTL_MS = 60 * 6e4;
 var PARTIAL_INDEX_TTL_MS = 3 * 6e4;
 var MAX_SEARCH_HITS = 100;
 var MIN_SEARCH_CHARS = 2;
-var CATEGORIES_KEY = "liveCats:v1";
+var CATEGORIES_KEY = "liveCats:v2";
+var OLD_CATEGORIES_KEYS = ["liveCats:v1"];
 var CATEGORIES_TTL_MS = 12 * 36e5;
+var LOGOS_KEY = "liveLogos:v1";
+var LOGOS_TTL_MS = 7 * 24 * 36e5;
+var MAX_LOGO_CHARS = 512;
 var plain2 = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
 var ALL_CHANNELS = "ChannelList";
 var NAMES = { [ALL_CHANNELS]: "Todos" };
@@ -3621,6 +3629,8 @@ var GENRE_BY_NAME = new Map(Object.entries({
   entretenimiento: "entretenimiento"
 }));
 var genreOfCategory = (name) => GENRE_BY_NAME.get(plain2(name)) ?? null;
+var TILE_GENRE_BY_NAME = new Map(Object.entries({ "cine y series": "cineyseries" }));
+var tileGenreOfCategory = (name) => genreOfCategory(name) ?? TILE_GENRE_BY_NAME.get(plain2(name)) ?? null;
 var COUNTRY_BY_NAME = (() => {
   const codes = /* @__PURE__ */ new Map();
   for (const [cc, name] of Object.entries(CATEGORIES_BY_COUNTRY)) codes.set(plain2(name), codes.has(plain2(name)) ? null : cc);
@@ -3629,6 +3639,7 @@ var COUNTRY_BY_NAME = (() => {
 var countryOfCategory = (name) => COUNTRY_BY_NAME.get(plain2(name)) ?? null;
 function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   let adultIds = null;
+  let genreById = null;
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino2);
     if (isKinoError(e)) return e;
@@ -3659,15 +3670,49 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     }
     if (out.length > 0) {
       adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
+      genreById = new Map(genreCategoriesOf(out).map((c) => [c.id, c.genre]));
       store(out);
     }
     return out;
   }
-  const genreCategoriesOf = (list) => list.filter((c) => !c.adult && !c.all && POSITIVE.test(c.id) && Number(c.id) > 0).map((c) => ({ id: c.id, genre: genreOfCategory(c.name) })).filter((c) => c.genre !== null);
+  const genreCategoriesOf = (list) => list.filter((c) => !c.adult && !c.all && POSITIVE.test(c.id) && Number(c.id) > 0).map((c) => ({ id: c.id, genre: tileGenreOfCategory(c.name) })).filter((c) => c.genre !== null);
   function store(list) {
     try {
       const rows = genreCategoriesOf(list).slice(0, MAX_CATEGORIES).map((c) => [c.id, c.genre]);
       kino2.storage.set(CATEGORIES_KEY, JSON.stringify(rows), { ttlMs: CATEGORIES_TTL_MS });
+      for (const k of OLD_CATEGORIES_KEYS) kino2.storage.remove(k);
+    } catch (_) {
+    }
+  }
+  let logos;
+  function genreLogos() {
+    if (logos !== void 0) return logos;
+    logos = {};
+    try {
+      const text2 = kino2.storage.get(LOGOS_KEY);
+      const map = typeof text2 === "string" ? JSON.parse(text2) : null;
+      if (isObject(map)) {
+        for (const [g, url] of Object.entries(map)) if (usableLogo(url)) logos[g] = url;
+      }
+    } catch (_) {
+    }
+    return logos;
+  }
+  const usableLogo = (url) => typeof url === "string" && url.length <= MAX_LOGO_CHARS && url.startsWith("https://");
+  function genreOfId(categoryId) {
+    if (genreById !== null) return genreById.get(categoryId) ?? null;
+    return storedGenreCategories()?.find((c) => c.id === categoryId)?.genre ?? null;
+  }
+  function noteLogo(categoryId, items) {
+    try {
+      const genre = genreOfId(categoryId);
+      if (genre === null) return;
+      const known = genreLogos();
+      if (Object.hasOwn(known, genre)) return;
+      const logo = items.find((c) => usableLogo(c.logo))?.logo;
+      if (!logo) return;
+      logos = { ...known, [genre]: logo };
+      kino2.storage.set(LOGOS_KEY, JSON.stringify(logos), { ttlMs: LOGOS_TTL_MS });
     } catch (_) {
     }
   }
@@ -3759,6 +3804,7 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
       const list = await fetchPage(id, page, deadline);
       const drops = {};
       const items = project(list, id, adult, drops);
+      if (!adult) noteLogo(id, items);
       trace(kino2, "live", "page", { cat: id, page, raw: list.length, kept: items.length, ...drops });
       return list.length >= LIST_PAGE_SIZE && page < LIST_MAX_PAGES ? { items, next: String(page + 1) } : { items };
     } catch (e) {
@@ -3844,9 +3890,11 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   const genreCategories = async (deadline) => storedGenreCategories() ?? genreCategoriesOf(await readCategories(deadline));
   async function channelsPage(id, page, size, deadline) {
     const list = await fetchPage(id, page, deadline, size);
-    return { items: project(list, id, false), full: list.length >= size };
+    const items = project(list, id, false);
+    noteLogo(id, items);
+    return { items, full: list.length >= size };
   }
-  return { liveCategories: liveCategories2, liveChannels: liveChannels2, categoriesWithin, channelsWithin, liveSearch: liveSearch2, genreCategories, channelsPage, surface };
+  return { liveCategories: liveCategories2, liveChannels: liveChannels2, categoriesWithin, channelsWithin, liveSearch: liveSearch2, genreCategories, genreLogos, channelsPage, surface };
 }
 
 // src/tweakedMd5.js

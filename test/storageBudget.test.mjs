@@ -66,7 +66,12 @@ test("worst case: every key the plugin writes, all full at once, fits the 256 KB
   };
   for (let i = 0; i < 12; i++) misc["liveRot:" + "c".repeat(128) + i] = rotation;
   // The genre categories (liveCatalog.js, for the Categorías live tiles): at most 200 [id, genre] pairs.
-  misc["liveCats:v1"] = JSON.stringify(Array.from({ length: 200 }, (_, i) => [String(100_000_000 + i), "entretenimiento"]));
+  misc["liveCats:v2"] = JSON.stringify(Array.from({ length: 200 }, (_, i) => [String(100_000_000 + i), "entretenimiento"]));
+  // One logo per tile genre (liveCatalog.js): every genre a tile can have, each URL at the 512-character cap.
+  misc["liveLogos:v1"] = JSON.stringify(Object.fromEntries(
+    ["deportes", "noticias", "infantil", "cineyseries", "peliculas", "series", "entretenimiento", "musica", "documentales", "anime"]
+      .map((g) => [g, ("https://img.test/" + "a/".repeat(300)).slice(0, 512)]),
+  ));
   // Wrapper of a value stored with a ttl ({"v":…,"e":…}) and the key itself, per key.
   const TTL_WRAPPER = 40;
   let total = 2; // the braces of the whole map

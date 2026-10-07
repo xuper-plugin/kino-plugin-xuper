@@ -1,9 +1,10 @@
 // Live categories and channels over the Magis portal (native-magis.md §6.1, §6.2; MagisLiveCatalog.kt).
 // No plugin-side cache of what En vivo shows (controller ruling R19): the app caches both lists for an hour.
 // Kept in memory: the set of adult category ids, so an adult category's channels are always marked. Kept in
-// storage: which categories are a genre (small, under its own key), read ONLY by the Categorías live tiles
-// (liveTiles.js), so opening Categorías asks the portal nothing once En vivo, the country row or a
-// previous Categorías read the list.
+// storage, read ONLY by the Categorías live tiles (liveTiles.js), each small and under its own key: which
+// categories are a tile's genre, so opening Categorías asks the portal nothing once En vivo, the country row
+// or a previous Categorías read the list; and one channel logo per genre, noted from channel pages already
+// fetched (En vivo, a tile's grid), which becomes that tile's picture.
 // 18+ is marked `adult: true`, never hidden (D3): Kino shows it only behind the device's 18+ code.
 import { PortalError, mapPortalError, callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { logoOf } from "./homeTree.js";
@@ -34,8 +35,15 @@ const PARTIAL_INDEX_TTL_MS = 3 * 60_000;
 const MAX_SEARCH_HITS = 100; // SDK: liveSearch keeps 100
 const MIN_SEARCH_CHARS = 2; // SDK: asked from 2 characters
 // The genre categories for the Categorías live tiles: at most 200 [id, genre] pairs, a few KB at worst.
-export const CATEGORIES_KEY = "liveCats:v1";
+// v2: "Cine y Series" became a tile; a v1 list (kept without it) is dropped, not read.
+export const CATEGORIES_KEY = "liveCats:v2";
+const OLD_CATEGORIES_KEYS = ["liveCats:v1"];
 const CATEGORIES_TTL_MS = 12 * 3600_000;
+// One logo per tile genre, `{ genre: url }`: ten genres at most, a URL of at most 512 characters (the portal
+// CDN's are about a hundred; a longer one is simply not kept), so a few KB at worst.
+export const LOGOS_KEY = "liveLogos:v1";
+const LOGOS_TTL_MS = 7 * 24 * 3600_000;
+export const MAX_LOGO_CHARS = 512;
 const plain = (text) => String(text).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
 
 // The portal calls the all-channels category "ChannelList": an internal English name.
@@ -57,6 +65,11 @@ const GENRE_BY_NAME = new Map(Object.entries({
   entretenimiento: "entretenimiento",
 }));
 export const genreOfCategory = (name) => GENRE_BY_NAME.get(plain(name)) ?? null;
+// Categories that get a Categorías tile without being one of the contract's genres (so En vivo's filter does
+// not see them): matched by their exact whole name, like a genre; nothing looser.
+const TILE_GENRE_BY_NAME = new Map(Object.entries({ "cine y series": "cineyseries" }));
+/** The live tile genre of a category name: a contract genre, else a tile-only one, else null. */
+export const tileGenreOfCategory = (name) => genreOfCategory(name) ?? TILE_GENRE_BY_NAME.get(plain(name)) ?? null;
 // A category's `country` (ISO 3166 alpha-2): only a name that is one country's own category (countryRow.js);
 // "Centroamérica" stands for three countries and gets none.
 const COUNTRY_BY_NAME = (() => {
@@ -71,6 +84,8 @@ export const countryOfCategory = (name) => COUNTRY_BY_NAME.get(plain(name)) ?? n
 export function makeLiveCatalog({ kino, portal, session, clock }) {
   // Adult category ids seen in the last non-empty categories answer; null = not read yet.
   let adultIds = null;
+  // Tile genre of each genre category id, from the last categories answer (null = use the kept list).
+  let genreById = null;
 
   // Portal codes become the mapped kino error, other kino errors pass, anything else is `unavailable`.
   const surface = (e) => {
@@ -104,6 +119,7 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
     }
     if (out.length > 0) {
       adultIds = new Set(out.filter((c) => c.adult).map((c) => c.id));
+      genreById = new Map(genreCategoriesOf(out).map((c) => [c.id, c.genre]));
       store(out);
     }
     return out;
@@ -113,14 +129,55 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
   // "Todos" are never one). A few bytes each; [] is kept too (this portal has none: nothing to ask again).
   const genreCategoriesOf = (list) => list
     .filter((c) => !c.adult && !c.all && POSITIVE.test(c.id) && Number(c.id) > 0)
-    .map((c) => ({ id: c.id, genre: genreOfCategory(c.name) }))
+    .map((c) => ({ id: c.id, genre: tileGenreOfCategory(c.name) }))
     .filter((c) => c.genre !== null);
 
   function store(list) {
     try {
       const rows = genreCategoriesOf(list).slice(0, MAX_CATEGORIES).map((c) => [c.id, c.genre]);
       kino.storage.set(CATEGORIES_KEY, JSON.stringify(rows), { ttlMs: CATEGORIES_TTL_MS });
+      for (const k of OLD_CATEGORIES_KEYS) kino.storage.remove(k);
     } catch (_) { /* memory only: the tiles ask the portal next time */ }
+  }
+
+  // ---- One logo per tile genre (the tiles' pictures) ---------------------------------------------
+  // Noted from pages fetched anyway, never asked for: the first https logo of a genre category's page, kept
+  // until it expires (a week), so a tile's picture stays put instead of following each page read.
+  let logos; // memory copy of LOGOS_KEY: undefined = not read yet
+
+  /** The kept `{ genre: url }` (never throws; {} when nothing is kept). */
+  function genreLogos() {
+    if (logos !== undefined) return logos;
+    logos = {};
+    try {
+      const text = kino.storage.get(LOGOS_KEY);
+      const map = typeof text === "string" ? JSON.parse(text) : null;
+      if (isObject(map)) {
+        for (const [g, url] of Object.entries(map)) if (usableLogo(url)) logos[g] = url;
+      }
+    } catch (_) { /* unreadable: no pictures */ }
+    return logos;
+  }
+
+  const usableLogo = (url) => typeof url === "string" && url.length <= MAX_LOGO_CHARS && url.startsWith("https://");
+
+  function genreOfId(categoryId) {
+    if (genreById !== null) return genreById.get(categoryId) ?? null;
+    return storedGenreCategories()?.find((c) => c.id === categoryId)?.genre ?? null;
+  }
+
+  // `items`: a page of category `categoryId` as `project` returns it. Never throws, never asks the portal.
+  function noteLogo(categoryId, items) {
+    try {
+      const genre = genreOfId(categoryId);
+      if (genre === null) return;
+      const known = genreLogos();
+      if (Object.hasOwn(known, genre)) return;
+      const logo = items.find((c) => usableLogo(c.logo))?.logo;
+      if (!logo) return;
+      logos = { ...known, [genre]: logo };
+      kino.storage.set(LOGOS_KEY, JSON.stringify(logos), { ttlMs: LOGOS_TTL_MS });
+    } catch (_) { /* a tile without a picture */ }
   }
 
   /** The kept genre categories (`{ id, genre }`), or null when none are kept (or they are unreadable). */
@@ -207,6 +264,7 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
       const list = await fetchPage(id, page, deadline);
       const drops = {};
       const items = project(list, id, adult, drops);
+      if (!adult) noteLogo(id, items);
       // What the portal sent against what went on (counts only): a gap against the old native list shows here.
       trace(kino, "live", "page", { cat: id, page, raw: list.length, kept: items.length, ...drops });
       return list.length >= LIST_PAGE_SIZE && page < LIST_MAX_PAGES ? { items, next: String(page + 1) } : { items };
@@ -314,8 +372,10 @@ export function makeLiveCatalog({ kino, portal, session, clock }) {
   /** Page `page` of category `id`, `size` channels a page (the caller checked the category is not adult). */
   async function channelsPage(id, page, size, deadline) {
     const list = await fetchPage(id, page, deadline, size);
-    return { items: project(list, id, false), full: list.length >= size };
+    const items = project(list, id, false);
+    noteLogo(id, items);
+    return { items, full: list.length >= size };
   }
 
-  return { liveCategories, liveChannels, categoriesWithin, channelsWithin, liveSearch, genreCategories, channelsPage, surface };
+  return { liveCategories, liveChannels, categoriesWithin, channelsWithin, liveSearch, genreCategories, genreLogos, channelsPage, surface };
 }

@@ -4,13 +4,17 @@
 // plays through `resolve` exactly as a channel from En vivo or the Home country row does.
 //
 // Which categories: only those whose whole name IS a genre (liveCatalog's genreOfCategory, the same `genre`
-// En vivo's filter gets: "Deportes", "Noticias", "Kids"…). Countries (about twenty) and "Todos" (a thousand channels) are left to En vivo,
+// En vivo's filter gets: "Deportes", "Noticias", "Kids"…), plus "Cine y Series" by its exact name (a tile-only
+// genre, `cineyseries`: tileGenreOfCategory). Countries (about twenty) and "Todos" (a thousand channels) are left to En vivo,
 // whose country filter and search serve them better than twenty more tiles would; an 18+ category is never
 // a tile (the VOD 18+ tile stays the one adult entry). Several categories of one genre share its tile.
 //
 // Cost: listing the tiles reads the genre categories liveCatalog keeps in storage (written whenever En vivo,
 // the country row or a previous Categorías read it), so opening Categorías asks the portal nothing then;
 // with nothing kept it asks once, bounded, and a failure only drops the live tiles.
+//
+// Pictures: a tile's `art` is a channel logo of its genre that liveCatalog noted from a channel page fetched
+// anyway (En vivo, this tile's grid). Listing the tiles never fetches channels for it: no logo kept, no art.
 import { callDeadline, CALL_BUDGET_MS } from "./portal.js";
 import { say } from "./i18n.js";
 import { trace, errCode } from "./trace.js";
@@ -18,11 +22,11 @@ import { trace, errCode } from "./trace.js";
 export const LIVE_TILE_PREFIX = "xlive:";
 /** Tiles at most: the order below is also the priority when a portal has more genres than this. */
 export const MAX_LIVE_TILES = 6;
-const GENRE_ORDER = ["deportes", "noticias", "infantil", "peliculas", "series", "entretenimiento", "musica", "documentales", "anime"];
+const GENRE_ORDER = ["deportes", "noticias", "infantil", "cineyseries", "peliculas", "series", "entretenimiento", "musica", "documentales", "anime"];
 // Each genre's tile title (i18n.js keys).
 const TITLE_KEY = {
   deportes: "liveTileSports", noticias: "liveTileNews", infantil: "liveTileKids", peliculas: "liveTileMovies",
-  series: "liveTileSeries", entretenimiento: "liveTileEntertainment", musica: "liveTileMusic",
+  cineyseries: "liveTileMoviesSeries", series: "liveTileSeries", entretenimiento: "liveTileEntertainment", musica: "liveTileMusic",
   documentales: "liveTileDocumentaries", anime: "liveTileAnime",
 };
 // With nothing kept, the tiles' one categories read stops this soon (the VOD tiles run beside it).
@@ -49,9 +53,13 @@ export function makeLiveTiles({ kino, live, clock }) {
   async function tiles() {
     try {
       const deadline = Math.min(clock.now() + LIVE_TILES_COLD_MS, callDeadline(clock, CALL_BUDGET_MS.categories));
-      return genresOf(await live.genreCategories(deadline)).slice(0, MAX_LIVE_TILES).map(({ genre }) => ({
-        id: `xlive-${genre}`, title: say(kino, TITLE_KEY[genre]).slice(0, 40), ref: LIVE_TILE_PREFIX + genre,
-      }));
+      const genres = genresOf(await live.genreCategories(deadline)).slice(0, MAX_LIVE_TILES);
+      const logos = live.genreLogos();
+      return genres.map(({ genre }) => {
+        const tile = { id: `xlive-${genre}`, title: say(kino, TITLE_KEY[genre]).slice(0, 40), ref: LIVE_TILE_PREFIX + genre };
+        if (Object.hasOwn(logos, genre)) tile.art = logos[genre];
+        return tile;
+      });
     } catch (e) {
       trace(kino, "categories", "live_tiles_fail", { code: errCode(e) });
       return [];

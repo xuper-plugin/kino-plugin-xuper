@@ -129,6 +129,7 @@ export const TEXTS = Object.freeze({
   liveTileKids: ["Infantil en vivo", "Live kids"],
   liveTileMovies: ["Cine en vivo", "Live movies"],
   liveTileSeries: ["Series en vivo", "Live series"],
+  liveTileMoviesSeries: ["Cine y series en vivo", "Live movies & series"],
   liveTileEntertainment: ["Entretenimiento en vivo", "Live entertainment"],
   liveTileMusic: ["Música en vivo", "Live music"],
   liveTileDocumentaries: ["Documentales en vivo", "Live documentaries"],
