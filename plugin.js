@@ -4625,7 +4625,6 @@ function makeCategories({ catalog, kino: kino2 = null, liveTiles = null }) {
 
 // src/seedContrib.js
 var CONTRIB_INTERVAL_MS = 10 * 36e5;
-var CONTRIB_FRACTION = 0.15;
 var VALIDATE_COLUMN = "masnew_movies";
 var REQUEST_MS = 1e4;
 var TOTAL_MS = 25e3;
@@ -4638,8 +4637,7 @@ function hasRealData(col) {
   if (Array.isArray(col)) return col.length > 0;
   return Object.keys(col).length > 0;
 }
-function makeSeedContrib({ kino: kino2, portal, clock: clock2, random }) {
-  const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
+function makeSeedContrib({ kino: kino2, portal, clock: clock2 }) {
   const fingerprint = makeFingerprint(kino2);
   let running = false;
   const enabled = () => {
@@ -4725,10 +4723,6 @@ function makeSeedContrib({ kino: kino2, portal, clock: clock2, random }) {
       const last = readAt();
       if (last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS) {
         trace(kino2, "seed_contrib", "skip", { why: "rate" });
-        return null;
-      }
-      if (rand() >= CONTRIB_FRACTION) {
-        trace(kino2, "seed_contrib", "skip", { why: "frac" });
         return null;
       }
       stampAt(now);

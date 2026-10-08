@@ -1,4 +1,4 @@
-// Anonymous seed contribution (2.2.19). A device that can create a WORKING anonymous Magis guest
+// Anonymous seed contribution (2.2.19; always-on from 2.2.20). A device that can create a WORKING anonymous Magis guest
 // session occasionally shares ONE fresh such session, so geo-blocked users have live sessions to
 // seed from. It is the owner's own seed pool, minted by the fleet instead of only by the owner's Mac.
 //
@@ -10,8 +10,8 @@
 //   consent  -- the person's plugin-telemetry consent (kino.seed only emits with it on, host-side)
 //               AND the plugin's own `contributeSeeds` setting (default on). Either off -> nothing.
 //   rate     -- at most one contribution per device per CONTRIB_INTERVAL_MS, kept in kino.storage.
-//   fraction -- only ~CONTRIB_FRACTION of eligible opportunities, so neither the portal nor the
-//               error board is flooded and not every device contributes on the same day.
+//               No dice: the first eligible Home after the window opens contributes, and then the
+//               device waits out the whole interval before it can contribute again.
 //   region   -- a device that cannot create a working guest session (a geo-block, a refusal, an
 //               empty or error answer at any step) contributes NOTHING: no event at all. The
 //               validate-before-send is the hard gate.
@@ -28,9 +28,6 @@ import { isKinoError } from "./util.js";
 // At most one contribution per device every 10 hours (owner, 2026-10-08). A fresh anonymous Magis
 // guest session lives ~12 h, so a fresh contribution every 10 h keeps the pool live without churn.
 export const CONTRIB_INTERVAL_MS = 10 * 3600_000;
-// Only ~15% of eligible opportunities actually contribute: spreads the fleet over the day so the
-// portal and GlitchTip are not flooded and devices do not all mint at once.
-export const CONTRIB_FRACTION = 0.15;
 // The column the fresh session must be able to fetch to count as working (matches the minter's
 // SEED_VALIDATE_COLUMN): a geo-blocked or dead session cannot read it, so it is never contributed.
 export const VALIDATE_COLUMN = "masnew_movies";
@@ -55,9 +52,7 @@ function hasRealData(col) {
   return Object.keys(col).length > 0;
 }
 
-export function makeSeedContrib({ kino, portal, clock, random }) {
-  // No Math.random: the injected source (tests), else the host's CSPRNG.
-  const rand = random || (() => parseInt(kino.crypto.randomBytes(4, "hex"), 16) / 0x100000000);
+export function makeSeedContrib({ kino, portal, clock }) {
   const fingerprint = makeFingerprint(kino);
   let running = false; // a second Home while one contribution is in flight must not start another
 
@@ -133,10 +128,8 @@ export function makeSeedContrib({ kino, portal, clock, random }) {
       const now = clock.now();
       const last = readAt();
       if (last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS) { trace(kino, "seed_contrib", "skip", { why: "rate" }); return null; }
-      // The fraction gate does NOT stamp: a losing roll stays eligible, so the next Home rolls again.
-      if (rand() >= CONTRIB_FRACTION) { trace(kino, "seed_contrib", "skip", { why: "frac" }); return null; }
-      // A winning roll starts the window whether or not the mint works, so a blocked device still
-      // contributes at most once per interval.
+      // Eligible: start the window whether or not the mint works, so a blocked device still tries
+      // at most once per interval.
       stampAt(now);
       const seed = await mintAnonymous();
       if (!seed) return null;

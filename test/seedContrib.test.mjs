@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fakeKino } from "./helpers/fakeKino.mjs";
-import { makeSeedContrib, CONTRIB_INTERVAL_MS, CONTRIB_FRACTION, AT_KEY, VALIDATE_COLUMN } from "../src/seedContrib.js";
+import { makeSeedContrib, CONTRIB_INTERVAL_MS, AT_KEY, VALIDATE_COLUMN } from "../src/seedContrib.js";
 import { PortalError } from "../src/portal.js";
 
 // A portal mock that answers the three mint calls. `col` is what getNextColumns returns (null/[]/throw
@@ -41,7 +41,7 @@ const NOW = 1_700_000_000_000;
 test("no kino.seed (older Kino): no mint, no event", async () => {
   const { kino, got } = worldKino({ withSeed: false });
   const portal = portalOf();
-  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW), random: () => 0 });
+  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW) });
   assert.equal(await c.maybeContribute(), null);
   assert.equal(portal.calls.length, 0);
   assert.equal(got.length, 0);
@@ -50,7 +50,7 @@ test("no kino.seed (older Kino): no mint, no event", async () => {
 test("telemetry/contribute toggle off: nothing minted, nothing sent", async () => {
   const { kino, got } = worldKino({ settings: { contributeSeeds: false } });
   const portal = portalOf();
-  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW), random: () => 0 });
+  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW) });
   assert.equal(await c.maybeContribute(), null);
   assert.equal(portal.calls.length, 0);
   assert.equal(got.length, 0);
@@ -59,24 +59,15 @@ test("telemetry/contribute toggle off: nothing minted, nothing sent", async () =
 test("rate limit: a contribution inside the 10 h window is skipped", async () => {
   const { kino, got } = worldKino({ storage: { [AT_KEY]: String(NOW - (CONTRIB_INTERVAL_MS - 1000)) } });
   const portal = portalOf();
-  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW), random: () => 0 });
+  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW) });
   assert.equal(await c.maybeContribute(), null);
   assert.equal(portal.calls.length, 0);
-});
-
-test("fraction gate: a losing roll does nothing and does NOT stamp (stays eligible)", async () => {
-  const { kino, got } = worldKino();
-  const portal = portalOf();
-  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW), random: () => 1 }); // 1 >= fraction -> lose
-  assert.equal(await c.maybeContribute(), null);
-  assert.equal(portal.calls.length, 0);
-  assert.equal(kino.storage.get(AT_KEY), null);
 });
 
 test("geo-blocked region: the mint throws, no event, but the window is stamped (one try per interval)", async () => {
   const { kino, got } = worldKino();
   const portal = portalOf({ failAt: "v3/snToken" });
-  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW), random: () => 0 });
+  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW) });
   assert.equal(await c.maybeContribute(), null);
   assert.equal(got.length, 0);
   assert.equal(kino.storage.get(AT_KEY), String(NOW)); // stamped: a blocked device won't retry until the window passes
@@ -86,7 +77,7 @@ test("validate-before-send: an empty catalog answer drops the contribution (no e
   for (const col of [[], null, {}]) {
     const { kino, got } = worldKino();
     const portal = portalOf({ col });
-    const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW), random: () => 0 });
+    const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW) });
     assert.equal(await c.maybeContribute(), null);
     assert.equal(got.length, 0, `col=${JSON.stringify(col)}`);
     assert.ok(portal.calls.some((x) => x.path === "getNextColumns"));
@@ -96,7 +87,7 @@ test("validate-before-send: an empty catalog answer drops the contribution (no e
 test("happy path: mints a fresh session, validates it, sends the exact seed shape", async () => {
   const { kino, got } = worldKino();
   const portal = portalOf({ activeExtra: { customer: "M-2", availableTime: 28800 } });
-  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW), random: () => 0 });
+  const c = makeSeedContrib({ kino, portal, clock: clockAt(NOW) });
   const seed = await c.maybeContribute();
   assert.ok(seed);
   // The validation fetched the agreed column.
@@ -117,7 +108,6 @@ test("happy path: mints a fresh session, validates it, sends the exact seed shap
   assert.equal(kino.storage.get(AT_KEY), String(NOW));
 });
 
-test("fraction/interval constants are the owner's values (10 h, ~15%)", () => {
+test("the interval is the owner's value (10 h) and there is no dice", () => {
   assert.equal(CONTRIB_INTERVAL_MS, 10 * 3600_000);
-  assert.ok(CONTRIB_FRACTION > 0 && CONTRIB_FRACTION < 1);
 });
