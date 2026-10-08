@@ -4623,6 +4623,132 @@ function makeCategories({ catalog, kino: kino2 = null, liveTiles = null }) {
   };
 }
 
+// src/seedContrib.js
+var CONTRIB_INTERVAL_MS = 10 * 36e5;
+var CONTRIB_FRACTION = 0.15;
+var VALIDATE_COLUMN = "masnew_movies";
+var REQUEST_MS = 1e4;
+var TOTAL_MS = 25e3;
+var AT_KEY = "seedContribAt";
+var CONTRIBUTE_SETTING = "contributeSeeds";
+var OPTIONAL_EXTRAS = ["customer", "activeTime", "availableTime"];
+var str4 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
+function hasRealData(col) {
+  if (col === null || typeof col !== "object") return false;
+  if (Array.isArray(col)) return col.length > 0;
+  return Object.keys(col).length > 0;
+}
+function makeSeedContrib({ kino: kino2, portal, clock: clock2, random }) {
+  const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
+  const fingerprint = makeFingerprint(kino2);
+  let running = false;
+  const enabled = () => {
+    try {
+      return kino2.config.get(CONTRIBUTE_SETTING) !== false;
+    } catch (_) {
+      return true;
+    }
+  };
+  const readAt = () => {
+    try {
+      const v = Number(kino2.storage.get(AT_KEY));
+      return Number.isFinite(v) && v > 0 ? v : null;
+    } catch (_) {
+      return null;
+    }
+  };
+  const stampAt = (now) => {
+    try {
+      kino2.storage.set(AT_KEY, String(now));
+    } catch (_) {
+    }
+  };
+  async function mintAnonymous() {
+    const bounds = { timeoutMs: REQUEST_MS, deadline: clock2.now() + TOTAL_MS };
+    try {
+      const mint = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
+      if (blank(mint && mint.snToken)) {
+        trace(kino2, "seed_contrib", "mint", { ok: false, why: "no_sntoken" });
+        return null;
+      }
+      const snToken = str4(mint.snToken);
+      const sn = snFrom(kino2, mint, snToken);
+      const act = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn, ...bounds });
+      if (blank(act && act.userToken) || blank(act && act.userId)) {
+        trace(kino2, "seed_contrib", "mint", { ok: false, why: "no_token" });
+        return null;
+      }
+      const col = await portal.call(
+        "getNextColumns",
+        { columnCode: VALIDATE_COLUMN, pageNum: 1, pageSize: 1, version: "" },
+        { baseFields: true, userId: str4(act.userId), userToken: str4(act.userToken), sn, ...bounds }
+      );
+      if (!hasRealData(col)) {
+        trace(kino2, "seed_contrib", "validate", { ok: false, why: "empty" });
+        return null;
+      }
+      return buildSeed(sn, act);
+    } catch (e) {
+      if (e instanceof PortalError || isKinoError(e)) {
+        trace(kino2, "seed_contrib", "mint", { ok: false, code: errCode(e) });
+        return null;
+      }
+      trace(kino2, "seed_contrib", "mint", { ok: false, why: "bug", code: errCode(e) });
+      return null;
+    }
+  }
+  function buildSeed(sn, act) {
+    const seed = {
+      sn,
+      userId: str4(act.userId),
+      userToken: str4(act.userToken),
+      jwtToken: str4(act.jwtToken || ""),
+      mintedAt: Math.floor(clock2.now() / 1e3)
+    };
+    for (const k of OPTIONAL_EXTRAS) {
+      const v = act[k];
+      if (typeof v === "string" && v !== "") seed[k] = v;
+      else if (typeof v === "number" && Number.isFinite(v)) seed[k] = v;
+    }
+    return seed;
+  }
+  async function maybeContribute() {
+    if (running) return null;
+    running = true;
+    try {
+      if (typeof kino2.seed !== "function") return null;
+      if (!enabled()) {
+        trace(kino2, "seed_contrib", "skip", { why: "off" });
+        return null;
+      }
+      const now = clock2.now();
+      const last = readAt();
+      if (last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS) {
+        trace(kino2, "seed_contrib", "skip", { why: "rate" });
+        return null;
+      }
+      if (rand() >= CONTRIB_FRACTION) {
+        trace(kino2, "seed_contrib", "skip", { why: "frac" });
+        return null;
+      }
+      stampAt(now);
+      const seed = await mintAnonymous();
+      if (!seed) return null;
+      try {
+        kino2.seed(seed);
+      } catch (_) {
+      }
+      trace(kino2, "seed_contrib", "done", { ok: 1, jwt: seed.jwtToken ? 1 : 0 });
+      return seed;
+    } catch (_) {
+      return null;
+    } finally {
+      running = false;
+    }
+  }
+  return { maybeContribute };
+}
+
 // src/wiring.js
 var deps = null;
 var clock = { now: () => Date.now() };
@@ -4641,7 +4767,8 @@ function getDeps() {
   const section2 = makeSection({ kino, catalog, clock });
   const liveTiles = makeLiveTiles({ kino, live: live2, clock });
   const categories2 = makeCategories({ catalog, kino, liveTiles });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section2, categories: categories2, liveTiles };
+  const seedContrib = makeSeedContrib({ kino, portal, clock });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section2, categories: categories2, liveTiles, seedContrib };
   return deps;
 }
 async function guarded(body) {
@@ -4720,7 +4847,7 @@ var REGISTER_REQUEST_MS = 1e4;
 var REGISTER_TOTAL_MS = 25e3;
 var LOGOUT_REQUEST_MS = 1e4;
 var LOGOUT_TOTAL_MS = 25e3;
-var str4 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
+var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
 function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
@@ -4729,7 +4856,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     trace(kino2, "settings", "fail", { code: errCode(e) });
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
-  const savedAccount = () => ({ email: str4(kino2.config.get("email")).trim(), password: str4(kino2.config.get("password")).trim() });
+  const savedAccount = () => ({ email: str5(kino2.config.get("email")).trim(), password: str5(kino2.config.get("password")).trim() });
   async function settingsStatus2() {
     await null;
     try {
@@ -4811,7 +4938,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   }
   async function register() {
     const email = typedEmail();
-    const code = str4(kino2.config.get("verifyCode")).trim();
+    const code = str5(kino2.config.get("verifyCode")).trim();
     if (code === "") throw told(kino2, "auth_required", "Escribe el c\xF3digo de verificaci\xF3n", say(kino2, "fillCode"));
     const { password } = savedAccount();
     if (password === "") throw told(kino2, "auth_required", "Escribe tu contrase\xF1a en Ajustes", say(kino2, "fillAccount"));
@@ -4838,7 +4965,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   async function validateSettings2(values) {
     await null;
     const v = values && typeof values === "object" ? values : {};
-    const email = str4(v.email).trim(), password = str4(v.password).trim();
+    const email = str5(v.email).trim(), password = str5(v.password).trim();
     const sharedOn = v.useSharedAccount === true || v.useSharedAccount === "true";
     if (sharedOn && email === "" && password === "") {
       const bounds2 = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
@@ -4863,7 +4990,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
       return null;
     } catch (e) {
       if (refusedCredentials(e)) {
-        const creating = str4(v.verifyCode).trim() !== "" || registration !== void 0 && registration !== null && registration.pendingFor(email) !== null;
+        const creating = str5(v.verifyCode).trim() !== "" || registration !== void 0 && registration !== null && registration.pendingFor(email) !== null;
         return creating ? null : { password: say(kino2, "credentialsRefused") };
       }
       throw surface(e);
@@ -4878,7 +5005,7 @@ var PENDING_TTL_MS = 30 * 6e4;
 var SEND_FAILED = "No se pudo enviar el c\xF3digo: revisa el email";
 var NOT_SAVED = "No se pudo guardar el pedido; int\xE9ntalo de nuevo";
 var CONFIRM_FAILED = "C\xF3digo inv\xE1lido o cuenta ya registrada";
-var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
+var str6 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   const fingerprint = makeFingerprint(kino2);
   const failure = (e, text2, sentence) => {
@@ -4891,8 +5018,8 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
     try {
       const raw = kino2.storage.get(PENDING_KEY);
       const o = raw === null || raw === void 0 ? null : JSON.parse(raw);
-      if (!o || typeof o !== "object" || blank(o.userToken) || blank(o.sn) || str5(o.email) !== email) return null;
-      return { userId: str5(o.userId), userToken: str5(o.userToken), sn: str5(o.sn), email: str5(o.email), at: typeof o.at === "number" ? o.at : null };
+      if (!o || typeof o !== "object" || blank(o.userToken) || blank(o.sn) || str6(o.email) !== email) return null;
+      return { userId: str6(o.userId), userToken: str6(o.userToken), sn: str6(o.sn), email: str6(o.email), at: typeof o.at === "number" ? o.at : null };
     } catch (_) {
       return null;
     }
@@ -4916,11 +5043,11 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
     try {
       const mint = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
       if (blank(mint && mint.snToken)) throw new PortalError("snToken_failed", "el portal no devolvi\xF3 snToken");
-      const snToken = str5(mint.snToken);
+      const snToken = str6(mint.snToken);
       const sn = snFrom(kino2, mint, snToken);
       const act = await portal.call("v8/active", activateBean(snToken), { baseFields: false, sn, ...bounds });
       if (blank(act && act.userToken)) throw new PortalError("active_sin_token", "activaci\xF3n sin userToken");
-      const pending = { userId: str5(act.userId), userToken: str5(act.userToken), sn, email, at: clock2.now() };
+      const pending = { userId: str6(act.userId), userToken: str6(act.userToken), sn, email, at: clock2.now() };
       await portal.call(
         "v2/sendEmailVerifyCode",
         { email, type: "1", userId: pending.userId, userToken: pending.userToken },
@@ -4985,7 +5112,13 @@ async function search(query) {
 }
 async function home() {
   await null;
-  return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy);
+  const out = await traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy);
+  try {
+    Promise.resolve(getDeps().seedContrib.maybeContribute()).catch(() => {
+    });
+  } catch (_) {
+  }
+  return out;
 }
 async function browse(ref, cursor) {
   await null;

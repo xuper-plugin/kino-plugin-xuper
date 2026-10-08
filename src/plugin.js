@@ -20,7 +20,13 @@ export async function search(query) {
   try { scoped = query !== null && typeof query === "object" && query.within !== undefined && query.within !== null; } catch (_) { scoped = false; }
   return traced(kino, clock, "search", () => guarded(({ catalog }) => catalog.search(query)), scoped ? { scope: "within" } : {}, servedBy);
 }
-export async function home() { await null; return traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy); }
+export async function home() {
+  await null;
+  const out = await traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy);
+  // After Home is served, maybe share one fresh anonymous seed (detached, best-effort, never blocks Home).
+  try { Promise.resolve(getDeps().seedContrib.maybeContribute()).catch(() => {}); } catch (_) { /* never fails Home */ }
+  return out;
+}
 // A Categorías live tile's ref (liveTiles.js) pages channels; every other ref is a VOD row.
 export async function browse(ref, cursor) {
   await null;

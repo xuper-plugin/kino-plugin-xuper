@@ -389,7 +389,7 @@ test("manifest: the account form has the actions and no leftover portalUrl", () 
   assert.equal(valueless.length, 11);
   assert.ok(valueless.length <= caps.ui.maxItems && caps.ui.maxItems >= 16);
   assert.ok(manifest.settings.length - valueless.length <= caps.max);
-  assert.equal(manifest.settings.length - valueless.length, 6);
+  assert.equal(manifest.settings.length - valueless.length, 7);
 });
 
 test("manifest: four sections in order, each with its own settings; nothing outside the plugin tab", () => {
@@ -400,7 +400,7 @@ test("manifest: four sections in order, each with its own settings; nothing outs
   const [a, c, d, h] = sections.map((s) => at(s.key));
   assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout", "useSharedAccount"]);
   assert.deepEqual(keys.slice(c + 1, d), ["verifyCode", "sendCode", "register"]);
-  assert.deepEqual(keys.slice(d + 1, h), ["autoRefreshSeeds", "switchSeed", "refreshSeeds"]);
+  assert.deepEqual(keys.slice(d + 1, h), ["autoRefreshSeeds", "switchSeed", "refreshSeeds", "contributeSeeds"]);
   assert.deepEqual(keys.slice(h + 1), ["homeCountry"]);
   const by = Object.fromEntries(manifest.settings.map((s) => [s.key, s]));
   assert.equal(by.verifyCode.type, "text");

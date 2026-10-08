@@ -12,6 +12,7 @@ import { makeSection } from "./section.js";
 import { makeCategories } from "./categories.js";
 import { makeCountryRow } from "./countryRow.js";
 import { makeLiveTiles } from "./liveTiles.js";
+import { makeSeedContrib } from "./seedContrib.js";
 import * as constants from "./config.js";
 import { isKinoError } from "./util.js";
 import { trace, errCode, makeDecodeReporter } from "./trace.js";
@@ -40,7 +41,9 @@ export function getDeps() {
   const section = makeSection({ kino, catalog, clock });
   const liveTiles = makeLiveTiles({ kino, live, clock });
   const categories = makeCategories({ catalog, kino, liveTiles });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories, liveTiles };
+  // The fleet's seed contribution: mints its OWN anonymous device off `portal`, never the session.
+  const seedContrib = makeSeedContrib({ kino, portal, clock });
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories, liveTiles, seedContrib };
   return deps;
 }
 
