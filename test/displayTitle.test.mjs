@@ -33,3 +33,23 @@ test("nothing readable left means the title as it was", () => {
   assert.equal(displaySeriesTitle(""), "");
   assert.equal(displaySeriesTitle(undefined), "");
 });
+
+import { collapseSeasons } from "../src/search.js";
+
+const row = (title, series = true) => ({ title, series });
+const read = (x) => x;
+
+test("collapseSeasons keeps the lowest season of each tagged series, at its own place", () => {
+  const list = [row("Naruto T2"), row("Matrix", false), row("Naruto T1"), row("Bleach T3"), row("Bleach T2")];
+  assert.deepEqual(collapseSeasons(list, read).map((x) => x.title), ["Matrix", "Naruto T1", "Bleach T2"]);
+});
+
+test("collapseSeasons never touches a title with no season tag, a movie, or two different series", () => {
+  const list = [row("Friends"), row("Friends"), row("Dune T1", false), row("Dune T2", false), row("Alfa T1"), row("Beta T1")];
+  assert.deepEqual(collapseSeasons(list, read), list);
+});
+
+test("collapseSeasons groups by the shown name: accents, case and the dub tag do not split a series", () => {
+  const list = [row("Dragón Ball Kai español T2"), row("Dragon Ball Kai Español T1")];
+  assert.deepEqual(collapseSeasons(list, read).map((x) => x.title), ["Dragon Ball Kai Español T1"]);
+});

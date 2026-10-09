@@ -5,7 +5,7 @@ import { isEnglish, isSpanish, genreName, say } from "./i18n.js";
 import { parseTree, refOf, parseShelveTime } from "./homeTree.js";
 import { fitRows, makeRowsStore } from "./rowsStore.js";
 import { isSeries } from "./refs.js";
-import { makeSearch } from "./search.js";
+import { makeSearch, collapseSeasons } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
 import { makeIdsStore } from "./idsStore.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS, slowPortal } from "./portal.js";
@@ -60,6 +60,9 @@ const NEW_WINDOW_MS = 48 * 3600_000;
 const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 
 const noIds = () => null;
+
+// One entry per series in every list (2.2.23): the portal's seasons are separate titles, and the person reads them as one.
+const oneEach = (items) => collapseSeasons(items, (i) => ({ title: i.title, series: isSeries(i.type) }));
 
 /**
  * One classified item as the SDK's item shape; null when its id cannot be used. `idsOf(contentId)`: the ids
@@ -116,7 +119,7 @@ export function rankWithin(kino, pool, q) {
 export function projectRows(rows, nowMs, idsOf = noIds, english = false, spanish = false) {
   const out = [];
   for (const r of rows) {
-    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english, spanish)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
+    const items = oneEach(r.shown).map((i) => projectItem(i, nowMs, idsOf, english, spanish)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
     if (items.length === 0) continue;
     const title = localizedRowTitle(r, english);
     const genre = genreOfRow(r.id);
@@ -418,7 +421,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   };
 
   async function browseAdult(cursor) {
-    const all = await adultWithin(CALL_BUDGET_MS.browse);
+    const all = oneEach(await adultWithin(CALL_BUDGET_MS.browse));
     const offset = offsetOf(cursor);
     const nowMs = clock.now();
     const idsOf = ids.lookup();
@@ -436,7 +439,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const nowMs = clock.now();
     // A row from the snapshot has no `all`: its shown items are the page, with no next (the full rows
     // are being built in the background for the next visit).
-    const list = row.all ?? (offset === 0 ? row.shown : []);
+    const list = oneEach(row.all ?? (offset === 0 ? row.shown : []));
     const idsOf = ids.lookup();
     const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
@@ -466,7 +469,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
       if (!row) return null;
       pool = row.all ?? row.shown; // a snapshot row: its shown items until the full rows are built
     }
-    const ranked = rankWithin(kino, pool, q);
+    const ranked = oneEach(rankWithin(kino, pool, q));
     const offset = offsetOf(query.cursor);
     const nowMs = clock.now();
     const idsOf = ids.lookup();

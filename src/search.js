@@ -61,6 +61,37 @@ export function sortSeasons(items) {
   return out;
 }
 
+/**
+ * One entry per series (2.2.23): the portal lists every season as its own title ("Dragon Ball Kai Español T1", "... T2"),
+ * which the person reads as the same series twice. For every series whose title carries a season tag, only the lowest
+ * season in `items` stays (at its own place); the others are one tap away in the detail's season selector. Titles with no
+ * season tag (single-season series, movies) are never grouped. `read(item)` = `{ title, series }`.
+ */
+// Lowercase, no accents, words only: "Dragón Ball Kai" and "dragon  ball kai" are one series.
+const seriesKey = (name) => String(name).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+export function collapseSeasons(items, read) {
+  const best = new Map(); // series name -> { index, season }
+  items.forEach((it, i) => {
+    const { title, series } = read(it);
+    if (!series) return;
+    const shown = displaySeriesTitle(title);
+    if (shown === title) return; // no season tag: a series of its own
+    const key = seriesKey(shown);
+    const season = seasonFromName(title);
+    const cur = best.get(key);
+    if (cur === undefined || season < cur.season) best.set(key, { index: i, season });
+  });
+  if (best.size === 0) return items;
+  return items.filter((it, i) => {
+    const { title, series } = read(it);
+    if (!series) return true;
+    const shown = displaySeriesTitle(title);
+    if (shown === title) return true;
+    return best.get(seriesKey(shown)).index === i;
+  });
+}
+
 // ---- portal answers -> compact items ---------------------------------------------------------
 // The internal (and stored) form of a portal item, keeping only what ranking and output read:
 //   c contentId, t title (name | viewPoint | alias), a alias when it differs, p programType when
@@ -264,7 +295,10 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null, isAdultI
     const out = [];
     let idsOf;
     try { idsOf = idsLookup(); } catch (_) { idsOf = () => null; }
-    for (const it of sortSeasons(items)) {
+    // A search for one season keeps what it asked; every other one shows each series once (the first season shown).
+    const ordered = sortSeasons(items);
+    const listed = ctx.season > 0 ? ordered : collapseSeasons(ordered, (it) => ({ title: it.t, series: isSeries(it.p ?? "movie") }));
+    for (const it of listed) {
       if (!ITEM_ID.test(it.c)) continue;
       const programType = it.p ?? "movie";
       const series = isSeries(programType);

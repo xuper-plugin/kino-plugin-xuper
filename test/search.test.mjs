@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { fakeKino } from "./helpers/fakeKino.mjs";
 import { checkOutput } from "../sdk/contract.mjs";
 import { makeCatalog } from "../src/catalog.js";
-import { seasonFromName, sortSeasons } from "../src/search.js";
+import { seasonFromName, sortSeasons, collapseSeasons } from "../src/search.js";
 import { makeTmdb, parseTitleForms } from "../src/tmdb.js";
 import { PortalError } from "../src/portal.js";
 import { decode } from "../src/refs.js";
@@ -262,8 +262,9 @@ test("the full-title query runs when the head found nothing relevant, and the se
   const { catalog, portal } = setup({ queue: [answer(lookAlike), answer(s2, s1)] });
   const out = await catalog.search(q("Love, Death & Robots", { type: "series" }));
   assert.deepEqual(portal.values(), ["Love", "Love, Death & Robots"]);
-  assert.deepEqual(titles(out), ["Love, Death & Robots", "Love, Death & Robots"]);
-  assert.deepEqual(out.map((x) => x.season), [1, 2], "the two seasons still tell themselves apart by `season`");
+  // 2.2.23: one entry per series; the other seasons are in the detail's season selector.
+  assert.deepEqual(titles(out), ["Love, Death & Robots"]);
+  assert.deepEqual(out.map((x) => x.season), [1]);
 });
 
 test("a head that already finds the title makes no extra call; a one-word miss is not asked twice", async () => {
@@ -295,7 +296,9 @@ test("season filter: type tv/anime with season > 0 keeps the season asked, or ev
   t = setup({ queue: [answer(s3, s4)] });
   assert.deepEqual(titles(await t.catalog.search(q("Naruto", { type: "anime", season: 9 }))), ["Naruto", "Naruto"]);
   t = setup({ queue: [answer(s3, s4)] });
-  assert.equal((await t.catalog.search(q("Naruto", { type: "tv", season: 0 }))).length, 2);
+  assert.equal((await t.catalog.search(q("Naruto", { type: "tv", season: 0 }))).length, 1, "no season asked: the series once, its first season shown");
+  t = setup({ queue: [answer(s3, s4)] });
+  assert.equal((await t.catalog.search(q("Naruto", { type: "tv", season: 9 }))).length, 2, "a season asked for: nothing is hidden");
 });
 
 test("seasonFromName reads T3, Temp.2, Temporada 4, S5; no suffix is season 1", () => {
@@ -566,6 +569,12 @@ const canonical = (bean) => Object.keys(bean).sort().map((k) => `${k}=${bean[k]}
 // 2.2.23: a series is shown without its season tag ("Dune, la leyenda T1" -> "Dune, la leyenda"); the capture predates it.
 const shownNow = (r) => (r.extra && r.extra.program_type && r.extra.program_type !== "movie" ? { ...r, title: displaySeriesTitle(r.title) } : r);
 
+// A search that asks for no season shows each series once (2.2.23).
+const shownList = (results, request) => {
+  const kept = Number(request.season) > 0 ? results : collapseSeasons(results, (r) => ({ title: r.title, series: Boolean(r.extra && r.extra.program_type && r.extra.program_type !== "movie") }));
+  return kept.map(shownNow);
+};
+
 function rebuilt(item, request) {
   const ref = decode(item.ref);
   const extra = { content_id: item.id, program_type: ref.programType, episode_count: String(item.episodeCount) };
@@ -595,7 +604,7 @@ for (const [i, file] of fixtureFiles.entries()) {
     const out = await catalog.search(q(request.q, { type: request.type, season: request.season, episode: request.episode, tmdbId: request.tmdbId }));
 
     assert.equal(fixture.expected.error, null);
-    assert.deepEqual(sorted(out.map((item) => rebuilt(item, request))), sorted(fixture.expected.results.map(shownNow)));
+    assert.deepEqual(sorted(out.map((item) => rebuilt(item, request))), sorted(shownList(fixture.expected.results, request)));
     assert.deepEqual(
       portal.calls.map((c) => c.path + " " + canonical(c.bean)),
       fixture.portal.map((c) => c.path + " " + canonical(c.bean)),

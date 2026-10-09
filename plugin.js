@@ -2234,6 +2234,28 @@ function sortSeasons(items) {
   });
   return out;
 }
+var seriesKey = (name) => String(name).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function collapseSeasons(items, read) {
+  const best = /* @__PURE__ */ new Map();
+  items.forEach((it, i) => {
+    const { title: title2, series } = read(it);
+    if (!series) return;
+    const shown = displaySeriesTitle(title2);
+    if (shown === title2) return;
+    const key = seriesKey(shown);
+    const season = seasonFromName(title2);
+    const cur = best.get(key);
+    if (cur === void 0 || season < cur.season) best.set(key, { index: i, season });
+  });
+  if (best.size === 0) return items;
+  return items.filter((it, i) => {
+    const { title: title2, series } = read(it);
+    if (!series) return true;
+    const shown = displaySeriesTitle(title2);
+    if (shown === title2) return true;
+    return best.get(seriesKey(shown)).index === i;
+  });
+}
 var str3 = (v) => typeof v === "string" ? v : "";
 var INT3 = /^[+-]?\d+$/;
 var ADULT_TAG = "adult";
@@ -2414,7 +2436,9 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null, 
     } catch (_) {
       idsOf = () => null;
     }
-    for (const it of sortSeasons(items)) {
+    const ordered = sortSeasons(items);
+    const listed = ctx.season > 0 ? ordered : collapseSeasons(ordered, (it) => ({ title: it.t, series: isSeries(it.p ?? "movie") }));
+    for (const it of listed) {
       if (!ITEM_ID.test(it.c)) continue;
       const programType = it.p ?? "movie";
       const series = isSeries(programType);
@@ -2856,6 +2880,7 @@ var MAX_GENRES = 5;
 var NEW_WINDOW_MS = 48 * 36e5;
 var ITEM_ID2 = /^[A-Za-z0-9._~-]{1,128}$/;
 var noIds = () => null;
+var oneEach = (items) => collapseSeasons(items, (i) => ({ title: i.title, series: isSeries(i.type) }));
 function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = false) {
   if (!ITEM_ID2.test(item.id)) return null;
   const out = {
@@ -2893,7 +2918,7 @@ function rankWithin(kino2, pool, q) {
 function projectRows(rows, nowMs, idsOf = noIds, english = false, spanish = false) {
   const out = [];
   for (const r of rows) {
-    const items = r.shown.map((i) => projectItem(i, nowMs, idsOf, english, spanish)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
+    const items = oneEach(r.shown).map((i) => projectItem(i, nowMs, idsOf, english, spanish)).filter((i) => i !== null).slice(0, MAX_ROW_ITEMS);
     if (items.length === 0) continue;
     const title2 = localizedRowTitle(r, english);
     const genre = genreOfRow(r.id);
@@ -3154,7 +3179,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     }
   };
   async function browseAdult(cursor) {
-    const all = await adultWithin(CALL_BUDGET_MS.browse);
+    const all = oneEach(await adultWithin(CALL_BUDGET_MS.browse));
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
     const idsOf = ids.lookup();
@@ -3168,7 +3193,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     if (!row2) rowMissing();
     const offset = offsetOf(cursor);
     const nowMs = clock2.now();
-    const list = row2.all ?? (offset === 0 ? row2.shown : []);
+    const list = oneEach(row2.all ?? (offset === 0 ? row2.shown : []));
     const idsOf = ids.lookup();
     const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2), isSpanish(kino2))).filter((i) => i !== null);
     const next = offset + BROWSE_PAGE;
@@ -3189,7 +3214,7 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
       if (!row2) return null;
       pool = row2.all ?? row2.shown;
     }
-    const ranked = rankWithin(kino2, pool, q);
+    const ranked = oneEach(rankWithin(kino2, pool, q));
     const offset = offsetOf(query.cursor);
     const nowMs = clock2.now();
     const idsOf = ids.lookup();
