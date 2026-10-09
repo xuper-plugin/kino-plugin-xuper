@@ -686,3 +686,56 @@ test("no Date.now / Math.random: the injected clock and random drive everything"
     await session.refreshSeeds().catch(() => {});
   } finally { Date.now = dn; Math.random = mr; }
 });
+
+// ---- seeds that carry `exp` (epoch seconds): a dying one is never picked ----
+// The test clock reads 1_000_000 ms, i.e. 1000 s.
+const seedExp = (n, exp) => ({ ...seed(n), exp });
+
+test("fetched pool keeps exp, and drops a non-numeric one", async () => {
+  const { session, kino } = setup({ fetchAnswer: [{ ...seed(1), exp: 5000 }, { ...seed(2), exp: "soon" }, seed(3)] });
+  assert.equal(await session.refreshSeeds({ manual: true }), true);
+  assert.deepEqual(JSON.parse(kino.storage.get("seeds")), [
+    { sn: "seed-1", userId: "su1", userToken: "st1", exp: 5000 },
+    { sn: "seed-2", userId: "su2", userToken: "st2" },
+    { sn: "seed-3", userId: "su3", userToken: "st3" },
+  ]);
+});
+
+test("a failed direct mint skips a seed that is about to die and picks a healthy one", async () => {
+  // seed 1 has 100 s left (< 5 min), seed 2 has hours; random() = 0 would pick the first of the pool.
+  const { portal, session, read } = setup({ seeds: [seedExp(1, 1100), seedExp(2, 20_000)], random: () => 0 });
+  portal.queue("v8/active", new PortalError("aaa100099", "x"));
+  await session.ensure();
+  assert.equal(read().sn, "seed-2");
+});
+
+test("a pool whose seeds are all dying is treated as empty: the pool is downloaded again", async () => {
+  const { portal, session, fetches, read } = setup({
+    seeds: [seedExp(1, 1100)], fetchAnswer: [seedExp(7, 20_000)], random: () => 0,
+  });
+  portal.queue("v8/active", new PortalError("aaa100099", "x"));
+  await session.ensure();
+  assert.equal(fetches.length, 1);
+  assert.equal(read().sn, "seed-7");
+});
+
+test("seeds without exp (an older pool) stay usable", async () => {
+  const { portal, session, fetches, read } = setup({ seeds: [seed(1)], random: () => 0 });
+  portal.queue("v8/active", new PortalError("aaa100099", "x"));
+  await session.ensure();
+  assert.equal(fetches.length, 0);
+  assert.equal(read().sn, "seed-1");
+});
+
+test("periodic refresh: a pool drained by expiry is re-downloaded after 15 min, a healthy one waits 3 h", async () => {
+  const run = async (seeds) => {
+    const { kino, session, clock, fetches } = setup({ seeds, fetchAnswer: [seedExp(9, 99_999)] });
+    kino.storage.set("region", JSON.stringify({ blocked: true }));
+    kino.storage.set("seedsAt", JSON.stringify(clock.t));
+    clock.t += 16 * 60_000;
+    await session.refreshSeeds({ periodic: true });
+    return fetches.length;
+  };
+  assert.equal(await run([seedExp(1, 1100)]), 1);   // its only seed is dying: asks again
+  assert.equal(await run([seed(1), seed(2)]), 0);   // nothing expiring: waits its 3 h
+});

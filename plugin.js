@@ -746,6 +746,9 @@ var MIN_REQUEST_MS = 1e3;
 var PERIODIC_REFRESH_MS = 3 * 36e5;
 var PERIODIC_TIMEOUT_MS = 5e3;
 var MAX_SEEDS = 200;
+var SEED_MIN_LIFE_MS = 5 * 6e4;
+var SEED_LOW_POOL = 10;
+var LOW_POOL_RETRY_MS = 15 * 6e4;
 var SEED_FALLBACK_TRIES = 3;
 var SEED_FALLBACK_MIN_MS = 1e3;
 var SEED_FALLBACK_REFRESH_MS = 15e3;
@@ -761,6 +764,11 @@ function makeLock() {
     });
     return run;
   };
+}
+function seedEntry(e) {
+  const out = { sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) };
+  if (typeof e.exp === "number" && Number.isFinite(e.exp) && e.exp > 0) out.exp = e.exp;
+  return out;
 }
 function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SEEDS_URL, random, shared }) {
   const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
@@ -891,8 +899,9 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   const seedPool = () => {
     const raw = readJson("seeds");
     if (!Array.isArray(raw)) return [];
-    return raw.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).map((e) => ({ sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) }));
+    return raw.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).map(seedEntry);
   };
+  const usable = (pool) => pool.filter((e) => e.exp === void 0 || e.exp * 1e3 - clock2.now() >= SEED_MIN_LIFE_MS);
   const pick = (pool) => pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
   const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn, acct: "" });
   const surface = (e) => e instanceof PortalError ? mapPortalError(e.code, e.message, kino2) : e;
@@ -947,13 +956,13 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       trace(kino2, "session", "geo", { at: "activate" });
       setRegion(true);
     }
-    let pool = seedPool();
+    let pool = usable(seedPool());
     if (pool.length === 0) {
       try {
         await refreshSeeds({ timeoutMs: BLOCKED_REFRESH_MS, deadline: bounds.deadline });
       } catch (_) {
       }
-      pool = seedPool();
+      pool = usable(seedPool());
     }
     if (pool.length > 0) {
       const chosen = pick(pool);
@@ -1044,7 +1053,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   });
   const transientLogin = (e) => e !== null && (e instanceof PortalError ? SESSION_DEAD.has(e.code) : isKinoError(e));
   const switchToBackup = (stale) => lock(async () => {
-    const pool = seedPool();
+    const pool = usable(seedPool());
     if (pool.length === 0) return false;
     if (readSession().userToken !== stale) return true;
     const chosen = pick(pool);
@@ -1074,7 +1083,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       report(kino2, "seeds", "refresh", { ok: false, why: "parse" });
       return false;
     }
-    const clean = list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).slice(0, MAX_SEEDS).map((e) => ({ sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) }));
+    const clean = list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).slice(0, MAX_SEEDS).map(seedEntry);
     if (clean.length === 0) {
       trace(kino2, "seeds", "refresh", { ok: false, why: "empty" });
       return false;
@@ -1097,7 +1106,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (periodic) {
       if (!autoRefresh() || !regionBlocked() || account()) return has();
       const at = readJson("seedsAt");
-      if (typeof at === "number" && clock2.now() - at < PERIODIC_REFRESH_MS) return has();
+      const stored = seedPool();
+      const draining = usable(stored).length < Math.min(SEED_LOW_POOL, stored.length);
+      const wait = draining ? LOW_POOL_RETRY_MS : PERIODIC_REFRESH_MS;
+      if (typeof at === "number" && clock2.now() - at < wait) return has();
       try {
         writeJson("seedsAt", clock2.now());
       } catch (_) {
@@ -1201,7 +1213,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   const blockedOrDead = (e) => e.code === GEO_BLOCKED || SESSION_DEAD.has(e.code);
   async function seedFallback(block, deadline) {
     const left = () => deadline - clock2.now();
-    let pool = seedPool();
+    let pool = usable(seedPool());
     let refreshed = false;
     if (pool.length === 0 && left() >= SEED_FALLBACK_MIN_MS) {
       refreshed = true;
@@ -1209,7 +1221,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         await refreshSeeds({ timeoutMs: SEED_FALLBACK_REFRESH_MS, deadline });
       } catch (_) {
       }
-      pool = seedPool();
+      pool = usable(seedPool());
     }
     const seen = /* @__PURE__ */ new Set();
     const candidates = pool.filter((e) => !seen.has(e.sn) && seen.add(e.sn));
@@ -1325,7 +1337,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const out = await lock(async () => {
       if (account()) return { result: "account_linked", tries: 0 };
       const current = readSession().sn;
-      const candidates = seedPool().filter((e) => e.sn !== current);
+      const candidates = usable(seedPool()).filter((e) => e.sn !== current);
       for (let i = candidates.length - 1; i > 0; i--) {
         const j = Math.min(i, Math.floor(rand() * (i + 1)));
         [candidates[i], candidates[j]] = [candidates[j], candidates[i]];

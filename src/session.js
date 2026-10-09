@@ -26,6 +26,13 @@ const MIN_REQUEST_MS = 1_000; // less time left than this before a call's deadli
 const PERIODIC_REFRESH_MS = 3 * 3600_000;
 const PERIODIC_TIMEOUT_MS = 5_000;
 const MAX_SEEDS = 200; // keeps the stored pool far below the 256 KB storage limit
+// A seed carries `exp` (epoch seconds, published by the collector). One with less life left than this is not
+// picked: it would die mid-call. The published pool already holds hours of margin; this guards a pool that
+// sat in storage. Seeds from an older pool have no `exp` and are always usable.
+const SEED_MIN_LIFE_MS = 5 * 60_000;
+// Expiry has left fewer usable seeds than this: the periodic refresh waits 15 min instead of 3 h (never every call).
+const SEED_LOW_POOL = 10;
+const LOW_POOL_RETRY_MS = 15 * 60_000;
 // Per-call seed fallback on the shared account (Ruling R33).
 const SEED_FALLBACK_TRIES = 3;
 const SEED_FALLBACK_MIN_MS = 1_000; // less time left than this: no new attempt
@@ -43,6 +50,13 @@ function makeLock() {
     tail = run.then(() => {}, () => {});
     return run;
   };
+}
+
+/** A pool entry as the plugin keeps it: the three identity fields, plus `exp` when the pool carries one. */
+function seedEntry(e) {
+  const out = { sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) };
+  if (typeof e.exp === "number" && Number.isFinite(e.exp) && e.exp > 0) out.exp = e.exp;
+  return out;
 }
 
 export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL, random, shared }) {
@@ -176,8 +190,9 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const raw = readJson("seeds");
     if (!Array.isArray(raw)) return [];
     return raw.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken))
-      .map((e) => ({ sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) }));
+      .map(seedEntry);
   };
+  const usable = (pool) => pool.filter((e) => e.exp === undefined || e.exp * 1000 - clock.now() >= SEED_MIN_LIFE_MS);
   const pick = (pool) => pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
   const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn, acct: "" });
 
@@ -233,10 +248,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (direct instanceof PortalError && direct.code === GEO_BLOCKED) { trace(kino, "session", "geo", { at: "activate" }); setRegion(true); }
     // Direct path failed: what an unflagged geo-block looks like. Any pool session beats none, and a
     // fresh install has no pool yet: it is downloaded once, bounded (native loaded it at activation).
-    let pool = seedPool();
+    let pool = usable(seedPool());
     if (pool.length === 0) {
       try { await refreshSeeds({ timeoutMs: BLOCKED_REFRESH_MS, deadline: bounds.deadline }); } catch (_) { /* ignored */ }
-      pool = seedPool();
+      pool = usable(seedPool());
     }
     if (pool.length > 0) {
       const chosen = pick(pool);
@@ -330,7 +345,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   const transientLogin = (e) => e !== null && (e instanceof PortalError ? SESSION_DEAD.has(e.code) : isKinoError(e));
 
   const switchToBackup = (stale) => lock(async () => {
-    const pool = seedPool();
+    const pool = usable(seedPool());
     if (pool.length === 0) return false;
     if (readSession().userToken !== stale) return true; // someone else already switched
     const chosen = pick(pool);
@@ -351,7 +366,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (!Array.isArray(list)) { report(kino, "seeds", "refresh", { ok: false, why: "parse" }); return false; }
     const clean = list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken))
       .slice(0, MAX_SEEDS)
-      .map((e) => ({ sn: str(e.sn), userId: str(e.userId), userToken: str(e.userToken) }));
+      .map(seedEntry);
     // Only a non-empty answer replaces the pool (native SeedRefresher.reseed()).
     if (clean.length === 0) { trace(kino, "seeds", "refresh", { ok: false, why: "empty" }); return false; }
     // A full store keeps the old pool: a download that cannot be kept is a failed one.
@@ -373,7 +388,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (periodic) {
       if (!autoRefresh() || !regionBlocked() || account()) return has();
       const at = readJson("seedsAt");
-      if (typeof at === "number" && clock.now() - at < PERIODIC_REFRESH_MS) return has();
+      const stored = seedPool();
+      const draining = usable(stored).length < Math.min(SEED_LOW_POOL, stored.length); // expiry is emptying it
+      const wait = draining ? LOW_POOL_RETRY_MS : PERIODIC_REFRESH_MS;
+      if (typeof at === "number" && clock.now() - at < wait) return has();
       // Stamped BEFORE the attempt: a dead network must not retry on every call.
       try { writeJson("seedsAt", clock.now()); } catch (_) { /* ignored */ }
     }
@@ -470,12 +488,12 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
    */
   async function seedFallback(block, deadline) {
     const left = () => deadline - clock.now();
-    let pool = seedPool();
+    let pool = usable(seedPool());
     let refreshed = false;
     if (pool.length === 0 && left() >= SEED_FALLBACK_MIN_MS) {
       refreshed = true;
       try { await refreshSeeds({ timeoutMs: SEED_FALLBACK_REFRESH_MS, deadline }); } catch (_) { /* ignored */ }
-      pool = seedPool();
+      pool = usable(seedPool());
     }
     const seen = new Set();
     const candidates = pool.filter((e) => !seen.has(e.sn) && seen.add(e.sn));
@@ -616,7 +634,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     const out = await lock(async () => {
       if (account()) return { result: "account_linked", tries: 0 };
       const current = readSession().sn;
-      const candidates = seedPool().filter((e) => e.sn !== current);
+      const candidates = usable(seedPool()).filter((e) => e.sn !== current);
       for (let i = candidates.length - 1; i > 0; i--) {
         const j = Math.min(i, Math.floor(rand() * (i + 1)));
         [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
