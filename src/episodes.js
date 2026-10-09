@@ -12,6 +12,7 @@ import { decode, encode, encodeChapter } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
 import { isObject, isKinoError, optStringStrict } from "./util.js";
 import { say } from "./i18n.js";
+import { cleanSeriesTitle } from "./titleClean.js";
 
 // One kino.storage key for every cached series (the whole storage is 256 KB and shared with the home
 // trees and the search results): never over 32,000 bytes, oldest series evicted first. A full
@@ -88,16 +89,17 @@ export function findChapter(items, episode) {
 }
 
 // ---- the stored form -------------------------------------------------------------------------
-// One entry per series, compact: { i: imdb, s: season | null, d: declared | null,
+// One entry per series, compact: { i: imdb, s: season | null, d: declared | null, t?: the portal's title (2.2.21),
 //   a: [[season id, number]], e: [[seriesNumber | null, contentId, name, duration?]] }.
 const validPayload = (p) => isObject(p) && typeof p.i === "string" && Array.isArray(p.a) && Array.isArray(p.e)
   && p.e.every((x) => Array.isArray(x) && typeof x[1] === "string" && typeof x[2] === "string")
   && p.a.every((x) => Array.isArray(x) && typeof x[0] === "string" && Number.isInteger(x[1]))
-  && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d));
+  && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d))
+  && (p.t === undefined || typeof p.t === "string");
 
 function pack(raw) {
   return {
-    i: raw.imdb, s: raw.season, d: raw.declared,
+    i: raw.imdb, s: raw.season, d: raw.declared, ...(raw.title ? { t: raw.title } : {}),
     a: raw.seasons.map((x) => [x.id, x.number]),
     e: raw.items.map((it) => (it.duration === undefined ? [it.seriesNumber, it.contentId, it.name] : [it.seriesNumber, it.contentId, it.name, it.duration])),
   };
@@ -105,7 +107,7 @@ function pack(raw) {
 
 const unpack = (p) => ({
   items: p.e.map((x) => ({ seriesNumber: x[0], contentId: x[1], name: x[2], duration: x[3] })),
-  imdb: p.i, season: p.s, declared: p.d, seasons: p.a.map((x) => ({ id: x[0], number: x[1] })),
+  imdb: p.i, season: p.s, declared: p.d, seasons: p.a.map((x) => ({ id: x[0], number: x[1] })), title: typeof p.t === "string" ? p.t : "",
 });
 
 /**
@@ -166,10 +168,12 @@ export function makePortalChapters({ kino, portal, session, clock, onServed = ()
       return item;
     });
     const seasonList = parseSeasonList(data.sameSeasonSeriesList, seriesId);
-    const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull(data.volumnCount), seasons: seasonList.all };
+    // The portal's title for this season ("Dragón Ball Kai español T2"): only read to find the series on TMDB when no IMDb id came.
+    const title = [data.name, data.viewPoint, data.alias].find((v) => typeof v === "string" && v.trim() !== "") ?? "";
+    const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull(data.volumnCount), seasons: seasonList.all, title };
     // Only cached with chapters: an empty list over a transient failure would stick for hours.
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
-    if (ids) ids.remember(seriesId, raw.imdb);
+    if (ids) { ids.remember(seriesId, raw.imdb); if (IMDB.test(raw.imdb)) ids.rememberSeasons(raw.seasons, raw.imdb); }
     onServed("fresh");
     return raw;
   };
@@ -234,7 +238,25 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
       throw e;
     }
     const { extra, series } = await enrich(raw, { deadline });
-    if (ids && IMDB.test(raw.imdb)) ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
+    // No IMDb id from the portal (2.2.21): TMDB may still name the series from its title once the dub and season tags
+    // are off ("Dragón Ball Kai español T2" -> "Dragón Ball Kai"). Only the ids and the series block use it; the
+    // chapters' stills keep requiring the exact IMDb match.
+    let byTitle = null;
+    if (!IMDB.test(raw.imdb) && tmdb && typeof tmdb.seriesByTitle === "function") {
+      const clean = cleanSeriesTitle(raw.title);
+      if (clean !== "") {
+        try { byTitle = await tmdb.seriesByTitle(clean, { deadline }); } catch (_) { byTitle = null; }
+      }
+    }
+    if (ids) {
+      if (IMDB.test(raw.imdb)) {
+        ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
+        ids.rememberSeasons(raw.seasons, raw.imdb, series?.tmdbId ?? 0);
+      } else if (byTitle) {
+        ids.remember(magis.contentId, "", byTitle.tmdbId);
+        ids.rememberSeasons(raw.seasons, "", byTitle.tmdbId);
+      }
+    }
 
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull(it.seriesNumber) ?? 0;
@@ -267,6 +289,9 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
         poster: series?.poster ?? "",
         backdrop: series?.backdrop ?? "",
       };
+    }
+    else if (byTitle) {
+      out.series = { ids: { tmdb: byTitle.tmdbId }, title: byTitle.title, poster: byTitle.poster, backdrop: byTitle.backdrop };
     }
     if (raw.seasons.length > 0) {
       out.seasons = raw.seasons.slice(0, MAX_SEASONS).map((s) => ({

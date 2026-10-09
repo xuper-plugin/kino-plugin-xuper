@@ -604,7 +604,8 @@ for (const [i, file] of fixtureFiles.entries()) {
     }
     const recorded = fixture.portal.filter((c) => !c.blockedByHarness);
     assert.deepEqual(t.portal.calls.map((c) => c.path + " " + canonical(c.bean)), recorded.map((c) => c.path + " " + canonical(c.bean)));
-    assert.deepEqual(t.world.calls, fixture.tmdb.map((c) => `${c.path}@${c.language}`));
+    // 2.2.21 adds a title search when the portal gave no IMDb id (the capture predates it, and answers it with nothing).
+    assert.deepEqual(t.world.calls.filter((c) => !c.startsWith("/3/search/tv@")), fixture.tmdb.map((c) => `${c.path}@${c.language}`));
   });
 }
 
@@ -688,4 +689,102 @@ test("the deadline rule holds for kino.tmdb too: under 500 ms left, TMDB is not 
   assert.equal(await tmdb.titleForms("movie", 603, { deadline: NOW + 100 }), null);
   assert.equal(asked, 0);
   assert.equal((await tmdb.seriesByImdb("tt1234567", { deadline: NOW + 5000 })).tmdbId, 1);
+});
+
+
+// ---- 2.2.21: a series whose title carries the dub and the season ("Dragón Ball Kai español T2") -----------------
+
+import { cleanSeriesTitle } from "../src/titleClean.js";
+import { pickSeriesByTitle } from "../src/tmdb.js";
+
+test("cleanSeriesTitle takes the dub, quality and season tags off the portal's title", () => {
+  const cases = {
+    "Dragón Ball Kai español T2": "Dragón Ball Kai",
+    "Dragón ball kai español T1": "Dragón ball kai",
+    "One Piece T1": "One Piece",
+    "La Rosa de Guadalupe T17": "La Rosa de Guadalupe",
+    "Los Simpson (Latino) Temporada 3": "Los Simpson",
+    "Cobra Kai S4 audio latino": "Cobra Kai",
+    "Breaking Bad 1080p": "Breaking Bad",
+    "Lucifer": "Lucifer",
+    "T2": "",
+    "": "",
+  };
+  for (const [from, to] of Object.entries(cases)) assert.equal(cleanSeriesTitle(from), to, from);
+  assert.equal(cleanSeriesTitle(null), "");
+  assert.equal(cleanSeriesTitle(undefined), "");
+});
+
+const result = (id, name, original, popularity) => ({ id, name, original_name: original, popularity, poster_path: "/p.jpg", backdrop_path: "/b.jpg" });
+
+test("pickSeriesByTitle: one exact name, or one clear best; anything doubtful names nothing", () => {
+  assert.equal(pickSeriesByTitle({ results: [result(5, "Dark", "Dark", 50)] }, "Dark").tmdbId, 5);
+  assert.equal(pickSeriesByTitle({ results: [result(5, "Lucifer", "Lucifer", 90), result(6, "Lucifer", "Lucifer", 2)] }, "Lucifer"), null, "two exact names: a remake is ambiguous");
+  // TMDB's "Dragon Ball Z Kai" for the portal's "Dragón Ball Kai": every word held, much more popular than the next one.
+  const kai = { results: [result(1, "Dragon Ball Z Kai", "ドラゴンボール改", 30), result(2, "Dragon Ball Z Kai: The Final Chapters", "x", 3), result(3, "Dragon Ball", "Dragon Ball", 60)] };
+  assert.equal(pickSeriesByTitle(kai, "Dragón Ball Kai").tmdbId, 1);
+  assert.equal(pickSeriesByTitle({ results: [result(1, "Dragon Ball Z Kai", "a", 30), result(2, "Dragon Ball Kai 2", "b", 25)] }, "Dragón Ball Kai"), null, "no clear winner");
+  assert.equal(pickSeriesByTitle({ results: [result(9, "Otra cosa", "Other", 9)] }, "Dragón Ball Kai"), null);
+  assert.equal(pickSeriesByTitle({ results: [] }, "x"), null);
+  assert.equal(pickSeriesByTitle("not json", "x"), null);
+  assert.equal(pickSeriesByTitle({ results: [result(9, "Dark", "Dark", 5)] }, ""), null);
+});
+
+const SEARCH_TV = "/3/search/tv@es-MX";
+const seasonsOf = (...entries) => entries.map(([contentId, seasonNumber]) => ({ contentId, seasonNumber }));
+
+test("no IMDb id: TMDB names the series from the cleaned title, and every season of it carries the tmdb id", async () => {
+  const t = setup({
+    queue: [detail({ imdb: "", seasons: seasonsOf(["S1", 1], ["SERIE", 2]), extra: { name: "Dragón Ball Kai español T2" } })],
+    bodies: { [SEARCH_TV]: { code: 200, body: { results: [result(61709, "Dragon Ball Z Kai", "ドラゴンボール改", 30), result(3, "Dragon Ball", "Dragon Ball", 60)] } } },
+  });
+  const out = await t.catalog.episodes(SERIES);
+  assert.deepEqual(out.series.ids, { tmdb: 61709 });
+  assert.equal(out.series.title, "Dragon Ball Z Kai");
+  assert.deepEqual(t.world.calls, [SEARCH_TV], "only the title search: with no IMDb the chapters' stills are not looked up");
+  assert.ok(!("still" in out.episodes[0]));
+  const stored = JSON.parse(t.kino.storage.get("ids:v1"));
+  const byId = Object.fromEntries(stored.e.map((e) => [e.k, e.i]));
+  assert.deepEqual(byId.SERIE, ["", 61709]);
+  assert.deepEqual(byId.S1, ["", 61709], "the sibling season nobody opened has it too");
+  const checked = checkOutput("episodes", out, manifest);
+  assert.deepEqual(checked.value.series.ids, { tmdb: 61709 });
+});
+
+test("no IMDb id and no clear TMDB match: no series block, nothing stored, as before", async () => {
+  const t = setup({
+    queue: [detail({ imdb: "", extra: { name: "Dragón Ball Kai español T2" } })],
+    bodies: { [SEARCH_TV]: { code: 200, body: { results: [result(1, "Algo distinto", "Other", 9)] } } },
+  });
+  const out = await t.catalog.episodes(SERIES);
+  assert.ok(!("series" in out));
+  assert.equal(t.kino.storage.get("ids:v1") ?? null, null);
+});
+
+test("no IMDb id and a title that is only tags: TMDB is not asked at all", async () => {
+  const t = setup({ queue: [detail({ imdb: "", extra: { name: "T2" } })] });
+  const out = await t.catalog.episodes(SERIES);
+  assert.ok(!("series" in out));
+  assert.deepEqual(t.world.calls, []);
+});
+
+test("an IMDb id from the portal wins: no title search, and the sibling seasons carry the ids", async () => {
+  const t = setup({
+    queue: [detail({ imdb: "tt0988824", seasons: seasonsOf(["S1", 1], ["SERIE", 2]), extra: { name: "Dragón Ball Kai español T2" } })],
+    bodies: { [FIND("tt0988824")]: find(tvHit(61709, "Dragon Ball Z Kai")) },
+  });
+  const out = await t.catalog.episodes(SERIES);
+  assert.deepEqual(out.series.ids, { imdb: "tt0988824", tmdb: 61709 });
+  assert.ok(!t.world.calls.includes(SEARCH_TV));
+  const stored = JSON.parse(t.kino.storage.get("ids:v1"));
+  const byId = Object.fromEntries(stored.e.map((e) => [e.k, e.i]));
+  assert.deepEqual(byId.S1, ["tt0988824", 61709], "the season nobody opened inherits the series' ids");
+});
+
+test("a failing title search never fails the listing", async () => {
+  for (const tmdb of [{ seriesByTitle: async () => { throw new Error("boom"); } }, { seriesByTitle: () => { throw new Error("sync"); } }]) {
+    const t = setup({ queue: [detail({ imdb: "", extra: { name: "Lucifer T1" } })], tmdb });
+    const out = await t.catalog.episodes(SERIES);
+    assert.ok(Array.isArray(out.episodes) && !("series" in out));
+  }
 });

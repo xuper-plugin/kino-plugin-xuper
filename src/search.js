@@ -27,7 +27,7 @@ const CACHE_FRESH_MS = 6 * 3600_000;
 // either side is not a boundary.
 const B = "(?<![\\p{L}\\p{N}_])";
 const E = "(?![\\p{L}\\p{N}_])";
-const SEASON_SOURCE = `(?:${B}T\\s?([0-9]{1,2})${E}|${B}Temp\\.?\\s?([0-9]{1,2})${E}|${B}Temporada\\s?([0-9]{1,2})${E}|${B}S([0-9]{1,2})${E})`;
+export const SEASON_SOURCE = `(?:${B}T\\s?([0-9]{1,2})${E}|${B}Temp\\.?\\s?([0-9]{1,2})${E}|${B}Temporada\\s?([0-9]{1,2})${E}|${B}S([0-9]{1,2})${E})`;
 
 /** Season number read from the name; 1 when it carries no suffix (a single-season series). */
 export function seasonFromName(name) {

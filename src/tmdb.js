@@ -85,6 +85,35 @@ export function parseSeriesByImdb(body) {
   return { tmdbId, title: text(tv.name), poster: imageUrl(tv.poster_path, "w500"), backdrop: imageUrl(tv.backdrop_path, "w1280") };
 }
 
+const plainWords = (t) => String(t).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * The series a TMDB /search/tv answer means by `title` (2.2.21), for a portal title with no IMDb id: only a CLEAR
+ * match counts, otherwise `null` (a wrong id would paint another series' information).
+ * 1. Exactly one result whose name or original name IS the title (accents, case and punctuation ignored).
+ * 2. Else, among the results holding every word of the title, exactly one; or the most popular when it has at least
+ *    twice the popularity of the next ("Dragón Ball Kai" is TMDB's "Dragon Ball Z Kai").
+ */
+export function pickSeriesByTitle(body, title) {
+  const o = bodyOf(body);
+  const want = plainWords(title);
+  if (!isObject(o) || !Array.isArray(o.results) || want === "") return null;
+  const hits = o.results.filter((r) => isObject(r) && optInt(r.id) > 0).slice(0, 10);
+  const forms = (r) => [plainWords(text(r.name)), plainWords(text(r.original_name))];
+  const pick = (r) => ({ tmdbId: optInt(r.id), title: text(r.name), poster: imageUrl(r.poster_path, "w500"), backdrop: imageUrl(r.backdrop_path, "w1280") });
+  const exact = hits.filter((r) => forms(r).includes(want));
+  if (exact.length === 1) return pick(exact[0]);
+  if (exact.length > 1) return null;
+  const words = want.split(" ");
+  const holding = hits.filter((r) => forms(r).some((f) => { const fw = f.split(" "); return words.every((w) => fw.includes(w)); }));
+  if (holding.length === 1) return pick(holding[0]);
+  if (holding.length > 1) {
+    const ranked = holding.slice().sort((a, b) => (Number(b.popularity) || 0) - (Number(a.popularity) || 0));
+    if ((Number(ranked[0].popularity) || 0) >= 2 * (Number(ranked[1].popularity) || 0) && (Number(ranked[0].popularity) || 0) > 0) return pick(ranked[0]);
+  }
+  return null;
+}
+
 /**
  * A season's episodes (native parseSeasonEpisodes): `null` = the question could not be answered (not
  * a JSON object), `[]` = TMDB answered and the season has none. A blank name reads "Episodio N".
@@ -174,6 +203,13 @@ export function makeTmdb({ kino, clock = null }) {
     return body === null ? null : parseSeriesByImdb(body);
   }
 
+  /** `{ tmdbId, title, poster, backdrop }` of the series a portal title clearly means (see pickSeriesByTitle), or null. */
+  async function seriesByTitle(title, bounds) {
+    if (typeof title !== "string" || title.trim() === "") return null;
+    const body = await read("/search/tv", { query: title.trim(), language: TMDB_LANGUAGE }, bounds);
+    return body === null ? null : pickSeriesByTitle(body, title);
+  }
+
   /** The season's `[{ episode, name, overview, still, airDate, runtimeMinutes }]`, or null when it could not be had. `language` overrides es-MX. */
   async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, bounds) {
     if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
@@ -181,5 +217,5 @@ export function makeTmdb({ kino, clock = null }) {
     return body === null ? null : parseSeasonEpisodes(body);
   }
 
-  return { titleForms, seriesByImdb, seasonEpisodes };
+  return { titleForms, seriesByImdb, seriesByTitle, seasonEpisodes };
 }

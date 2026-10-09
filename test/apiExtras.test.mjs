@@ -176,7 +176,7 @@ test("live country: a category named after one country gets its ISO code; Centro
 
 // ---- 9. ids on cards -------------------------------------------------------------------------------
 
-test("ids store: remembers imdb (+ tmdb once known), never tmdb 0, never a bad imdb; a later answer without TMDB keeps it", () => {
+test("ids store: remembers imdb (+ tmdb once known), never tmdb 0, never a bad imdb; a later answer without TMDB keeps it; an empty imdb needs a tmdb", () => {
   const kino = fakeKino();
   const clock = { now: () => NOW };
   const ids = makeIdsStore({ kino, clock });
@@ -184,11 +184,13 @@ test("ids store: remembers imdb (+ tmdb once known), never tmdb 0, never a bad i
   ids.remember("B", "tt0142032", 19566);
   ids.remember("C", "tt12", 5);
   ids.remember("D", "", 5);
+  ids.remember("E", "", 0);
   let of = ids.lookup();
   assert.deepEqual(of("A"), { imdb: "tt0088509" });
   assert.deepEqual(of("B"), { imdb: "tt0142032", tmdb: 19566 });
   assert.equal(of("C"), null);
-  assert.equal(of("D"), null);
+  assert.deepEqual(of("D"), { tmdb: 5 }, "2.2.21: a series TMDB named from its title carries only the tmdb id");
+  assert.equal(of("E"), null, "an empty imdb with no tmdb names nothing");
   assert.equal(of("Z"), null);
   ids.remember("B", "tt0142032", 0);
   ids.remember("A", "tt0088509", 12);

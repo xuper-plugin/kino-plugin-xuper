@@ -2398,6 +2398,21 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null, 
   return { search: search2 };
 }
 
+// src/titleClean.js
+var B2 = "(?<![\\p{L}\\p{N}_])";
+var E2 = "(?![\\p{L}\\p{N}_])";
+var LANGUAGE = new RegExp(
+  `${B2}(?:audio\\s+)?(?:espa[\xF1n]ol(?:\\s+latino)?|castellano|latino|latam|subtitulad[oa]|doblad[oa]|dual|sub(?:\\s+esp)?|hd|4k|\\d{3,4}p)${E2}`,
+  "giu"
+);
+var SEASON = new RegExp(SEASON_SOURCE, "giu");
+var BRACKETS = /[([{][^)\]}]*[)\]}]/g;
+function cleanSeriesTitle(title2) {
+  if (typeof title2 !== "string") return "";
+  const t = title2.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
+  return t.length >= 2 ? t : "";
+}
+
 // src/episodes.js
 var CACHE_KEY2 = "chapters:v1";
 var CACHE_BUDGET_BYTES2 = 32e3;
@@ -2448,12 +2463,13 @@ function findChapter(items, episode) {
   if (episode <= 0) return items[0];
   return items.find((it) => typeof it.seriesNumber === "string" && it.seriesNumber.trim() === String(episode));
 }
-var validPayload = (p) => isObject(p) && typeof p.i === "string" && Array.isArray(p.a) && Array.isArray(p.e) && p.e.every((x) => Array.isArray(x) && typeof x[1] === "string" && typeof x[2] === "string") && p.a.every((x) => Array.isArray(x) && typeof x[0] === "string" && Number.isInteger(x[1])) && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d));
+var validPayload = (p) => isObject(p) && typeof p.i === "string" && Array.isArray(p.a) && Array.isArray(p.e) && p.e.every((x) => Array.isArray(x) && typeof x[1] === "string" && typeof x[2] === "string") && p.a.every((x) => Array.isArray(x) && typeof x[0] === "string" && Number.isInteger(x[1])) && (p.s === null || Number.isInteger(p.s)) && (p.d === null || Number.isInteger(p.d)) && (p.t === void 0 || typeof p.t === "string");
 function pack(raw) {
   return {
     i: raw.imdb,
     s: raw.season,
     d: raw.declared,
+    ...raw.title ? { t: raw.title } : {},
     a: raw.seasons.map((x) => [x.id, x.number]),
     e: raw.items.map((it) => it.duration === void 0 ? [it.seriesNumber, it.contentId, it.name] : [it.seriesNumber, it.contentId, it.name, it.duration])
   };
@@ -2463,7 +2479,8 @@ var unpack = (p) => ({
   imdb: p.i,
   season: p.s,
   declared: p.d,
-  seasons: p.a.map((x) => ({ id: x[0], number: x[1] }))
+  seasons: p.a.map((x) => ({ id: x[0], number: x[1] })),
+  title: typeof p.t === "string" ? p.t : ""
 });
 function makePortalChapters({ kino: kino2, portal, session, clock: clock2, onServed = () => {
 }, ids = null }) {
@@ -2521,9 +2538,13 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2, onSer
       return item;
     });
     const seasonList = parseSeasonList(data.sameSeasonSeriesList, seriesId);
-    const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull2(data.volumnCount), seasons: seasonList.all };
+    const title2 = [data.name, data.viewPoint, data.alias].find((v) => typeof v === "string" && v.trim() !== "") ?? "";
+    const raw = { items, imdb: optStringStrict(data.keyWords), season: seasonList.own, declared: toIntOrNull2(data.volumnCount), seasons: seasonList.all, title: title2 };
     if (items.length > 0) cache.write([{ k: seriesId, i: pack(raw) }]);
-    if (ids) ids.remember(seriesId, raw.imdb);
+    if (ids) {
+      ids.remember(seriesId, raw.imdb);
+      if (IMDB.test(raw.imdb)) ids.rememberSeasons(raw.seasons, raw.imdb);
+    }
     onServed("fresh");
     return raw;
   };
@@ -2580,7 +2601,26 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
       throw e;
     }
     const { extra, series } = await enrich(raw, { deadline });
-    if (ids && IMDB.test(raw.imdb)) ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
+    let byTitle = null;
+    if (!IMDB.test(raw.imdb) && tmdb && typeof tmdb.seriesByTitle === "function") {
+      const clean = cleanSeriesTitle(raw.title);
+      if (clean !== "") {
+        try {
+          byTitle = await tmdb.seriesByTitle(clean, { deadline });
+        } catch (_) {
+          byTitle = null;
+        }
+      }
+    }
+    if (ids) {
+      if (IMDB.test(raw.imdb)) {
+        ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
+        ids.rememberSeasons(raw.seasons, raw.imdb, series?.tmdbId ?? 0);
+      } else if (byTitle) {
+        ids.remember(magis.contentId, "", byTitle.tmdbId);
+        ids.rememberSeasons(raw.seasons, "", byTitle.tmdbId);
+      }
+    }
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull2(it.seriesNumber) ?? 0;
       const ep = {
@@ -2607,6 +2647,8 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
         poster: series?.poster ?? "",
         backdrop: series?.backdrop ?? ""
       };
+    } else if (byTitle) {
+      out.series = { ids: { tmdb: byTitle.tmdbId }, title: byTitle.title, poster: byTitle.poster, backdrop: byTitle.backdrop };
     }
     if (raw.seasons.length > 0) {
       out.seasons = raw.seasons.slice(0, MAX_SEASONS).map((s) => ({
@@ -2629,13 +2671,24 @@ var KEEP_MS = 60 * 24 * 36e5;
 var IMDB2 = /^tt\d{7,10}$/;
 var MAX_TMDB = 2147483647;
 var validTmdb = (n) => Number.isInteger(n) && n > 0 && n <= MAX_TMDB;
-var valid = (p) => Array.isArray(p) && typeof p[0] === "string" && IMDB2.test(p[0]) && Number.isInteger(p[1]) && p[1] >= 0;
-var idsOfPayload = (p) => valid(p) ? validTmdb(p[1]) ? { imdb: p[0], tmdb: p[1] } : { imdb: p[0] } : null;
+var valid = (p) => Array.isArray(p) && typeof p[0] === "string" && Number.isInteger(p[1]) && p[1] >= 0 && (IMDB2.test(p[0]) || p[0] === "" && validTmdb(p[1]));
+var idsOfPayload = (p) => {
+  if (!valid(p)) return null;
+  if (p[0] === "") return { tmdb: p[1] };
+  return validTmdb(p[1]) ? { imdb: p[0], tmdb: p[1] } : { imdb: p[0] };
+};
 function makeIdsStore({ kino: kino2, clock: clock2 }) {
   const cache = makeByteCache({ kino: kino2, key: KEY2, budgetBytes: BUDGET_BYTES, clock: clock2, ttlMs: KEEP_MS, valid });
+  function rememberSeasons(siblings, imdb, tmdb = 0) {
+    try {
+      for (const s of Array.isArray(siblings) ? siblings : []) if (s && typeof s.id === "string") remember(s.id, imdb, tmdb);
+    } catch (_) {
+    }
+  }
   function remember(contentId, imdb, tmdb = 0) {
     try {
-      if (typeof contentId !== "string" || contentId.trim() === "" || typeof imdb !== "string" || !IMDB2.test(imdb)) return;
+      if (typeof contentId !== "string" || contentId.trim() === "" || typeof imdb !== "string") return;
+      if (!IMDB2.test(imdb) && !(imdb === "" && validTmdb(tmdb))) return;
       const entries = cache.read();
       const old = cache.get(contentId, entries);
       const keptTmdb = validTmdb(tmdb) ? tmdb : old && old[0] === imdb ? old[1] : 0;
@@ -2653,7 +2706,7 @@ function makeIdsStore({ kino: kino2, clock: clock2 }) {
     }
     return (contentId) => byId.has(contentId) ? idsOfPayload(byId.get(contentId)) : null;
   }
-  return { remember, lookup };
+  return { remember, rememberSeasons, lookup };
 }
 
 // src/liveTiles.js
@@ -3187,6 +3240,29 @@ function parseSeriesByImdb(body) {
   if (tmdbId <= 0) return null;
   return { tmdbId, title: text(tv.name), poster: imageUrl(tv.poster_path, "w500"), backdrop: imageUrl(tv.backdrop_path, "w1280") };
 }
+var plainWords2 = (t) => String(t).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function pickSeriesByTitle(body, title2) {
+  const o = bodyOf(body);
+  const want = plainWords2(title2);
+  if (!isObject(o) || !Array.isArray(o.results) || want === "") return null;
+  const hits = o.results.filter((r) => isObject(r) && optInt2(r.id) > 0).slice(0, 10);
+  const forms = (r) => [plainWords2(text(r.name)), plainWords2(text(r.original_name))];
+  const pick = (r) => ({ tmdbId: optInt2(r.id), title: text(r.name), poster: imageUrl(r.poster_path, "w500"), backdrop: imageUrl(r.backdrop_path, "w1280") });
+  const exact = hits.filter((r) => forms(r).includes(want));
+  if (exact.length === 1) return pick(exact[0]);
+  if (exact.length > 1) return null;
+  const words = want.split(" ");
+  const holding = hits.filter((r) => forms(r).some((f) => {
+    const fw = f.split(" ");
+    return words.every((w) => fw.includes(w));
+  }));
+  if (holding.length === 1) return pick(holding[0]);
+  if (holding.length > 1) {
+    const ranked = holding.slice().sort((a, b) => (Number(b.popularity) || 0) - (Number(a.popularity) || 0));
+    if ((Number(ranked[0].popularity) || 0) >= 2 * (Number(ranked[1].popularity) || 0) && (Number(ranked[0].popularity) || 0) > 0) return pick(ranked[0]);
+  }
+  return null;
+}
 function parseSeasonEpisodes(body) {
   const o = bodyOf(body);
   if (!isObject(o)) return null;
@@ -3257,12 +3333,17 @@ function makeTmdb({ kino: kino2, clock: clock2 = null }) {
     const body = await read(`/find/${imdbId}`, { external_source: "imdb_id", language: TMDB_LANGUAGE }, bounds);
     return body === null ? null : parseSeriesByImdb(body);
   }
+  async function seriesByTitle(title2, bounds) {
+    if (typeof title2 !== "string" || title2.trim() === "") return null;
+    const body = await read("/search/tv", { query: title2.trim(), language: TMDB_LANGUAGE }, bounds);
+    return body === null ? null : pickSeriesByTitle(body, title2);
+  }
   async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, bounds) {
     if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
     const body = await read(`/tv/${tvId}/season/${season}`, { language }, bounds);
     return body === null ? null : parseSeasonEpisodes(body);
   }
-  return { titleForms, seriesByImdb, seasonEpisodes };
+  return { titleForms, seriesByImdb, seriesByTitle, seasonEpisodes };
 }
 
 // src/resolve.js

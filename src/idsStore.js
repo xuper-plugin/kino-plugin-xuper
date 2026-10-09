@@ -11,14 +11,31 @@ const IMDB = /^tt\d{7,10}$/; // the portal's form (tt + 7 or more digits) within
 const MAX_TMDB = 2_147_483_647;
 
 const validTmdb = (n) => Number.isInteger(n) && n > 0 && n <= MAX_TMDB;
-// Stored as [imdb, tmdb]; tmdb 0 = not known (never sent).
-const valid = (p) => Array.isArray(p) && typeof p[0] === "string" && IMDB.test(p[0]) && Number.isInteger(p[1]) && p[1] >= 0;
+// Stored as [imdb, tmdb]; tmdb 0 = not known (never sent). An empty imdb with a positive tmdb (2.2.21) is a series
+// TMDB named from its title when the portal gave no IMDb id.
+const valid = (p) => Array.isArray(p) && typeof p[0] === "string" && Number.isInteger(p[1]) && p[1] >= 0
+  && (IMDB.test(p[0]) || (p[0] === "" && validTmdb(p[1])));
 
-/** `ids` as the contract reads them: `{ imdb, tmdb? }`, or null for a payload that names none. */
-const idsOfPayload = (p) => (valid(p) ? (validTmdb(p[1]) ? { imdb: p[0], tmdb: p[1] } : { imdb: p[0] }) : null);
+/** `ids` as the contract reads them: `{ imdb, tmdb? }`, `{ tmdb }`, or null for a payload that names none. */
+const idsOfPayload = (p) => {
+  if (!valid(p)) return null;
+  if (p[0] === "") return { tmdb: p[1] };
+  return validTmdb(p[1]) ? { imdb: p[0], tmdb: p[1] } : { imdb: p[0] };
+};
 
 export function makeIdsStore({ kino, clock }) {
   const cache = makeByteCache({ kino, key: KEY, budgetBytes: BUDGET_BYTES, clock, ttlMs: KEEP_MS, valid });
+
+  /**
+   * Remembers the same ids for every `siblings` season of a series (2.2.21): the IMDb and TMDB ids name the SERIES, and
+   * the portal lists each season as a title of its own, so a card of a season nobody opened carries them too. A
+   * sibling the person opens later states its own and overwrites. Never throws.
+   */
+  function rememberSeasons(siblings, imdb, tmdb = 0) {
+    try {
+      for (const s of Array.isArray(siblings) ? siblings : []) if (s && typeof s.id === "string") remember(s.id, imdb, tmdb);
+    } catch (_) { /* cards just go without ids */ }
+  }
 
   /**
    * Remembers what a detail answer said about `contentId`: its IMDb id and, when TMDB matched it, TMDB's.
@@ -27,7 +44,8 @@ export function makeIdsStore({ kino, clock }) {
    */
   function remember(contentId, imdb, tmdb = 0) {
     try {
-      if (typeof contentId !== "string" || contentId.trim() === "" || typeof imdb !== "string" || !IMDB.test(imdb)) return;
+      if (typeof contentId !== "string" || contentId.trim() === "" || typeof imdb !== "string") return;
+      if (!IMDB.test(imdb) && !(imdb === "" && validTmdb(tmdb))) return;
       const entries = cache.read();
       const old = cache.get(contentId, entries);
       const keptTmdb = validTmdb(tmdb) ? tmdb : old && old[0] === imdb ? old[1] : 0;
@@ -45,5 +63,5 @@ export function makeIdsStore({ kino, clock }) {
     return (contentId) => (byId.has(contentId) ? idsOfPayload(byId.get(contentId)) : null);
   }
 
-  return { remember, lookup };
+  return { remember, rememberSeasons, lookup };
 }
