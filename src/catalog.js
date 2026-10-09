@@ -12,6 +12,7 @@ import { viewOpts, callDeadline, CALL_BUDGET_MS, slowPortal } from "./portal.js"
 import { isKinoError } from "./util.js";
 import { isLiveTileRef } from "./liveTiles.js";
 import { trace, report, errCode, msBucket, kbBucket, PERF_AREAS } from "./trace.js";
+import { displaySeriesTitle } from "./titleClean.js";
 
 export { parseShelveTime };
 
@@ -70,7 +71,8 @@ function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = fals
   const out = {
     id: item.id,
     ref: refOf(item),
-    title: item.title.trim() === "" ? item.id : item.title,
+    // A season's own tag ("... Español T2") is the portal's bookkeeping: the name is the series (the season rides in `season`).
+    title: item.title.trim() === "" ? item.id : isSeries(item.type) ? displaySeriesTitle(item.title) : item.title,
     kind: isSeries(item.type) ? "series" : "movie",
   };
   if (item.poster) out.poster = item.poster;

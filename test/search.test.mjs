@@ -9,6 +9,7 @@ import { seasonFromName, sortSeasons } from "../src/search.js";
 import { makeTmdb, parseTitleForms } from "../src/tmdb.js";
 import { PortalError } from "../src/portal.js";
 import { decode } from "../src/refs.js";
+import { displaySeriesTitle } from "../src/titleClean.js";
 
 const HOUR = 3600_000;
 const NOW = Date.UTC(2026, 9, 2, 12, 0, 0);
@@ -159,7 +160,7 @@ test("type is mapped like the native host: series -> tv, blank -> movie, null ty
   const seasons = [hit("S1", "Naruto T1", { programType: "teleplay" }), hit("S2", "Naruto T2", { programType: "teleplay" })];
   // "series" behaves as tv: the season filter applies.
   let t = setup({ queue: [answer(...seasons)] });
-  assert.deepEqual(titles(await t.catalog.search(q("Naruto", { type: "series", season: 2 }))), ["Naruto T2"]);
+  assert.deepEqual(titles(await t.catalog.search(q("Naruto", { type: "series", season: 2 }))), ["Naruto"]);
   // "movie" and blank do not filter seasons.
   t = setup({ queue: [answer(...seasons)] });
   assert.equal((await t.catalog.search(q("Naruto", { type: "movie", season: 2 }))).length, 2);
@@ -187,7 +188,7 @@ test("item output: id, ref with the request's episode, kind, year, season, episo
     poster: "https://img.test/icon", backdrop: "https://img.test/back",
   });
   const out = await t.catalog.search(q("Dragon Ball", { episode: 4 }));
-  assert.deepEqual(out[0], { id: "S1", ref: "magis1:teleplay:4:S1", title: "Dragon Ball T3", kind: "series", year: "", season: 3, episodeCount: 8 });
+  assert.deepEqual(out[0], { id: "S1", ref: "magis1:teleplay:4:S1", title: "Dragon Ball", kind: "series", year: "", season: 3, episodeCount: 8 });
   const checked = checkOutput("search", [dune, ...out], manifest);
   assert.deepEqual(checked.drops, []);
   assert.equal(checked.value.items.length, 2);
@@ -261,7 +262,8 @@ test("the full-title query runs when the head found nothing relevant, and the se
   const { catalog, portal } = setup({ queue: [answer(lookAlike), answer(s2, s1)] });
   const out = await catalog.search(q("Love, Death & Robots", { type: "series" }));
   assert.deepEqual(portal.values(), ["Love", "Love, Death & Robots"]);
-  assert.deepEqual(titles(out), ["Love, Death & Robots T1", "Love, Death & Robots T2"]);
+  assert.deepEqual(titles(out), ["Love, Death & Robots", "Love, Death & Robots"]);
+  assert.deepEqual(out.map((x) => x.season), [1, 2], "the two seasons still tell themselves apart by `season`");
 });
 
 test("a head that already finds the title makes no extra call; a one-word miss is not asked twice", async () => {
@@ -289,9 +291,9 @@ test("season filter: type tv/anime with season > 0 keeps the season asked, or ev
   const s4 = hit("S4", "Naruto T4", { programType: "teleplay" });
   const film = hit("F", "Naruto La pelicula");
   let t = setup({ queue: [answer(s3, s4, film)] });
-  assert.deepEqual(titles(await t.catalog.search(q("Naruto", { type: "tv", season: 4 }))), ["Naruto T4", "Naruto La pelicula"]);
+  assert.deepEqual(titles(await t.catalog.search(q("Naruto", { type: "tv", season: 4 }))), ["Naruto", "Naruto La pelicula"]);
   t = setup({ queue: [answer(s3, s4)] });
-  assert.deepEqual(titles(await t.catalog.search(q("Naruto", { type: "anime", season: 9 }))), ["Naruto T3", "Naruto T4"]);
+  assert.deepEqual(titles(await t.catalog.search(q("Naruto", { type: "anime", season: 9 }))), ["Naruto", "Naruto"]);
   t = setup({ queue: [answer(s3, s4)] });
   assert.equal((await t.catalog.search(q("Naruto", { type: "tv", season: 0 }))).length, 2);
 });
@@ -561,6 +563,9 @@ const canonical = (bean) => Object.keys(bean).sort().map((k) => `${k}=${bean[k]}
 
 // What the retired device GatewayResult held, rebuilt from a plugin item plus the request (the
 // Kotlin test's `rebuilt()`): nothing the device's result carried may be missing from the item.
+// 2.2.23: a series is shown without its season tag ("Dune, la leyenda T1" -> "Dune, la leyenda"); the capture predates it.
+const shownNow = (r) => (r.extra && r.extra.program_type && r.extra.program_type !== "movie" ? { ...r, title: displaySeriesTitle(r.title) } : r);
+
 function rebuilt(item, request) {
   const ref = decode(item.ref);
   const extra = { content_id: item.id, program_type: ref.programType, episode_count: String(item.episodeCount) };
@@ -590,7 +595,7 @@ for (const [i, file] of fixtureFiles.entries()) {
     const out = await catalog.search(q(request.q, { type: request.type, season: request.season, episode: request.episode, tmdbId: request.tmdbId }));
 
     assert.equal(fixture.expected.error, null);
-    assert.deepEqual(sorted(out.map((item) => rebuilt(item, request))), sorted(fixture.expected.results));
+    assert.deepEqual(sorted(out.map((item) => rebuilt(item, request))), sorted(fixture.expected.results.map(shownNow)));
     assert.deepEqual(
       portal.calls.map((c) => c.path + " " + canonical(c.bean)),
       fixture.portal.map((c) => c.path + " " + canonical(c.bean)),

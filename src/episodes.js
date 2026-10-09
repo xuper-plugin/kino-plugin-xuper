@@ -185,11 +185,16 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
   // MagisSource.enrich: each chapter's still, name and synopsis from TMDB, matched exactly through the
   // series' IMDb id. Best-effort: any failure returns "nothing" (and no series).
   // `bounds` ({ deadline }): the export's; TMDB requests never run past it.
-  async function enrich(raw, bounds) {
+  // `byTitle` (2.2.23): the series TMDB named from the portal's title when the portal gave no IMDb id. Its chapters
+  // are crossed by number all the same: the numbering guard below (declared total == TMDB's) is what keeps a
+  // wrong season from attaching stills that don't belong.
+  async function enrich(raw, bounds, byTitle = null) {
     const none = { extra: new Map(), series: null };
-    if (!tmdb || !IMDB.test(raw.imdb) || raw.season === null) return none;
+    if (!tmdb || raw.season === null) return none;
+    const viaImdb = IMDB.test(raw.imdb);
+    if (!viaImdb && !byTitle) return none;
     try {
-      const series = await tmdb.seriesByImdb(raw.imdb, bounds);
+      const series = viaImdb ? await tmdb.seriesByImdb(raw.imdb, bounds) : byTitle;
       if (!series) return none;
       const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season, undefined, bounds);
       if (!fromTmdb) return { extra: new Map(), series };
@@ -237,10 +242,9 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
       if (isKinoError(e) && isEpisodeGone(e.userMessage)) throw mapPortalError("portal100006", "", kino, { goneMessage: SERIES_GONE });
       throw e;
     }
-    const { extra, series } = await enrich(raw, { deadline });
     // No IMDb id from the portal (2.2.21): TMDB may still name the series from its title once the dub and season tags
-    // are off ("Dragón Ball Kai español T2" -> "Dragón Ball Kai"). Only the ids and the series block use it; the
-    // chapters' stills keep requiring the exact IMDb match.
+    // are off ("Dragón Ball Kai español T2" -> "Dragón Ball Kai"). It gives the ids and the series block, and (2.2.23)
+    // the chapters' names, stills and synopses too, as long as the season's chapter count agrees with TMDB's.
     let byTitle = null;
     if (!IMDB.test(raw.imdb) && tmdb && typeof tmdb.seriesByTitle === "function") {
       const clean = cleanSeriesTitle(raw.title);
@@ -248,6 +252,7 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
         try { byTitle = await tmdb.seriesByTitle(clean, { deadline }); } catch (_) { byTitle = null; }
       }
     }
+    const { extra, series } = await enrich(raw, { deadline }, byTitle);
     if (ids) {
       if (IMDB.test(raw.imdb)) {
         ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
@@ -260,9 +265,12 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
 
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull(it.seriesNumber) ?? 0;
+      // The portal's "<series>_<n>" ("Dragon Ball Kai Español T1_1") is a file name, not a title: it reads "Capítulo 1"
+      // unless TMDB has the real one (below). A bare number ("790") stays: it is the chapter's own number in a long run.
+      const numbered = number > 0 && it.name.includes("_") && isGenericTitle(it.name);
       const ep = {
         number,
-        title: it.name.trim() !== "" ? it.name : say(kino, "chapterN", { n: number }),
+        title: it.name.trim() !== "" && !numbered ? it.name : say(kino, "chapterN", { n: number }),
         // The series plus the number: whoever plays it looks the chapter back up in the list.
         ref: encodeChapter(number, magis.contentId),
       };

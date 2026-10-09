@@ -7,6 +7,7 @@ import { encode, isSeries } from "./refs.js";
 import { makeByteCache } from "./byteCache.js";
 import { isObject, isKinoError } from "./util.js";
 import { trace } from "./trace.js";
+import { displaySeriesTitle } from "./titleClean.js";
 
 const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const MAX_OUTPUT_ITEMS = 100; // SDK cap
@@ -27,7 +28,8 @@ const CACHE_FRESH_MS = 6 * 3600_000;
 // either side is not a boundary.
 const B = "(?<![\\p{L}\\p{N}_])";
 const E = "(?![\\p{L}\\p{N}_])";
-export const SEASON_SOURCE = `(?:${B}T\\s?([0-9]{1,2})${E}|${B}Temp\\.?\\s?([0-9]{1,2})${E}|${B}Temporada\\s?([0-9]{1,2})${E}|${B}S([0-9]{1,2})${E})`;
+import { SEASON_SOURCE } from "./seasonTag.js";
+export { SEASON_SOURCE };
 
 /** Season number read from the name; 1 when it carries no suffix (a single-season series). */
 export function seasonFromName(name) {
@@ -269,7 +271,7 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null, isAdultI
       const item = {
         id: it.c,
         ref: encode({ contentId: it.c, programType, episode: ctx.episode }),
-        title: it.t.trim() === "" ? it.c : it.t,
+        title: it.t.trim() === "" ? it.c : series ? displaySeriesTitle(it.t) : it.t,
         kind: series ? "series" : "movie",
         year: it.y ?? "",
         season: series ? seasonFromName(it.t) : ctx.season,

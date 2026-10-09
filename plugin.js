@@ -2157,6 +2157,36 @@ function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, va
   return { read, get, getStale, fresh, write };
 }
 
+// src/seasonTag.js
+var B = "(?<![\\p{L}\\p{N}_])";
+var E = "(?![\\p{L}\\p{N}_])";
+var SEASON_SOURCE = `(?:${B}T\\s?([0-9]{1,2})${E}|${B}Temp\\.?\\s?([0-9]{1,2})${E}|${B}Temporada\\s?([0-9]{1,2})${E}|${B}S([0-9]{1,2})${E})`;
+
+// src/titleClean.js
+var B2 = "(?<![\\p{L}\\p{N}_])";
+var E2 = "(?![\\p{L}\\p{N}_])";
+var LANGUAGE = new RegExp(
+  `${B2}(?:audio\\s+)?(?:espa[\xF1n]ol(?:\\s+latino)?|castellano|latino|latam|subtitulad[oa]|doblad[oa]|dual|sub(?:\\s+esp)?|hd|4k|\\d{3,4}p)${E2}`,
+  "giu"
+);
+var SEASON = new RegExp(SEASON_SOURCE, "giu");
+var BRACKETS = /[([{][^)\]}]*[)\]}]/g;
+function cleanSeriesTitle(title2) {
+  if (typeof title2 !== "string") return "";
+  const t = title2.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
+  return t.length >= 2 ? t : "";
+}
+var DISPLAY_TAGS = `(?:${B2}audio\\s+(?:latino|espa[\xF1n]ol|castellano)|${B2}espa[\xF1n]ol(?:\\s+latino)?|${B2}castellano|${B2}subtitulad[oa]|${B2}doblad[oa]|${B2}hd|${B2}4k|${B2}\\d{3,4}p)${E2}`;
+var TRAILING_TAGS = new RegExp(`(?:[\\s_.:;,|/\\\\-]*${DISPLAY_TAGS})+[\\s_.:;,|/\\\\-]*$`, "iu");
+var TRAILING_SEASON = new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`, "iu");
+function displaySeriesTitle(title2) {
+  if (typeof title2 !== "string") return "";
+  const m = TRAILING_SEASON.exec(title2);
+  if (!m) return title2;
+  const rest = title2.slice(0, m.index).replace(TRAILING_TAGS, "").replace(/[\s_.:;,|/\\-]+$/g, "").trim();
+  return rest.length >= 2 ? rest : title2;
+}
+
 // src/search.js
 var ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 var MAX_OUTPUT_ITEMS = 100;
@@ -2168,9 +2198,6 @@ var PORTAL_SHARE_MS = 6e3;
 var CACHE_KEY = "search:v1";
 var CACHE_BUDGET_BYTES = 24e3;
 var CACHE_FRESH_MS = 6 * 36e5;
-var B = "(?<![\\p{L}\\p{N}_])";
-var E = "(?![\\p{L}\\p{N}_])";
-var SEASON_SOURCE = `(?:${B}T\\s?([0-9]{1,2})${E}|${B}Temp\\.?\\s?([0-9]{1,2})${E}|${B}Temporada\\s?([0-9]{1,2})${E}|${B}S([0-9]{1,2})${E})`;
 function seasonFromName(name) {
   const m = new RegExp(SEASON_SOURCE, "iu").exec(typeof name === "string" ? name : "");
   if (!m) return 1;
@@ -2383,7 +2410,7 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null, 
       const item = {
         id: it.c,
         ref: encode({ contentId: it.c, programType, episode: ctx.episode }),
-        title: it.t.trim() === "" ? it.c : it.t,
+        title: it.t.trim() === "" ? it.c : series ? displaySeriesTitle(it.t) : it.t,
         kind: series ? "series" : "movie",
         year: it.y ?? "",
         season: series ? seasonFromName(it.t) : ctx.season,
@@ -2408,21 +2435,6 @@ function makeSearch({ kino: kino2, portal, session, clock: clock2, tmdb = null, 
     return out;
   }
   return { search: search2 };
-}
-
-// src/titleClean.js
-var B2 = "(?<![\\p{L}\\p{N}_])";
-var E2 = "(?![\\p{L}\\p{N}_])";
-var LANGUAGE = new RegExp(
-  `${B2}(?:audio\\s+)?(?:espa[\xF1n]ol(?:\\s+latino)?|castellano|latino|latam|subtitulad[oa]|doblad[oa]|dual|sub(?:\\s+esp)?|hd|4k|\\d{3,4}p)${E2}`,
-  "giu"
-);
-var SEASON = new RegExp(SEASON_SOURCE, "giu");
-var BRACKETS = /[([{][^)\]}]*[)\]}]/g;
-function cleanSeriesTitle(title2) {
-  if (typeof title2 !== "string") return "";
-  const t = title2.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
-  return t.length >= 2 ? t : "";
 }
 
 // src/episodes.js
@@ -2562,11 +2574,13 @@ function makePortalChapters({ kino: kino2, portal, session, clock: clock2, onSer
   };
 }
 function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 = null, ids = null }) {
-  async function enrich(raw, bounds) {
+  async function enrich(raw, bounds, byTitle = null) {
     const none = { extra: /* @__PURE__ */ new Map(), series: null };
-    if (!tmdb || !IMDB.test(raw.imdb) || raw.season === null) return none;
+    if (!tmdb || raw.season === null) return none;
+    const viaImdb = IMDB.test(raw.imdb);
+    if (!viaImdb && !byTitle) return none;
     try {
-      const series = await tmdb.seriesByImdb(raw.imdb, bounds);
+      const series = viaImdb ? await tmdb.seriesByImdb(raw.imdb, bounds) : byTitle;
       if (!series) return none;
       const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season, void 0, bounds);
       if (!fromTmdb) return { extra: /* @__PURE__ */ new Map(), series };
@@ -2612,7 +2626,6 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
       if (isKinoError(e) && isEpisodeGone(e.userMessage)) throw mapPortalError("portal100006", "", kino2, { goneMessage: SERIES_GONE });
       throw e;
     }
-    const { extra, series } = await enrich(raw, { deadline });
     let byTitle = null;
     if (!IMDB.test(raw.imdb) && tmdb && typeof tmdb.seriesByTitle === "function") {
       const clean = cleanSeriesTitle(raw.title);
@@ -2624,6 +2637,7 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
         }
       }
     }
+    const { extra, series } = await enrich(raw, { deadline }, byTitle);
     if (ids) {
       if (IMDB.test(raw.imdb)) {
         ids.remember(magis.contentId, raw.imdb, series?.tmdbId ?? 0);
@@ -2635,9 +2649,10 @@ function makeEpisodes({ kino: kino2, tmdb = null, portalChapters, clock: clock2 
     }
     const list = raw.items.slice(0, MAX_EPISODES).map((it) => {
       const number = toIntOrNull2(it.seriesNumber) ?? 0;
+      const numbered = number > 0 && it.name.includes("_") && isGenericTitle(it.name);
       const ep = {
         number,
-        title: it.name.trim() !== "" ? it.name : say(kino2, "chapterN", { n: number }),
+        title: it.name.trim() !== "" && !numbered ? it.name : say(kino2, "chapterN", { n: number }),
         // The series plus the number: whoever plays it looks the chapter back up in the list.
         ref: encodeChapter(number, magis.contentId)
       };
@@ -2835,7 +2850,8 @@ function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = fals
   const out = {
     id: item.id,
     ref: refOf(item),
-    title: item.title.trim() === "" ? item.id : item.title,
+    // A season's own tag ("... Español T2") is the portal's bookkeeping: the name is the series (the season rides in `season`).
+    title: item.title.trim() === "" ? item.id : isSeries(item.type) ? displaySeriesTitle(item.title) : item.title,
     kind: isSeries(item.type) ? "series" : "movie"
   };
   if (item.poster) out.poster = item.poster;

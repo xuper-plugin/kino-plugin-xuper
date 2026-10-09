@@ -564,8 +564,11 @@ function rebuilt(data) {
 
 // The native capture as 2.2.15 answers it: TMDB's name where the portal's is generic, no tmdbTitle, no seasonNumber.
 function expectedNow(expected) {
+  // 2.2.23: a portal name like "<series>_<n>" is a file name; with no TMDB name it reads "Capítulo N".
   const episodes = expected.episodes.map(({ tmdbTitle, ...e }) => ({
-    ...e, title: tmdbTitle && isGenericTitle(e.title) && !isGenericTitle(tmdbTitle) ? tmdbTitle : e.title,
+    ...e,
+    title: tmdbTitle && isGenericTitle(e.title) && !isGenericTitle(tmdbTitle) ? tmdbTitle
+      : e.number > 0 && e.title.includes("_") && isGenericTitle(e.title) ? `Capítulo ${e.number}` : e.title,
   }));
   const series = expected.series ? (({ seasonNumber, ...s }) => s)(expected.series) : null;
   return { episodes, series };
@@ -741,7 +744,8 @@ test("no IMDb id: TMDB names the series from the cleaned title, and every season
   const out = await t.catalog.episodes(SERIES);
   assert.deepEqual(out.series.ids, { tmdb: 61709 });
   assert.equal(out.series.title, "Dragon Ball Z Kai");
-  assert.deepEqual(t.world.calls, [SEARCH_TV], "only the title search: with no IMDb the chapters' stills are not looked up");
+  // 2.2.23: the chapters' stills are asked for through the title's TMDB id too (TMDB has no season 2 here: nothing attached).
+  assert.deepEqual(t.world.calls, [SEARCH_TV, "/3/tv/61709/season/2@es-MX"]);
   assert.ok(!("still" in out.episodes[0]));
   const stored = JSON.parse(t.kino.storage.get("ids:v1"));
   const byId = Object.fromEntries(stored.e.map((e) => [e.k, e.i]));
@@ -787,4 +791,46 @@ test("a failing title search never fails the listing", async () => {
     const out = await t.catalog.episodes(SERIES);
     assert.ok(Array.isArray(out.episodes) && !("series" in out));
   }
+});
+
+// ---- 2.2.23: the portal's season tags and file names never reach the person ------------------------------
+
+const TAGGED = (n) => `Dragon Ball Kai Español T1_${n}`;
+const taggedChapters = [chapter(1, { name: TAGGED(1) }), chapter(2, { name: TAGGED(2) })];
+
+test("no IMDb id: a title that TMDB names also gives the chapters' names, stills and synopses, when the counts agree", async () => {
+  const t = setup({
+    queue: [detail({ imdb: "", seasons: seasonsOf(["SERIE", 1]), chapters: taggedChapters, extra: { name: "Dragón Ball Kai español T1" } })],
+    bodies: {
+      [SEARCH_TV]: { code: 200, body: { results: [result(61709, "Dragon Ball Z Kai", "ドラゴンボール改", 30)] } },
+      "/3/tv/61709/season/1@es-MX": season(tep(1, "El comienzo", "Sinopsis 1", "/a.jpg"), tep(2, "La batalla", "Sinopsis 2", "/b.jpg")),
+    },
+  });
+  const out = await t.catalog.episodes(SERIES);
+  assert.deepEqual(out.episodes.map((e) => e.title), ["El comienzo", "La batalla"]);
+  assert.ok(out.episodes[0].still.endsWith("/a.jpg"));
+  assert.equal(out.episodes[1].overview, "Sinopsis 2");
+  assert.deepEqual(out.series.ids, { tmdb: 61709 });
+});
+
+test("no IMDb id: a TMDB season of another size attaches nothing, and the file names read 'Capítulo N'", async () => {
+  const t = setup({
+    queue: [detail({ imdb: "", seasons: seasonsOf(["SERIE", 1]), chapters: taggedChapters, extra: { name: "Dragón Ball Kai español T1" } })],
+    bodies: {
+      [SEARCH_TV]: { code: 200, body: { results: [result(61709, "Dragon Ball Z Kai", "ドラゴンボール改", 30)] } },
+      "/3/tv/61709/season/1@es-MX": season(tep(1, "A", "", "/a.jpg"), tep(2, "B", "", "/b.jpg"), tep(3, "C", "", "/c.jpg")),
+    },
+  });
+  const out = await t.catalog.episodes(SERIES);
+  assert.deepEqual(out.episodes.map((e) => e.title), ["Capítulo 1", "Capítulo 2"]);
+  assert.ok(out.episodes.every((e) => !("still" in e)), "no stills of a season that is not this one");
+  assert.deepEqual(out.series.ids, { tmdb: 61709 }, "the series block still travels");
+});
+
+test("a '<series>_<n>' chapter name reads 'Capítulo N', but a bare number or a real name stays as the portal gave it", async () => {
+  const t = setup({
+    queue: [detail({ imdb: "", chapters: [chapter(1, { name: "One Piece T1_8" }), chapter(2, { name: "790" }), chapter(3, { name: "El secreto" }), chapter(4, { name: "Capitulo 4" })] })],
+  });
+  const out = await t.catalog.episodes(SERIES);
+  assert.deepEqual(out.episodes.map((e) => e.title), ["Capítulo 1", "790", "El secreto", "Capitulo 4"]);
 });
