@@ -31,6 +31,7 @@ export function cleanSeriesTitle(title) {
 const DISPLAY_TAGS =
   `(?:${B}audio\\s+(?:latino|espa[ñn]ol|castellano)|${B}espa[ñn]ol(?:\\s+latino)?|${B}castellano|${B}subtitulad[oa]|${B}doblad[oa]|${B}hd|${B}4k|${B}\\d{3,4}p)${E}`;
 const TRAILING_TAGS = new RegExp(`(?:[\\s_.:;,|/\\\\-]*${DISPLAY_TAGS})+[\\s_.:;,|/\\\\-]*$`, "iu");
+const ENDS_IN_DIGIT = /[0-9]\s*$/;
 const TRAILING_SEASON = new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`, "iu");
 
 /**
@@ -41,6 +42,9 @@ const TRAILING_SEASON = new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`
  */
 export function displaySeriesTitle(title) {
   if (typeof title !== "string") return "";
+  // A season tag always ends in a digit: nearly every title is turned back here, so Home and the categories (thousands of
+  // items, on a slow TV) pay for no regex at all.
+  if (!ENDS_IN_DIGIT.test(title)) return title;
   const m = TRAILING_SEASON.exec(title);
   if (!m) return title;
   const rest = title.slice(0, m.index).replace(TRAILING_TAGS, "").replace(/[\s_.:;,|/\\-]+$/g, "").trim();
