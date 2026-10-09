@@ -2176,16 +2176,25 @@ function cleanSeriesTitle(title2) {
   const t = title2.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
   return t.length >= 2 ? t : "";
 }
-var DISPLAY_TAGS = `(?:${B2}audio\\s+(?:latino|espa[\xF1n]ol|castellano)|${B2}espa[\xF1n]ol(?:\\s+latino)?|${B2}castellano|${B2}subtitulad[oa]|${B2}doblad[oa]|${B2}hd|${B2}4k|${B2}\\d{3,4}p)${E2}`;
-var TRAILING_TAGS = new RegExp(`(?:[\\s_.:;,|/\\\\-]*${DISPLAY_TAGS})+[\\s_.:;,|/\\\\-]*$`, "iu");
 var ENDS_IN_DIGIT = /[0-9]\s*$/;
-var TRAILING_SEASON = new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`, "iu");
+var tails = null;
+function tailRegexes() {
+  if (tails === null) {
+    const tags = `(?:${B2}audio\\s+(?:latino|espa[\xF1n]ol|castellano)|${B2}espa[\xF1n]ol(?:\\s+latino)?|${B2}castellano|${B2}subtitulad[oa]|${B2}doblad[oa]|${B2}hd|${B2}4k|${B2}\\d{3,4}p)${E2}`;
+    tails = {
+      tags: new RegExp(`(?:[\\s_.:;,|/\\\\-]*${tags})+[\\s_.:;,|/\\\\-]*$`, "iu"),
+      season: new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`, "iu")
+    };
+  }
+  return tails;
+}
 function displaySeriesTitle(title2) {
   if (typeof title2 !== "string") return "";
   if (!ENDS_IN_DIGIT.test(title2)) return title2;
-  const m = TRAILING_SEASON.exec(title2);
+  const { tags, season } = tailRegexes();
+  const m = season.exec(title2);
   if (!m) return title2;
-  const rest = title2.slice(0, m.index).replace(TRAILING_TAGS, "").replace(/[\s_.:;,|/\\-]+$/g, "").trim();
+  const rest = title2.slice(0, m.index).replace(tags, "").replace(/[\s_.:;,|/\\-]+$/g, "").trim();
   return rest.length >= 2 ? rest : title2;
 }
 

@@ -28,11 +28,21 @@ export function cleanSeriesTitle(title) {
 // The dub / quality tags the portal puts right before the season tag, only ever taken off the END of a title that ends in
 // a season tag. Narrower than LANGUAGE: a bare "latino", "sub" or "dual" can be part of a name ("Amor Latino"), so they
 // only count with "español" / "audio" in front.
-const DISPLAY_TAGS =
-  `(?:${B}audio\\s+(?:latino|espa[ñn]ol|castellano)|${B}espa[ñn]ol(?:\\s+latino)?|${B}castellano|${B}subtitulad[oa]|${B}doblad[oa]|${B}hd|${B}4k|${B}\\d{3,4}p)${E}`;
-const TRAILING_TAGS = new RegExp(`(?:[\\s_.:;,|/\\\\-]*${DISPLAY_TAGS})+[\\s_.:;,|/\\\\-]*$`, "iu");
+// Built on first use, not at load: compiling a Unicode, case-insensitive regex is slow on a TV's engine, and nearly every
+// title is turned back before it by ENDS_IN_DIGIT.
 const ENDS_IN_DIGIT = /[0-9]\s*$/;
-const TRAILING_SEASON = new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`, "iu");
+let tails = null;
+function tailRegexes() {
+  if (tails === null) {
+    const tags =
+      `(?:${B}audio\\s+(?:latino|espa[ñn]ol|castellano)|${B}espa[ñn]ol(?:\\s+latino)?|${B}castellano|${B}subtitulad[oa]|${B}doblad[oa]|${B}hd|${B}4k|${B}\\d{3,4}p)${E}`;
+    tails = {
+      tags: new RegExp(`(?:[\\s_.:;,|/\\\\-]*${tags})+[\\s_.:;,|/\\\\-]*$`, "iu"),
+      season: new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`, "iu"),
+    };
+  }
+  return tails;
+}
 
 /**
  * The title as the person should read it (2.2.23): the portal keeps every season as its own title and tags it
@@ -45,8 +55,9 @@ export function displaySeriesTitle(title) {
   // A season tag always ends in a digit: nearly every title is turned back here, so Home and the categories (thousands of
   // items, on a slow TV) pay for no regex at all.
   if (!ENDS_IN_DIGIT.test(title)) return title;
-  const m = TRAILING_SEASON.exec(title);
+  const { tags, season } = tailRegexes();
+  const m = season.exec(title);
   if (!m) return title;
-  const rest = title.slice(0, m.index).replace(TRAILING_TAGS, "").replace(/[\s_.:;,|/\\-]+$/g, "").trim();
+  const rest = title.slice(0, m.index).replace(tags, "").replace(/[\s_.:;,|/\\-]+$/g, "").trim();
   return rest.length >= 2 ? rest : title;
 }
