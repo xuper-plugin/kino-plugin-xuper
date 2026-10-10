@@ -3,7 +3,7 @@
 // plugin's own settings (`kino.config`), which only the person can edit.
 import { isKinoError } from "./util.js";
 import { trace, errCode } from "./trace.js";
-import { told } from "./portal.js";
+import { told, namedCause } from "./portal.js";
 import { say } from "./i18n.js";
 const STATUS_MAX = 200;
 const MESSAGE_MAX = 300;
@@ -42,6 +42,8 @@ export function makeSettings({ kino, session, clock, registration }) {
   // Kino errors (already Spanish, already free of secrets) pass; anything else is a fixed text, so
   // an underlying message that might echo the password never reaches the person.
   const surface = (e) => {
+    const named = namedCause(kino, e);
+    if (named) return named;
     if (isKinoError(e)) return e;
     trace(kino, "settings", "fail", { code: errCode(e) });
     return kino.error("unavailable", "Xuper no está disponible ahora");
@@ -84,6 +86,9 @@ export function makeSettings({ kino, session, clock, registration }) {
     const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock.now() + LOGIN_TOTAL_MS };
     try { await session.login(email, password, bounds); }
     catch (e) {
+      // A region block or an unreadable key is not a wrong password: told as what it is.
+      const named = namedCause(kino, e);
+      if (named) throw named;
       throw refusedCredentials(e) ? told(kino, "auth_required", "Credenciales de Xuper inválidas", say(kino, "accountRefused")) : surface(e);
     }
     return { message: say(kino, "signedIn"), refresh: true };

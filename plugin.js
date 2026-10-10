@@ -338,6 +338,14 @@ var TEXTS = Object.freeze({
     "Xuper no pudo enviar el c\xF3digo a ese correo. Revisa que est\xE9 bien escrito en {place}.",
     "Xuper could not send the code to that email. Check that it is spelled right in {place}."
   ],
+  regionBlocked: [
+    "Xuper no permite esta acci\xF3n desde tu regi\xF3n o tu red (a veces es una VPN). Prueba con otra conexi\xF3n.",
+    "Xuper does not allow this from your region or network (sometimes a VPN). Try another connection."
+  ],
+  cryptoUnavailable: [
+    "Este aparato no pudo abrir la conexi\xF3n segura con Xuper. Actualiza la aplicaci\xF3n; si sigue igual, el aparato no es compatible.",
+    "This device could not open the secure connection with Xuper. Update the app; if it stays the same, the device is not supported."
+  ],
   requestNotSaved: [
     "No pudimos guardar tu pedido. Vuelve a tocar Crear cuenta.",
     "We could not save your request. Tap Create account again."
@@ -451,6 +459,12 @@ var EPISODE_GONE = sayAll("episodeGone")[0];
 var SERIES_GONE = sayAll("seriesGone")[0];
 var isEpisodeGone = (text2) => sayAll("episodeGone").includes(text2);
 var told = (kino2, code, message, sentence) => kino2.error(code, message, { userMessage: sentence });
+function namedCause(kino2, e) {
+  if (e instanceof PortalError && e.code === "portal100024") return told(kino2, "unavailable", "region blocked (portal100024)", say(kino2, "regionBlocked"));
+  const msg = e !== null && typeof e === "object" && typeof e.message === "string" ? e.message : "";
+  if (/el portal no se pudo (cifrar|descifrar)/.test(msg)) return told(kino2, "unavailable", msg, say(kino2, "cryptoUnavailable"));
+  return null;
+}
 var GENERIC = "Xuper no est\xE1 disponible ahora";
 var PORTAL_SLOW = sayAll("portalSlow")[0];
 function slowPortal(kino2, e) {
@@ -4991,6 +5005,8 @@ var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1)
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
 function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   const surface = (e) => {
+    const named = namedCause(kino2, e);
+    if (named) return named;
     if (isKinoError(e)) return e;
     trace(kino2, "settings", "fail", { code: errCode(e) });
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
@@ -5024,6 +5040,8 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     try {
       await session.login(email, password, bounds);
     } catch (e) {
+      const named = namedCause(kino2, e);
+      if (named) throw named;
       throw refusedCredentials(e) ? told(kino2, "auth_required", "Credenciales de Xuper inv\xE1lidas", say(kino2, "accountRefused")) : surface(e);
     }
     return { message: say(kino2, "signedIn"), refresh: true };
@@ -5149,6 +5167,8 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   const fingerprint = makeFingerprint(kino2);
   const failure = (e, text2, sentence) => {
     trace(kino2, "register", "fail", { code: errCode(e) });
+    const named = namedCause(kino2, e);
+    if (named) return named;
     if (e instanceof PortalError) return told(kino2, "unavailable", text2, sentence);
     if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) return e;
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");

@@ -385,3 +385,45 @@ test("validateSettings: a filled verify code alone (no pending device here) also
   assert.deepEqual(await save(w, {}, { email: EMAIL, password: PW }), { password: "Credenciales de Xuper inválidas" });
   assert.deepEqual(await save(w, {}, { email: EMAIL, password: PW, verifyCode: "  " }), { password: "Credenciales de Xuper inválidas" });
 });
+
+// ---- the reason the person reads is the real one ---------------------------------------------------
+// Every failure used to say "check that the email is spelled right", so someone blocked by region or on a device that could not
+// open the portal's key kept retyping a correct email.
+
+test("sendCode: a region block reads as a region block, not as a bad email", async () => {
+  const w = world({ routes: goodRoutes({ "v8/active": { returnCode: "portal100024", errorMessage: "区域" } }) });
+  await assert.rejects(w.settings.action("sendCode"), (e) => {
+    assert.match(shown(e), /región|red/i);
+    assert.doesNotMatch(shown(e), /correo|email/i);
+    return true;
+  });
+  assert.equal(w.base.storage.get(PENDING_KEY), null);
+});
+
+test("sendCode: a portal that cannot be reached over the device's crypto says so, not a bad email", async () => {
+  const base = fakeKino({ config: { email: EMAIL, password: PW } });
+  const portal = { call: async () => { throw base.error("unavailable", "el portal no se pudo cifrar"); } };
+  const registration = makeRegistration({ kino: base, portal, session: {}, clock: { now: () => 1 } });
+  await assert.rejects(registration.sendRegistrationCode(EMAIL), (e) => {
+    assert.match(shown(e), /actualiza|update/i);
+    assert.doesNotMatch(shown(e), /correo|email/i);
+    return true;
+  });
+});
+
+test("login: a crypto failure and a region block are told as such", async () => {
+  const mk = (err) => {
+    const base = fakeKino({ config: { email: EMAIL, password: PW } });
+    const session = { login: async () => { throw typeof err === "function" ? err(base) : err; } };
+    return { base, settings: makeSettings({ kino: base, session, clock: { now: () => 1 }, registration: {} }) };
+  };
+  const crypto = mk((b) => b.error("unavailable", "el portal no se pudo cifrar"));
+  await assert.rejects(crypto.settings.action("login"), (e) => { assert.match(shown(e), /actualiza|update/i); return true; });
+  const geo = mk(new (await import("../src/portal.js")).PortalError("portal100024", "x"));
+  await assert.rejects(geo.settings.action("login"), (e) => { assert.match(shown(e), /región|region|red|network/i); return true; });
+});
+
+test("sendCode: a refused email still says to check the email", async () => {
+  const w = world({ routes: goodRoutes({ "v2/sendEmailVerifyCode": refuse() }) });
+  await assert.rejects(w.settings.action("sendCode"), (e) => { assert.match(shown(e), /correo/); return true; });
+});

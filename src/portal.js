@@ -53,6 +53,19 @@ export const isEpisodeGone = (text) => sayAll("episodeGone").includes(text);
 /** A kino error whose `userMessage` is `sentence` (what the person reads); `message` is for the log. */
 export const told = (kino, code, message, sentence) => kino.error(code, message, { userMessage: sentence });
 
+/**
+ * The failure the person should read when its cause is one Kino can name, or null: a region block (the portal refuses the
+ * device by country or network), or this device not being able to open the portal's key (`el portal no se pudo cifrar`).
+ * Without it every failure of an account action read "check your email", and nobody blocked by region or on an
+ * unsupported device could tell why a correct email kept failing.
+ */
+export function namedCause(kino, e) {
+  if (e instanceof PortalError && e.code === "portal100024") return told(kino, "unavailable", "region blocked (portal100024)", say(kino, "regionBlocked"));
+  const msg = e !== null && typeof e === "object" && typeof e.message === "string" ? e.message : "";
+  if (/el portal no se pudo (cifrar|descifrar)/.test(msg)) return told(kino, "unavailable", msg, say(kino, "cryptoUnavailable"));
+  return null;
+}
+
 const GENERIC = "Xuper no está disponible ahora";
 
 // What a call with nothing kept to show says when the portal did not answer in time (2.2.14): a typed

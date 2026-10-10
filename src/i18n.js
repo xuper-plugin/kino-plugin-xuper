@@ -66,6 +66,14 @@ export const TEXTS = Object.freeze({
     "Xuper no pudo enviar el código a ese correo. Revisa que esté bien escrito en {place}.",
     "Xuper could not send the code to that email. Check that it is spelled right in {place}.",
   ],
+  regionBlocked: [
+    "Xuper no permite esta acción desde tu región o tu red (a veces es una VPN). Prueba con otra conexi\u00f3n.",
+    "Xuper does not allow this from your region or network (sometimes a VPN). Try another connection.",
+  ],
+  cryptoUnavailable: [
+    "Este aparato no pudo abrir la conexión segura con Xuper. Actualiza la aplicación; si sigue igual, el aparato no es compatible.",
+    "This device could not open the secure connection with Xuper. Update the app; if it stays the same, the device is not supported.",
+  ],
   requestNotSaved: [
     "No pudimos guardar tu pedido. Vuelve a tocar Crear cuenta.",
     "We could not save your request. Tap Create account again.",

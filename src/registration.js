@@ -1,7 +1,7 @@
 // Creating a Xuper account from Ajustes: a port of the native MagisSession.sendRegistrationCode /
 // confirmRegistration. The code is asked for with a SEPARATE temporary device so the person's own
 // stored session and sn are never touched; only a fully confirmed registration replaces them.
-import { PortalError, told } from "./portal.js";
+import { PortalError, told, namedCause } from "./portal.js";
 import { say } from "./i18n.js";
 import { trace, errCode } from "./trace.js";
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
@@ -24,6 +24,8 @@ export function makeRegistration({ kino, portal, session, clock }) {
   // A portal refusal reads the native text; a kino error (network, bounds) passes; a bug is fixed text.
   const failure = (e, text, sentence) => {
     trace(kino, "register", "fail", { code: errCode(e) });
+    const named = namedCause(kino, e);
+    if (named) return named;
     if (e instanceof PortalError) return told(kino, "unavailable", text, sentence);
     if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) return e;
     return kino.error("unavailable", "Xuper no está disponible ahora");
