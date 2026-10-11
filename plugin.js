@@ -189,6 +189,11 @@ function report(kino2, area, event, fields = {}) {
 var PERF_AREAS = Object.freeze({ slow: "perf_slow", timeout: "perf_timeout", cold: "perf_cold", store: "perf_store", decode: "perf_decode" });
 var SLOW_CALL_MS = 8e3;
 var TIMEOUT_CALL_MS = 2e4;
+var PERF_REPORT_MS = 2e3;
+function reportIfSlow(kino2, area, event, ms, fields = {}) {
+  if (ms >= PERF_REPORT_MS) report(kino2, area, event, fields);
+  else trace(kino2, area, event, fields);
+}
 function msBucket(ms) {
   const s = Number.isFinite(ms) ? ms / 1e3 : 0;
   const edges = [[1, "lt1s"], [2, "1-2s"], [4, "2-4s"], [8, "4-8s"], [12, "8-12s"], [16, "12-16s"], [20, "16-20s"], [30, "20-30s"], [60, "30-60s"]];
@@ -203,15 +208,14 @@ function kbBucket(bytes) {
 }
 function reportCallTime(kino2, fn, ms, ok, more = {}) {
   if (!(ms >= SLOW_CALL_MS)) return;
-  report(kino2, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok, ...more });
-  if (ms >= TIMEOUT_CALL_MS) report(kino2, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok, ...more });
+  report(kino2, ms >= TIMEOUT_CALL_MS ? PERF_AREAS.timeout : PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok, ...more });
 }
 function makeDecodeReporter(kino2) {
   let done = false;
   return ({ how, bytes, ms }) => {
     if (done || !(bytes >= 1e6)) return;
     done = true;
-    report(kino2, PERF_AREAS.decode, "wire", { how, kb: kbBucket(bytes), b: msBucket(ms) });
+    reportIfSlow(kino2, PERF_AREAS.decode, "wire", ms, { how, kb: kbBucket(bytes), b: msBucket(ms) });
   };
 }
 function errCode(e) {
@@ -2988,7 +2992,8 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const whole2 = Object.keys(roots).filter((r) => current.whole.has(r) && !cut.has(r));
     try {
       store.write(fit.text, Math.min(...Object.values(roots)), roots, whole2);
-      report(kino2, PERF_AREAS.store, "write", { b: msBucket(clock2.now() - startedAt), kb: kbBucket(fit.text.length), step: fit.step });
+      const ms = clock2.now() - startedAt;
+      reportIfSlow(kino2, PERF_AREAS.store, "write", ms, { b: msBucket(ms), kb: kbBucket(fit.text.length), step: fit.step });
     } catch (e) {
       trace(kino2, "store", "full", { what: "rows", code: errCode(e) });
     }

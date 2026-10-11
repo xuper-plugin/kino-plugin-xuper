@@ -11,7 +11,7 @@ import { makeIdsStore } from "./idsStore.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS, slowPortal } from "./portal.js";
 import { isKinoError } from "./util.js";
 import { isLiveTileRef } from "./liveTiles.js";
-import { trace, report, errCode, msBucket, kbBucket, PERF_AREAS } from "./trace.js";
+import { trace, report, reportIfSlow, errCode, msBucket, kbBucket, PERF_AREAS } from "./trace.js";
 import { displaySeriesTitle } from "./titleClean.js";
 
 export { parseShelveTime };
@@ -203,7 +203,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const whole = Object.keys(roots).filter((r) => current.whole.has(r) && !cut.has(r));
     try {
       store.write(fit.text, Math.min(...Object.values(roots)), roots, whole);
-      report(kino, PERF_AREAS.store, "write", { b: msBucket(clock.now() - startedAt), kb: kbBucket(fit.text.length), step: fit.step });
+      const ms = clock.now() - startedAt;
+      reportIfSlow(kino, PERF_AREAS.store, "write", ms, { b: msBucket(ms), kb: kbBucket(fit.text.length), step: fit.step });
     } catch (e) { trace(kino, "store", "full", { what: "rows", code: errCode(e) }); /* served from memory */ }
   }
   // The portal measured slow (a root's network time over SLOW_FETCH_MS), kept a while in storage so that

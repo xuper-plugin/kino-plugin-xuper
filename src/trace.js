@@ -69,14 +69,24 @@ export function report(kino, area, event, fields = {}) {
 // Sent with kino.log.report (the manifest declares "telemetry": "verbose"), so they reach Kino's error
 // board even when the call worked; Kino keeps one a minute per area and 60 per run. Codes, counts and
 // time buckets only. The areas, to query them on the board:
-//   xuper:perf_slow     a call that took 8 s or more:       fn, b (time bucket), ok
+//   xuper:perf_slow     a call that took 8 to 20 s:          fn, b (time bucket), ok
 //   xuper:perf_timeout  a call that took 20 s or more (Kino had already given up on it): fn, b, ok
 //   xuper:perf_cold     a start that stored roots of a catalog not complete yet: stored, of, b; `done` once complete
-//   xuper:perf_store    a snapshot write: b, kb (size bucket), step (how it was trimmed)
-//   xuper:perf_decode   the first big portal answer of a sandbox: how (host|engine), kb, b
+//   xuper:perf_store    a snapshot write of PERF_REPORT_MS or more: b, kb (size bucket), step (how it was trimmed)
+//   xuper:perf_decode   the first big portal answer of a sandbox, decoded in PERF_REPORT_MS or more: how (host|engine), kb, b
+// 2.2.25: a quicker write or decode is the same line as a breadcrumb only (kino.log): 69 % of the 39k perf_store and 70 %
+// of the 32k perf_decode reports a week said `b=lt1s`/`b=1-2s`, each an event built and sent by a weak TV. A call of 20 s
+// or more is one perf_timeout, no longer also a perf_slow.
 export const PERF_AREAS = Object.freeze({ slow: "perf_slow", timeout: "perf_timeout", cold: "perf_cold", store: "perf_store", decode: "perf_decode" });
 export const SLOW_CALL_MS = 8_000;
 export const TIMEOUT_CALL_MS = 20_000;
+export const PERF_REPORT_MS = 2_000;
+
+/** A perf line: reported (kino.log.report) when `ms` reached PERF_REPORT_MS, else a breadcrumb only. Never throws. */
+export function reportIfSlow(kino, area, event, ms, fields = {}) {
+  if (ms >= PERF_REPORT_MS) report(kino, area, event, fields);
+  else trace(kino, area, event, fields);
+}
 
 /** A time as a bucket word: lt1s, 1-2s, 2-4s, 4-8s, 8-12s, 12-16s, 16-20s, 20-30s, 30-60s, ge60s. */
 export function msBucket(ms) {
@@ -100,17 +110,16 @@ export function kbBucket(bytes) {
  */
 export function reportCallTime(kino, fn, ms, ok, more = {}) {
   if (!(ms >= SLOW_CALL_MS)) return;
-  report(kino, PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok, ...more });
-  if (ms >= TIMEOUT_CALL_MS) report(kino, PERF_AREAS.timeout, "call", { fn, b: msBucket(ms), ok, ...more });
+  report(kino, ms >= TIMEOUT_CALL_MS ? PERF_AREAS.timeout : PERF_AREAS.slow, "call", { fn, b: msBucket(ms), ok, ...more });
 }
 
-/** The crypto's onDecode: one report per sandbox, for its first answer of 1 MB or more. */
+/** The crypto's onDecode: one line per sandbox, for its first answer of 1 MB or more (a report when slow). */
 export function makeDecodeReporter(kino) {
   let done = false;
   return ({ how, bytes, ms }) => {
     if (done || !(bytes >= 1_000_000)) return;
     done = true;
-    report(kino, PERF_AREAS.decode, "wire", { how, kb: kbBucket(bytes), b: msBucket(ms) });
+    reportIfSlow(kino, PERF_AREAS.decode, "wire", ms, { how, kb: kbBucket(bytes), b: msBucket(ms) });
   };
 }
 

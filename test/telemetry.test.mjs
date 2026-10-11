@@ -356,7 +356,9 @@ test("buckets: times and sizes as words, never the exact value", () => {
   assert.deepEqual([0, 300_000, 600_000, 1_100_000, 3_000_000, 5_000_000].map(kbBucket), ["lt256k", "256-512k", "512k-1m", "1-2m", "2-4m", "ge4m"]);
 });
 
-test("a call of 8 s or more is reported as slow, one of 20 s or more also as a timeout; a quick one is not", async () => {
+// 2.2.25: one report per slow call. A call of 20 s or more was reported twice (perf_slow AND perf_timeout, 24k +
+// 7k events a week on the board), and Kino already files its own timeout for it.
+test("a call of 8 s or more is reported as slow, one of 20 s or more only as a timeout; a quick one is not", async () => {
   const { kino, reports, logs } = reportingKino();
   const clock = { t: 0, now() { return this.t; } };
   const run = (fn, ms, fail) => traced(kino, clock, fn, async () => { clock.t += ms; if (fail) throw new Error("x"); return []; }).catch(() => {});
@@ -365,7 +367,6 @@ test("a call of 8 s or more is reported as slow, one of 20 s or more also as a t
   await run("liveChannels", 21_300, true);
   assert.deepEqual(reports, [
     "xuper:perf_slow call fn=section b=8-12s ok=1",
-    "xuper:perf_slow call fn=liveChannels b=20-30s ok=0",
     "xuper:perf_timeout call fn=liveChannels b=20-30s ok=0",
   ]);
   reports.forEach(clean);
@@ -380,19 +381,49 @@ test("the first big answer of a sandbox reports how it was decoded, once", () =>
   onDecode({ how: "engine", bytes: 3_000_000, ms: 9_000 });
   assert.deepEqual(reports, ["xuper:perf_decode wire how=host kb=2-4m b=4-8s"]);
   reports.forEach(clean);
-  // Wired to the real crypto: a megabyte wire through the host's way.
+  // Wired to the real crypto: a megabyte wire through the host's way, decoded quickly here: a breadcrumb only.
   const real = reportingKino();
   const k = Object.freeze({ ...fakeKino({ secrets: { magisKey: STAND_IN_KEY } }), log: real.kino.log });
   const c = makeCrypto(k, { onDecode: makeDecodeReporter(k) });
   const plain = JSON.stringify({ list: Array.from({ length: 6000 }, (_, i) => ({ n: "Canal " + i, x: "y".repeat(40) })) });
   assert.equal(c.decryptBlob(c.encryptBody(plain)), plain);
-  assert.equal(real.reports.length, 1);
-  assert.match(real.reports[0], /^xuper:perf_decode wire how=host kb=[0-9a-z-]+ b=[0-9a-z-]+$/);
-  clean(real.reports[0]);
+  assert.equal(real.reports.length, 0);
+  const line = real.logs.find((l) => l.startsWith("xuper:perf_decode"));
+  assert.match(line, /^xuper:perf_decode wire how=host kb=[0-9a-z-]+ b=lt1s$/);
+  clean(line);
+});
+
+// 2.2.25: 70 % of the 32k perf_decode reports a week said `b=lt1s` or `b=1-2s`: a quick decode is a breadcrumb only.
+test("a decode under 2 s is a breadcrumb, not a report; the sandbox's first big answer is still the only one looked at", () => {
+  const { kino, reports, logs } = reportingKino();
+  const onDecode = makeDecodeReporter(kino);
+  onDecode({ how: "host", bytes: 1_500_000, ms: 1_999 });
+  onDecode({ how: "host", bytes: 1_500_000, ms: 9_000 });
+  assert.deepEqual(reports, []);
+  assert.deepEqual(logs, ["xuper:perf_decode wire how=host kb=1-2m b=1-2s"]);
+  const slow = reportingKino();
+  makeDecodeReporter(slow.kino)({ how: "host", bytes: 1_500_000, ms: 2_000 });
+  assert.deepEqual(slow.reports, ["xuper:perf_decode wire how=host kb=1-2m b=2-4s"]);
+});
+
+test("a snapshot write of 2 s or more is reported with its cost", async () => {
+  const { kino: base, reports } = reportingKino();
+  const clock = { t: 1_790_000_000_000, now() { return this.t; } };
+  // A TV whose storage writes cost 1 s each: the snapshot (meta + parts) takes 2 s or more.
+  const storage = { get: (k) => base.storage.get(k), remove: (k) => base.storage.remove(k), set: (k, v, o) => { clock.t += 1_000; return base.storage.set(k, v, o); } };
+  const kino = Object.freeze({ ...base, storage });
+  const tree = { recommendList: [{ columnId: 1, name: "All", assetList: Array.from({ length: 6 }, (_, i) => ({ contentId: "PEL" + i, name: "Titulo " + i, programType: "movie", tags: "Drama", score: 7 })) }] };
+  const portal = { async call() { clock.t += 300; await null; return tree; } };
+  const session = { ensure: async () => {}, withValidSession: async (b) => b({ userId: "u1", userToken: "tok1" }) };
+  await makeCatalog({ kino, portal, session, clock }).home();
+  const writes = reports.filter((l) => l.startsWith("xuper:perf_store"));
+  assert.equal(writes.length, 1);
+  assert.match(writes[0], /^xuper:perf_store write b=(2-4s|4-8s) kb=lt256k step=0$/);
+  clean(writes[0]);
 });
 
 test("a catalog built root by root reports each start's progress, then done; every snapshot write its cost", async () => {
-  const { kino, reports } = reportingKino();
+  const { kino, reports, logs } = reportingKino();
   const asset = (id) => ({ contentId: id, name: "Titulo secreto " + id, programType: "movie", tags: "Drama", score: 7, posterList: [{ fileType: "icon", fileUrl: "https://img.host.test/p/" + id + ".jpg" }] });
   const tree = (p) => ({ recommendList: [{ columnId: 1, name: "All", assetList: Array.from({ length: 6 }, (_, i) => asset(p + "ABCDEF0123456789" + i)) }] });
   const codes = { masnew_movies: "p", masnew_series: "s", masnew_anime: "a", masnew_kids: "k" };
@@ -408,7 +439,9 @@ test("a catalog built root by root reports each start's progress, then done; eve
     "xuper:perf_cold progress stored=3 of=4 b=2-4s",
     "xuper:perf_cold done stored=4 of=4 b=2-4s",
   ]);
-  const writes = reports.filter((l) => l.startsWith("xuper:perf_store"));
+  // 2.2.25: a quick write is a breadcrumb only (69 % of the 39k perf_store reports a week said `b=lt1s`).
+  assert.equal(reports.filter((l) => l.startsWith("xuper:perf_store")).length, 0);
+  const writes = logs.filter((l) => l.startsWith("xuper:perf_store"));
   assert.equal(writes.length, 4);
   for (const w of writes) assert.match(w, /^xuper:perf_store write b=lt1s kb=lt256k step=0$/);
   reports.forEach(clean);
