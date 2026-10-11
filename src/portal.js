@@ -184,8 +184,24 @@ function gzipped(res, text) {
 const PATH_ALIASES = { "v2/sendEmailVerifyCode": "v2/sendCode", "v2/validateVerifyCode": "v2/checkCode" };
 export const tracePath = (path) => (Object.hasOwn(PATH_ALIASES, path) ? PATH_ALIASES[path] : path);
 
+// The host that answered last, kept for the next sandbox (2.2.25): Kino drops a sandbox after 5 idle minutes and after
+// every timeout, and with the host in memory only every start asked the first host again; where that one is down each
+// start spent its share of the call's window on it (board, 0.9.60: `failover path=getNextColumns to=1`, timed-out Homes
+// ending `host_fail i=0 why=timeout` then `deadline i=1`). Written only when it changes; one not in the list is ignored.
+const HOST_KEY = "portalHost";
+const HOST_MEMORY_MS = 7 * 24 * 3600_000;
+
 export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = () => "?" }) {
-  let preferredHost = null;
+  const listed = (h) => typeof h === "string" && (config.hosts || []).includes(h);
+  let storedHost = null;
+  try { const h = kino.storage.get(HOST_KEY); if (listed(h)) storedHost = h; } catch (_) { /* the list's order */ }
+  let preferredHost = storedHost;
+  const remember = (host) => {
+    preferredHost = host;
+    if (host === storedHost || (storedHost === null && host === (config.hosts || [])[0])) return;
+    storedHost = host;
+    try { kino.storage.set(HOST_KEY, host, { ttlMs: HOST_MEMORY_MS }); } catch (_) { /* memory only */ }
+  };
   let lastCallMs = null;
   // Decrypt failures in a row per path (reset by that path's next good answer): the breadcrumb's `attempt`.
   const decryptFails = new Map();
@@ -283,7 +299,7 @@ export function makePortal({ kino, crypto, config, clock, snProvider, modeOf = (
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
         // Another host than the first answered: an edge case for the board (the same line, through kino.log.report).
         if (i > 0) report(kino, "portal", "failover", { path: tp, to: i });
-        preferredHost = host;
+        remember(host);
         const rc = answer.returnCode;
         const code = rc === undefined || rc === null ? "" : String(rc);
         if (code !== "" && code !== "0") {

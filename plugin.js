@@ -559,8 +559,26 @@ function gzipped(res, text2) {
 }
 var PATH_ALIASES = { "v2/sendEmailVerifyCode": "v2/sendCode", "v2/validateVerifyCode": "v2/checkCode" };
 var tracePath = (path) => Object.hasOwn(PATH_ALIASES, path) ? PATH_ALIASES[path] : path;
+var HOST_KEY = "portalHost";
+var HOST_MEMORY_MS = 7 * 24 * 36e5;
 function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, modeOf = () => "?" }) {
-  let preferredHost = null;
+  const listed = (h) => typeof h === "string" && (config.hosts || []).includes(h);
+  let storedHost = null;
+  try {
+    const h = kino2.storage.get(HOST_KEY);
+    if (listed(h)) storedHost = h;
+  } catch (_) {
+  }
+  let preferredHost = storedHost;
+  const remember = (host) => {
+    preferredHost = host;
+    if (host === storedHost || storedHost === null && host === (config.hosts || [])[0]) return;
+    storedHost = host;
+    try {
+      kino2.storage.set(HOST_KEY, host, { ttlMs: HOST_MEMORY_MS });
+    } catch (_) {
+    }
+  };
   let lastCallMs = null;
   const decryptFails = /* @__PURE__ */ new Map();
   const hostOrder = () => {
@@ -653,7 +671,7 @@ function makePortal({ kino: kino2, crypto, config, clock: clock2, snProvider, mo
         answer = JSON.parse(bodyText);
         if (!isObject(answer)) throw new Error("respuesta del portal no es un objeto");
         if (i > 0) report(kino2, "portal", "failover", { path: tp, to: i });
-        preferredHost = host;
+        remember(host);
         const rc = answer.returnCode;
         const code = rc === void 0 || rc === null ? "" : String(rc);
         if (code !== "" && code !== "0") {
