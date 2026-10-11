@@ -38,6 +38,15 @@ const SEED_FALLBACK_TRIES = 3;
 const SEED_FALLBACK_MIN_MS = 1_000; // less time left than this: no new attempt
 const SEED_FALLBACK_REFRESH_MS = 15_000;
 const SEED_FALLBACK_DEFAULT_MS = 10_000; // a caller that gave no deadline
+// Dead seeds (2.2.25). A pool seed whose token the portal answered "not logged in" (aaa100027/aaa100028) is dead for
+// everyone (its token was rotated), yet the next pick was random over the whole pool: on the board (0.9.60) geo-blocked
+// TVs spent Home picking dead seeds (`session err code=aaa100027 sess=seed`, `seed pick`, aaa100027 again, the pool
+// downloaded again, `seed_switch`...; ERRORES-A07, D6A, DC8). Such a seed (its sn and the end of its token, never the
+// token: storage key DEAD_KEY) is not picked for DEAD_SEED_MS; a new token for the same sn is a new seed. And a rescue
+// does not download the pool again when the kept one is younger than RESCUE_POOL_FRESH_MS and still has a live seed.
+export const DEAD_SEED_MS = 6 * 3600_000;
+export const RESCUE_POOL_FRESH_MS = 15 * 60_000;
+const DEAD_KEY = "deadSeeds";
 
 const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
 const blank = (v) => str(v).trim() === "";
@@ -192,7 +201,29 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     return raw.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken))
       .map(seedEntry);
   };
-  const usable = (pool) => pool.filter((e) => e.exp === undefined || e.exp * 1000 - clock.now() >= SEED_MIN_LIFE_MS);
+  // A seed's dead mark: its sn and its token's last 6 characters (a new token for the same sn is another seed).
+  const deadId = (e) => `${str(e.sn)}|${str(e.userToken).slice(-6)}`;
+  const deadMarks = () => {
+    const m = readJson(DEAD_KEY);
+    const out = {};
+    if (!m || typeof m !== "object" || Array.isArray(m)) return out;
+    const now = clock.now();
+    for (const [k, at] of Object.entries(m)) if (typeof at === "number" && now - at >= 0 && now - at < DEAD_SEED_MS) out[k] = at;
+    return out;
+  };
+  const markDead = (e) => {
+    try {
+      const marks = { ...deadMarks(), [deadId(e)]: clock.now() };
+      writeJson(DEAD_KEY, Object.fromEntries(Object.entries(marks).sort((a, b) => b[1] - a[1]).slice(0, MAX_SEEDS)));
+    } catch (_) { /* a full store: the seed may be picked again */ }
+  };
+  // The stored session, when it is a pool seed as the pool has it (never the device's own token or an account's).
+  const noteDeadSeed = (s) => { if (seedPool().some((p) => p.sn === s.sn && p.userToken === s.userToken)) markDead(s); };
+  const usable = (pool) => {
+    const marks = deadMarks();
+    const any = Object.keys(marks).length > 0;
+    return pool.filter((e) => (e.exp === undefined || e.exp * 1000 - clock.now() >= SEED_MIN_LIFE_MS) && !(any && Object.hasOwn(marks, deadId(e))));
+  };
   const pick = (pool) => pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
   const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn, acct: "" });
 
@@ -515,6 +546,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
         note(tries, "answered");
         return { value };
       } catch (e) {
+        if (e instanceof PortalError && SESSION_DEAD.has(e.code)) markDead(c);
         if (e instanceof PortalError && !blockedOrDead(e)) { note(tries, "answered"); return { err: e }; }
         // Geo, dead, or no answer at all (network, deadline: a kino error): the next seed. Anything
         // else is a bug and must not be hidden behind "no seed answered".
@@ -553,8 +585,12 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
       return r.value;
     };
     const attempt = async () => {
+      const used = readSession();
       try { return { value: await block({ ...view(), ...bounds }) }; }
-      catch (e) { if (e instanceof PortalError) return { err: e }; throw e; }
+      catch (e) {
+        if (e instanceof PortalError) { if (SESSION_DEAD.has(e.code)) noteDeadSeed(used); return { err: e }; }
+        throw e;
+      }
     };
     const tokenUsed = view().userToken;
     let result = await attempt();
@@ -601,10 +637,17 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (SESSION_DEAD.has(result.err.code) && !account()) {
       setRegion(true);
       let rounds = 0;
+      // The kept pool, when it was downloaded minutes ago and still has a live seed other than the one in use: no download.
+      const poolFresh = () => {
+        const at = readJson("seedsAt");
+        const age = typeof at === "number" ? clock.now() - at : Infinity;
+        const inUse = view().userToken;
+        return age >= 0 && age < RESCUE_POOL_FRESH_MS && usable(seedPool()).some((e) => e.userToken !== inUse);
+      };
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
         if (timeLeft(bounds) < MIN_REQUEST_MS) break;
         rounds++;
-        if ((await refreshSeeds({ deadline })) && (await switchToBackup(view().userToken))) {
+        if ((poolFresh() || (await refreshSeeds({ deadline }))) && (await switchToBackup(view().userToken))) {
           const retry = await attempt();
           if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
             // The rescue got a session that answers (even with an error that is not "dead"): the pool is not exhausted.

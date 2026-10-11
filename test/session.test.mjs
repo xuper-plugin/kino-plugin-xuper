@@ -347,7 +347,7 @@ test("geo-blocked WITH an account does not swap seeds, but marks the region", as
   assert.equal(session.regionBlocked(), true);
 });
 
-test("dead seed: three rescue rounds (refresh with cooldown + switch + rerun), then seedsExhausted", async () => {
+test("dead seed: three bounded rescue rounds (refresh with cooldown + switch), a seed found dead never run again, then seedsExhausted", async () => {
   const pool = [seed(1), seed(2)];
   const { portal, session, fetches } = setup({
     stored: sess("T1", "sn-own"), seeds: pool, fetchAnswer: pool, random: () => 0,
@@ -357,15 +357,16 @@ test("dead seed: three rescue rounds (refresh with cooldown + switch + rerun), t
   await assert.rejects(
     session.withValidSession(async () => { blockRuns++; throw dead(); }),
     (e) => e.code === "auth_required");
-  // 1 first + 1 after reauth + 3 rescue rounds; never an infinite loop.
-  assert.equal(blockRuns, 5);
+  // 1 first + 1 after reauth (seed 1) + 1 rescue round on seed 2; a seed found dead is never run again (2.2.25), so
+  // the other two rounds find nothing to switch to. Never an infinite loop.
+  assert.equal(blockRuns, 3);
   assert.equal(session.seedsExhausted(), true);
   assert.equal(fetches.length, 1, "10 s cooldown collapses the three refreshes into one fetch");
   assert.equal(session.regionBlocked(), true);
 });
 
 test("seed rescue: the first non-session-dead result wins and clears seedsExhausted", async () => {
-  const pool = [seed(1), seed(2)];
+  const pool = [seed(1), seed(2), seed(3)]; // own + seeds 1 and 2 dead, seed 3 alive
   const { portal, session } = setup({
     stored: sess("T1", "sn-own"), seeds: pool, fetchAnswer: pool, random: () => 0,
   });
@@ -383,10 +384,14 @@ test("seed rescue: the first non-session-dead result wins and clears seedsExhaus
 
 test("a rescue retry that ends in an error that is not 'dead' clears seedsExhausted too", async () => {
   const pool = [seed(1), seed(2)];
-  const { portal, session } = setup({ stored: sess("T1", "sn-own"), seeds: pool, fetchAnswer: pool, random: () => 0 });
+  const published = [...pool]; // what the pool URL serves
+  const { portal, session, clock } = setup({ stored: sess("T1", "sn-own"), seeds: pool, fetchAnswer: published, random: () => 0 });
   portal.queue("v8/active", new PortalError("aaa100099", "x"), new PortalError("aaa100099", "x"));
   await assert.rejects(session.withValidSession(async () => { throw dead(); }), (e) => e.code === "auth_required");
   assert.equal(session.seedsExhausted(), true, "every round was dead: exhausted");
+  // The published pool is renewed (its dead seeds replaced), past the download cooldown.
+  published.splice(0, published.length, seed(3), seed(4));
+  clock.t += 31_000;
   let runs = 0;
   await assert.rejects(
     session.withValidSession(async () => {

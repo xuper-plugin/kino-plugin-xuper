@@ -771,6 +771,9 @@ var SEED_FALLBACK_TRIES = 3;
 var SEED_FALLBACK_MIN_MS = 1e3;
 var SEED_FALLBACK_REFRESH_MS = 15e3;
 var SEED_FALLBACK_DEFAULT_MS = 1e4;
+var DEAD_SEED_MS = 6 * 36e5;
+var RESCUE_POOL_FRESH_MS = 15 * 6e4;
+var DEAD_KEY = "deadSeeds";
 var str2 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var blank2 = (v) => str2(v).trim() === "";
 function makeLock() {
@@ -919,7 +922,30 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (!Array.isArray(raw)) return [];
     return raw.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).map(seedEntry);
   };
-  const usable = (pool) => pool.filter((e) => e.exp === void 0 || e.exp * 1e3 - clock2.now() >= SEED_MIN_LIFE_MS);
+  const deadId = (e) => `${str2(e.sn)}|${str2(e.userToken).slice(-6)}`;
+  const deadMarks = () => {
+    const m = readJson(DEAD_KEY);
+    const out = {};
+    if (!m || typeof m !== "object" || Array.isArray(m)) return out;
+    const now = clock2.now();
+    for (const [k, at] of Object.entries(m)) if (typeof at === "number" && now - at >= 0 && now - at < DEAD_SEED_MS) out[k] = at;
+    return out;
+  };
+  const markDead = (e) => {
+    try {
+      const marks = { ...deadMarks(), [deadId(e)]: clock2.now() };
+      writeJson(DEAD_KEY, Object.fromEntries(Object.entries(marks).sort((a, b) => b[1] - a[1]).slice(0, MAX_SEEDS)));
+    } catch (_) {
+    }
+  };
+  const noteDeadSeed = (s) => {
+    if (seedPool().some((p) => p.sn === s.sn && p.userToken === s.userToken)) markDead(s);
+  };
+  const usable = (pool) => {
+    const marks = deadMarks();
+    const any = Object.keys(marks).length > 0;
+    return pool.filter((e) => (e.exp === void 0 || e.exp * 1e3 - clock2.now() >= SEED_MIN_LIFE_MS) && !(any && Object.hasOwn(marks, deadId(e))));
+  };
   const pick = (pool) => pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
   const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn, acct: "" });
   const surface = (e) => e instanceof PortalError ? mapPortalError(e.code, e.message, kino2) : e;
@@ -1257,6 +1283,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         note(tries, "answered");
         return { value };
       } catch (e) {
+        if (e instanceof PortalError && SESSION_DEAD.has(e.code)) markDead(c);
         if (e instanceof PortalError && !blockedOrDead(e)) {
           note(tries, "answered");
           return { err: e };
@@ -1283,10 +1310,14 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       return r.value;
     };
     const attempt = async () => {
+      const used = readSession();
       try {
         return { value: await block({ ...view(), ...bounds }) };
       } catch (e) {
-        if (e instanceof PortalError) return { err: e };
+        if (e instanceof PortalError) {
+          if (SESSION_DEAD.has(e.code)) noteDeadSeed(used);
+          return { err: e };
+        }
         throw e;
       }
     };
@@ -1326,10 +1357,16 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     if (SESSION_DEAD.has(result.err.code) && !account()) {
       setRegion(true);
       let rounds = 0;
+      const poolFresh = () => {
+        const at = readJson("seedsAt");
+        const age = typeof at === "number" ? clock2.now() - at : Infinity;
+        const inUse = view().userToken;
+        return age >= 0 && age < RESCUE_POOL_FRESH_MS && usable(seedPool()).some((e) => e.userToken !== inUse);
+      };
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
         if (timeLeft(bounds) < MIN_REQUEST_MS) break;
         rounds++;
-        if (await refreshSeeds({ deadline }) && await switchToBackup(view().userToken)) {
+        if ((poolFresh() || await refreshSeeds({ deadline })) && await switchToBackup(view().userToken)) {
           const retry = await attempt();
           if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
             exhausted = false;
