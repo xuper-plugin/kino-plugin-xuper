@@ -1,0 +1,27 @@
+# Changelog
+
+## 2.2.25
+
+- Fix: the anonymous session shared after Home no longer makes Home time out. Kino hands Home's rows over only once
+  everything the plugin started has finished, so the three portal requests of the contribution (up to 25 s) were paid
+  by Home. They now end within 15 s of Home's start and take at most 8 s; with less time left they wait for a later Home.
+  / Arreglo: la sesión anónima que se comparte después del Inicio ya no hace que el Inicio se pase del tiempo; ahora
+  tiene un límite dentro del tiempo del propio Inicio.
+- Fix: a TV where refreshing one saved part of the catalog made the call slow (decoding, sorting and saving take seconds
+  on weak TVs) refreshes at most once every 30 minutes and shows what it already has meanwhile, so Home, Categorías and
+  the section no longer time out one after another until Kino switches the plugin off ("No responde"). Fast devices are
+  unchanged.
+  / Arreglo: en televisores lentos el catálogo guardado se actualiza como mucho cada 30 minutos y mientras tanto se
+  muestra lo que ya hay, así Kino ya no apaga el plugin por "No responde".
+- Fix: a backup session the portal says is no longer logged in is not picked again for 6 hours, and a pool downloaded
+  minutes ago is not downloaded again while it still has a working session. Blocked regions reach the content with
+  fewer round trips, and no longer end on "Configura … en Ajustes" when only the reused session was dead.
+  / Arreglo: una sesión de respaldo caída no se vuelve a elegir durante 6 horas, y no se descarga otra vez la lista si
+  la de hace unos minutos todavía tiene sesiones que funcionan.
+- Fix: the portal address that answered last is tried first on the next start, so an address that is down for you is
+  not waited for every time.
+  / Arreglo: la dirección del portal que respondió la última vez se prueba primero en el siguiente arranque.
+- Fewer diagnostic reports: a quick catalog save or decode is kept in the plugin's own log instead of being sent, and a
+  call of 20 s or more is reported once instead of twice. Less work and data on weak devices.
+  / Menos reportes de diagnóstico: los guardados y decodificaciones rápidas ya no se envían, y una llamada lenta se
+  reporta una sola vez.
