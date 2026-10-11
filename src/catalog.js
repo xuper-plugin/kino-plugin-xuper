@@ -51,6 +51,19 @@ const COLD_PARALLEL = 2;
 const SLOW_FETCH_MS = 4_000;
 const SLOW_KEY = "portalSlow";
 const SLOW_MEMORY_MS = 30 * 60_000;
+// A heavy refresh (2.2.25). On a weak TV one root's decode, parse, classification and snapshot write took seconds to
+// tens of seconds on top of the network (board, 0.9.60: perf_decode up to 8-60 s, perf_store up to 4-20 s), so a warm
+// call that served kept rows (`served=cache got=1`) still ran past Kino's 20 s (ERRORES-A07 home, D6A categories), and
+// categories and section right after Home each refreshed the next stale root: timeouts in a row, "No responde". A warm
+// call whose refresh took HEAVY_REFRESH_MS or more marks the device (HEAVY_KEY, a day); while marked, a warm call
+// refreshes a stale root only when no warm refresh started in the last SLOW_REFRESH_GAP_MS (REFRESH_AT_KEY, stamped
+// before the fetch, so a call Kino gave up on still counts). A root never kept, or one a page needs whole, is still
+// fetched. A refresh that is quick again clears the mark. Fast devices are untouched.
+export const HEAVY_REFRESH_MS = 12_000;
+export const SLOW_REFRESH_GAP_MS = 30 * 60_000;
+const HEAVY_KEY = "refreshHeavy";
+const HEAVY_MEMORY_MS = 24 * 3600_000;
+const REFRESH_AT_KEY = "refreshAt";
 
 const BROWSE_PAGE = 50;
 const MAX_HOME_ROWS = 20; // SDK output caps
@@ -224,6 +237,24 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     try { if (slow) kino.storage.set(SLOW_KEY, String(slowAt), { ttlMs: SLOW_MEMORY_MS }); else kino.storage.remove(SLOW_KEY); } catch (_) { /* memory only */ }
   };
 
+  // The heavy-refresh memory (see HEAVY_REFRESH_MS), in storage so that the next sandbox knows it. Never throws:
+  // a storage that fails is a device that refreshes as before.
+  const stampAge = (key) => {
+    try {
+      const v = Number(kino.storage.get(key));
+      const age = clock.now() - v;
+      return Number.isFinite(v) && v > 0 && age >= 0 ? age : Infinity;
+    } catch (_) { return Infinity; }
+  };
+  const stamp = (key, ttlMs) => { try { kino.storage.set(key, String(clock.now()), { ttlMs }); } catch (_) { /* refreshes as before */ } };
+  const refreshHeld = () => stampAge(HEAVY_KEY) < HEAVY_MEMORY_MS && stampAge(REFRESH_AT_KEY) < SLOW_REFRESH_GAP_MS;
+  const markHeavy = () => stamp(HEAVY_KEY, HEAVY_MEMORY_MS);
+  // A warm call that refreshed a kept root, `ms` after it started: heavy marks the device, quick clears the mark.
+  const noteRefresh = (ms) => {
+    if (ms >= HEAVY_REFRESH_MS) { markHeavy(); trace(kino, "home", "heavy_refresh", { b: msBucket(ms) }); return; }
+    if (stampAge(HEAVY_KEY) !== Infinity) { try { kino.storage.remove(HEAVY_KEY); } catch (_) { /* expires by itself */ } }
+  };
+
   // `{ sections, error }`: a failing root shows as empty, but its error is kept so that a Home where
   // EVERY root failed can say so instead of being a silent blank (main 2d285106 + 465773f1).
   async function fetchRoot(root, deadline) {
@@ -271,15 +302,15 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     trace(kino, "home", "all_fail", fields);
   }
 
-  // The next root to fetch, or null. `need` and `root`: see buildRows.
-  function nextRoot(need, root, asked) {
+  // The next root to fetch, or null. `need` and `root`: see buildRows. `refreshing` false: no stale root (held back).
+  function nextRoot(need, root, asked, refreshing = true) {
     const cur = getCurrent();
     const roots = cur ? cur.roots : {};
     const all = KINDS.map((k) => k.root);
     const required = root !== null && all.includes(root) && (
       need === "section" ? !(cur && cur.whole.has(root)) : need === "full" ? !(cur && cur.withAll.has(root)) : false) ? [root] : [];
     const missing = all.filter((r) => !(r in roots));
-    const stalest = all.filter((r) => r in roots && stale(roots[r])).sort((x, y) => roots[x] - roots[y]);
+    const stalest = refreshing ? all.filter((r) => r in roots && stale(roots[r])).sort((x, y) => roots[x] - roots[y]) : [];
     const order = [...new Set([...required, ...missing, ...stalest])].filter((r) => !asked.has(r));
     // A root that failed waits REFRESH_GAP_MS while something is served; with nothing to show it is only
     // tried after the others.
@@ -340,14 +371,21 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     let ensuring = null;
     let ensureError = null;
     const asked = new Set(); // a root at most once per call
+    // A device whose last warm refresh was heavy, and which refreshed in the last SLOW_REFRESH_GAP_MS: no stale root now.
+    const held = warm && refreshHeld();
+    let refreshed = false; // this call fetched a root it already kept
     async function lane() {
       let next;
-      while (ensureError === null && clock.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked)) !== null) {
+      while (ensureError === null && clock.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked, !held)) !== null) {
         asked.add(next);
         try { await (ensuring ??= session.ensure({ deadline: phaseEnd })); } catch (e) { ensureError = e; break; }
         if (current === null && failed.length === 0 && got === 0) trace(kino, "home", "refresh", { why: "cold" });
+        const refresh = warm && current !== null && next in current.roots;
+        if (refresh && !refreshed) { refreshed = true; stamp(REFRESH_AT_KEY, SLOW_REFRESH_GAP_MS); }
         const r = await rootSlice(next, phaseEnd);
         if (r.error !== null) failed.push(r); else got++;
+        // Marked as soon as it is known: if Kino already gave up on this call, the next one must not refresh too.
+        if (refresh && clock.now() - startedAt >= HEAVY_REFRESH_MS) markHeavy();
       }
     }
     // Kept rows: one lane (the refresh is a bonus). Nothing kept on a portal measured slow: COLD_PARALLEL
@@ -355,13 +393,15 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     await Promise.all(Array.from({ length: !warm && portalSlow() ? COLD_PARALLEL : 1 }, lane));
     if (ensureError !== null && !current) throw slowPortal(kino, ensureError);
     if (dirty) save();
+    if (refreshed) noteRefresh(clock.now() - startedAt);
     // A start that brought a catalog not complete yet closer: how far, and what it cost.
     const storedAfter = current ? Object.keys(current.roots).length : 0;
     if (storedAfter > storedBefore && storedBefore < KINDS.length) {
       report(kino, PERF_AREAS.cold, storedAfter === KINDS.length ? "done" : "progress",
         { stored: storedAfter, of: KINDS.length, b: msBucket(clock.now() - startedAt) });
     }
-    served = { served: servedNow(), got, fail: failed.length };
+    const how = servedNow();
+    served = { served: how, got, fail: failed.length, ...(held && how !== "fresh" ? { held: 1 } : {}) };
     if (current) return current.rows;
     if (failed.length > 0) { summarizeFailure(failed, 1); throw slowPortal(kino, worstOf(failed)); }
     return [];

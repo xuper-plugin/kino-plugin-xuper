@@ -2891,6 +2891,11 @@ var COLD_PARALLEL = 2;
 var SLOW_FETCH_MS = 4e3;
 var SLOW_KEY = "portalSlow";
 var SLOW_MEMORY_MS = 30 * 6e4;
+var HEAVY_REFRESH_MS = 12e3;
+var SLOW_REFRESH_GAP_MS = 30 * 6e4;
+var HEAVY_KEY = "refreshHeavy";
+var HEAVY_MEMORY_MS = 24 * 36e5;
+var REFRESH_AT_KEY = "refreshAt";
 var BROWSE_PAGE = 50;
 var MAX_HOME_ROWS = 20;
 var MAX_ROW_ITEMS = 60;
@@ -3024,6 +3029,36 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     } catch (_) {
     }
   };
+  const stampAge = (key) => {
+    try {
+      const v = Number(kino2.storage.get(key));
+      const age = clock2.now() - v;
+      return Number.isFinite(v) && v > 0 && age >= 0 ? age : Infinity;
+    } catch (_) {
+      return Infinity;
+    }
+  };
+  const stamp = (key, ttlMs) => {
+    try {
+      kino2.storage.set(key, String(clock2.now()), { ttlMs });
+    } catch (_) {
+    }
+  };
+  const refreshHeld = () => stampAge(HEAVY_KEY) < HEAVY_MEMORY_MS && stampAge(REFRESH_AT_KEY) < SLOW_REFRESH_GAP_MS;
+  const markHeavy = () => stamp(HEAVY_KEY, HEAVY_MEMORY_MS);
+  const noteRefresh = (ms) => {
+    if (ms >= HEAVY_REFRESH_MS) {
+      markHeavy();
+      trace(kino2, "home", "heavy_refresh", { b: msBucket(ms) });
+      return;
+    }
+    if (stampAge(HEAVY_KEY) !== Infinity) {
+      try {
+        kino2.storage.remove(HEAVY_KEY);
+      } catch (_) {
+      }
+    }
+  };
   async function fetchRoot(root, deadline) {
     try {
       const response = await session.withValidSession((v) => portal.call(
@@ -3060,13 +3095,13 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     });
     trace(kino2, "home", "all_fail", fields);
   }
-  function nextRoot(need, root, asked) {
+  function nextRoot(need, root, asked, refreshing = true) {
     const cur = getCurrent();
     const roots = cur ? cur.roots : {};
     const all = KINDS.map((k) => k.root);
     const required = root !== null && all.includes(root) && (need === "section" ? !(cur && cur.whole.has(root)) : need === "full" ? !(cur && cur.withAll.has(root)) : false) ? [root] : [];
     const missing = all.filter((r) => !(r in roots));
-    const stalest = all.filter((r) => r in roots && stale(roots[r])).sort((x, y) => roots[x] - roots[y]);
+    const stalest = refreshing ? all.filter((r) => r in roots && stale(roots[r])).sort((x, y) => roots[x] - roots[y]) : [];
     const order = [.../* @__PURE__ */ new Set([...required, ...missing, ...stalest])].filter((r) => !asked.has(r));
     const failedRecently = (r) => failedAt.has(r) && clock2.now() - failedAt.get(r) < REFRESH_GAP_MS;
     if (cur) return order.find((r) => !failedRecently(r)) ?? null;
@@ -3112,9 +3147,11 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     let ensuring = null;
     let ensureError = null;
     const asked = /* @__PURE__ */ new Set();
+    const held = warm && refreshHeld();
+    let refreshed = false;
     async function lane() {
       let next;
-      while (ensureError === null && clock2.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked)) !== null) {
+      while (ensureError === null && clock2.now() - startedAt < SLICE_START_MS && (next = nextRoot(need, root, asked, !held)) !== null) {
         asked.add(next);
         try {
           await (ensuring ?? (ensuring = session.ensure({ deadline: phaseEnd })));
@@ -3123,14 +3160,21 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
           break;
         }
         if (current === null && failed.length === 0 && got === 0) trace(kino2, "home", "refresh", { why: "cold" });
+        const refresh = warm && current !== null && next in current.roots;
+        if (refresh && !refreshed) {
+          refreshed = true;
+          stamp(REFRESH_AT_KEY, SLOW_REFRESH_GAP_MS);
+        }
         const r = await rootSlice(next, phaseEnd);
         if (r.error !== null) failed.push(r);
         else got++;
+        if (refresh && clock2.now() - startedAt >= HEAVY_REFRESH_MS) markHeavy();
       }
     }
     await Promise.all(Array.from({ length: !warm && portalSlow() ? COLD_PARALLEL : 1 }, lane));
     if (ensureError !== null && !current) throw slowPortal(kino2, ensureError);
     if (dirty) save();
+    if (refreshed) noteRefresh(clock2.now() - startedAt);
     const storedAfter = current ? Object.keys(current.roots).length : 0;
     if (storedAfter > storedBefore && storedBefore < KINDS.length) {
       report(
@@ -3140,7 +3184,8 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
         { stored: storedAfter, of: KINDS.length, b: msBucket(clock2.now() - startedAt) }
       );
     }
-    served = { served: servedNow(), got, fail: failed.length };
+    const how = servedNow();
+    served = { served: how, got, fail: failed.length, ...held && how !== "fresh" ? { held: 1 } : {} };
     if (current) return current.rows;
     if (failed.length > 0) {
       summarizeFailure(failed, 1);
