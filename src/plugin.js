@@ -22,9 +22,11 @@ export async function search(query) {
 }
 export async function home() {
   await null;
+  const startedAt = clock.now();
   const out = await traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy);
-  // After Home is served, maybe share one fresh anonymous seed (detached, best-effort, never blocks Home).
-  try { Promise.resolve(getDeps().seedContrib.maybeContribute()).catch(() => {}); } catch (_) { /* never fails Home */ }
+  // After Home is served, maybe share one fresh anonymous seed (best-effort, never fails Home). Kino delivers the rows only
+  // once its fetches settle, so the mint is bounded by Home's own budget (seedContrib.afterHome).
+  try { Promise.resolve(getDeps().seedContrib.afterHome(startedAt)).catch(() => {}); } catch (_) { /* never fails Home */ }
   return out;
 }
 // A Categorías live tile's ref (liveTiles.js) pages channels; every other ref is a VOD row.

@@ -6,7 +6,7 @@
 // only a brand-new anonymous guest session the portal just handed out (the very call the minter
 // makes). It is a throwaway identity created for the pool and nothing else.
 //
-// Strictly gated, and it NEVER blocks or slows the person's browsing:
+// Strictly gated, and bounded by the Home that pays for it (afterHome, 2.2.25: never past Kino's 20 s):
 //   consent  -- the person's plugin-telemetry consent (kino.seed only emits with it on, host-side)
 //               AND the plugin's own `contributeSeeds` setting (default on). Either off -> nothing.
 //   rate     -- at most one contribution per device per CONTRIB_INTERVAL_MS, kept in kino.storage.
@@ -34,6 +34,15 @@ export const VALIDATE_COLUMN = "masnew_movies";
 // Bounds for the whole contribution: it is best-effort and must never hang a warm sandbox.
 const REQUEST_MS = 10_000;
 const TOTAL_MS = 25_000;
+// After Home (2.2.25). Kino hands a call's answer over only once every fetch its sandbox started has settled
+// (catalog.js), so the mint "detached" after Home was paid by Home itself: up to 25 s on top of it, and on the
+// board Homes done in 5-13 s timed out on the mint (ERRORES-A07, 2.2.24: `call ok fn=home ms=5163` then
+// `host_fail path=v3/snToken why=timeout`). Now the mint ends by HOME_CONTRIB_END_MS from Home's start and takes at
+// most CONTRIB_WINDOW_MS after it; with less than MIN_WINDOW_MS left it is not tried (and the window is not
+// stamped, so a quicker Home later contributes). A healthy portal mints in 2-4 s.
+export const HOME_CONTRIB_END_MS = 15_000;
+export const CONTRIB_WINDOW_MS = 8_000;
+const MIN_WINDOW_MS = 4_000;
 // kino.storage key for the last contribution's timestamp (the rate-limit window).
 export const AT_KEY = "seedContribAt";
 // The plugin's own opt-out (manifest toggle `contributeSeeds`, default on): unset counts as on.
@@ -70,8 +79,8 @@ export function makeSeedContrib({ kino, portal, clock }) {
    * (pool schema) or null. A geo-block, a refusal, an empty answer or any error at any step -> null,
    * so nothing dead or useless is ever contributed. Never throws.
    */
-  async function mintAnonymous() {
-    const bounds = { timeoutMs: REQUEST_MS, deadline: clock.now() + TOTAL_MS };
+  async function mintAnonymous(deadline) {
+    const bounds = { timeoutMs: REQUEST_MS, deadline: Math.min(clock.now() + TOTAL_MS, deadline) };
     try {
       const mint = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
       if (blank(mint && mint.snToken)) { trace(kino, "seed_contrib", "mint", { ok: false, why: "no_sntoken" }); return null; }
@@ -115,10 +124,11 @@ export function makeSeedContrib({ kino, portal, clock }) {
   }
 
   /**
-   * One opportunity (Home has loaded): maybe mint and contribute one fresh anonymous session.
-   * Detached, best-effort, never blocks Home. Returns the seed it sent (tests), or null.
+   * One opportunity: maybe mint and contribute one fresh anonymous session, every portal request ending by
+   * `deadline` (injected clock; none: TOTAL_MS from now). Best-effort, never throws. Returns the seed it sent
+   * (tests), or null.
    */
-  async function maybeContribute() {
+  async function maybeContribute({ deadline = Infinity } = {}) {
     if (running) return null;
     running = true;
     try {
@@ -128,10 +138,13 @@ export function makeSeedContrib({ kino, portal, clock }) {
       const now = clock.now();
       const last = readAt();
       if (last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS) { trace(kino, "seed_contrib", "skip", { why: "rate" }); return null; }
+      // Too little time left in the call that pays for it: not now, and the window stays open.
+      const end = Math.min(now + TOTAL_MS, Number.isFinite(deadline) ? deadline : Infinity);
+      if (end - now < MIN_WINDOW_MS) { trace(kino, "seed_contrib", "skip", { why: "time" }); return null; }
       // Eligible: start the window whether or not the mint works, so a blocked device still tries
       // at most once per interval.
       stampAt(now);
-      const seed = await mintAnonymous();
+      const seed = await mintAnonymous(end);
       if (!seed) return null;
       try { kino.seed(seed); } catch (_) { /* the pipe never fails a call */ }
       trace(kino, "seed_contrib", "done", { ok: 1, jwt: seed.jwtToken ? 1 : 0 });
@@ -143,5 +156,10 @@ export function makeSeedContrib({ kino, portal, clock }) {
     }
   }
 
-  return { maybeContribute };
+  /** The opportunity after a Home that started at `homeStartedAt`: bounded by Home's own budget (see HOME_CONTRIB_END_MS). */
+  const afterHome = (homeStartedAt) => maybeContribute({
+    deadline: Math.min(clock.now() + CONTRIB_WINDOW_MS, homeStartedAt + HOME_CONTRIB_END_MS),
+  });
+
+  return { maybeContribute, afterHome };
 }

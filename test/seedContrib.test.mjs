@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fakeKino } from "./helpers/fakeKino.mjs";
-import { makeSeedContrib, CONTRIB_INTERVAL_MS, AT_KEY, VALIDATE_COLUMN } from "../src/seedContrib.js";
+import { makeSeedContrib, CONTRIB_INTERVAL_MS, AT_KEY, VALIDATE_COLUMN, HOME_CONTRIB_END_MS, CONTRIB_WINDOW_MS } from "../src/seedContrib.js";
 import { PortalError } from "../src/portal.js";
 
 // A portal mock that answers the three mint calls. `col` is what getNextColumns returns (null/[]/throw
@@ -110,4 +110,58 @@ test("happy path: mints a fresh session, validates it, sends the exact seed shap
 
 test("the interval is the owner's value (10 h) and there is no dice", () => {
   assert.equal(CONTRIB_INTERVAL_MS, 10 * 3600_000);
+});
+
+// ---- 2.2.25: the contribution never pushes Home past Kino's 20 s -----------------------------------
+// Kino hands Home's rows over only once every fetch the sandbox started has settled (catalog.js), so the
+// "detached" mint after Home was paid by Home: on the board a Home done in 5 s timed out on the mint's
+// v3/snToken (ERRORES-A07, 2.2.24). A virtual-time portal: each request costs `ms`, never past its deadline.
+function timedPortal(clock, ms) {
+  const calls = [];
+  return {
+    calls,
+    async call(path, bean, opts = {}) {
+      calls.push({ path, at: clock.t, deadline: opts.deadline });
+      const end = typeof opts.deadline === "number" ? Math.min(clock.t + ms, opts.deadline) : clock.t + ms;
+      const late = clock.t + ms > end;
+      clock.t = end;
+      await null;
+      if (late) throw new PortalError("deadline", "no answer in time");
+      return portalOf().call(path, bean, opts);
+    },
+  };
+}
+
+test("after Home: a slow portal never holds Home past HOME_CONTRIB_END_MS of Home's start", async () => {
+  const { kino } = worldKino();
+  const clock = { t: NOW + 3_000, now() { return this.t; } }; // Home answered in 3 s
+  const portal = timedPortal(clock, 6_000);
+  const c = makeSeedContrib({ kino, portal, clock });
+  await c.afterHome(NOW);
+  assert.ok(portal.calls.length > 0, "a quick Home still contributes");
+  for (const x of portal.calls) assert.ok(typeof x.deadline === "number" && x.deadline <= NOW + HOME_CONTRIB_END_MS, `${x.path} had no bound inside Home`);
+  assert.ok(clock.t <= NOW + HOME_CONTRIB_END_MS, `Home held until ${clock.t - NOW} ms`);
+  assert.ok(clock.t - (NOW + 3_000) <= CONTRIB_WINDOW_MS, "never more than the contribution's own window after Home");
+  assert.ok(HOME_CONTRIB_END_MS <= 16_000, "well inside Kino's 20 s");
+});
+
+test("after Home: a Home that already took most of its budget does not contribute, and the window stays open", async () => {
+  const { kino, got } = worldKino();
+  const clock = { t: NOW + 12_000, now() { return this.t; } };
+  const portal = portalOf();
+  const c = makeSeedContrib({ kino, portal, clock });
+  assert.equal(await c.afterHome(NOW), null);
+  assert.equal(portal.calls.length, 0, "no request");
+  assert.equal(got.length, 0);
+  assert.equal(kino.storage.get(AT_KEY), null, "not stamped: a quicker Home later contributes");
+});
+
+test("after Home: a quick Home with a healthy portal contributes as before", async () => {
+  const { kino, got } = worldKino();
+  const clock = { t: NOW + 2_000, now() { return this.t; } };
+  const c = makeSeedContrib({ kino, portal: timedPortal(clock, 300), clock });
+  const seed = await c.afterHome(NOW);
+  assert.ok(seed);
+  assert.equal(got.length, 1);
+  assert.equal(kino.storage.get(AT_KEY), String(NOW + 2_000));
 });

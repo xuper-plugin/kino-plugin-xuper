@@ -4787,6 +4787,9 @@ var CONTRIB_INTERVAL_MS = 10 * 36e5;
 var VALIDATE_COLUMN = "masnew_movies";
 var REQUEST_MS = 1e4;
 var TOTAL_MS = 25e3;
+var HOME_CONTRIB_END_MS = 15e3;
+var CONTRIB_WINDOW_MS = 8e3;
+var MIN_WINDOW_MS = 4e3;
 var AT_KEY = "seedContribAt";
 var CONTRIBUTE_SETTING = "contributeSeeds";
 var OPTIONAL_EXTRAS = ["customer", "activeTime", "availableTime"];
@@ -4820,8 +4823,8 @@ function makeSeedContrib({ kino: kino2, portal, clock: clock2 }) {
     } catch (_) {
     }
   };
-  async function mintAnonymous() {
-    const bounds = { timeoutMs: REQUEST_MS, deadline: clock2.now() + TOTAL_MS };
+  async function mintAnonymous(deadline) {
+    const bounds = { timeoutMs: REQUEST_MS, deadline: Math.min(clock2.now() + TOTAL_MS, deadline) };
     try {
       const mint = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
       if (blank(mint && mint.snToken)) {
@@ -4869,7 +4872,7 @@ function makeSeedContrib({ kino: kino2, portal, clock: clock2 }) {
     }
     return seed;
   }
-  async function maybeContribute() {
+  async function maybeContribute({ deadline = Infinity } = {}) {
     if (running) return null;
     running = true;
     try {
@@ -4884,8 +4887,13 @@ function makeSeedContrib({ kino: kino2, portal, clock: clock2 }) {
         trace(kino2, "seed_contrib", "skip", { why: "rate" });
         return null;
       }
+      const end = Math.min(now + TOTAL_MS, Number.isFinite(deadline) ? deadline : Infinity);
+      if (end - now < MIN_WINDOW_MS) {
+        trace(kino2, "seed_contrib", "skip", { why: "time" });
+        return null;
+      }
       stampAt(now);
-      const seed = await mintAnonymous();
+      const seed = await mintAnonymous(end);
       if (!seed) return null;
       try {
         kino2.seed(seed);
@@ -4899,7 +4907,10 @@ function makeSeedContrib({ kino: kino2, portal, clock: clock2 }) {
       running = false;
     }
   }
-  return { maybeContribute };
+  const afterHome = (homeStartedAt) => maybeContribute({
+    deadline: Math.min(clock2.now() + CONTRIB_WINDOW_MS, homeStartedAt + HOME_CONTRIB_END_MS)
+  });
+  return { maybeContribute, afterHome };
 }
 
 // src/wiring.js
@@ -5271,9 +5282,10 @@ async function search(query) {
 }
 async function home() {
   await null;
+  const startedAt = clock.now();
   const out = await traced(kino, clock, "home", () => guarded(({ catalog }) => catalog.home()), {}, servedBy);
   try {
-    Promise.resolve(getDeps().seedContrib.maybeContribute()).catch(() => {
+    Promise.resolve(getDeps().seedContrib.afterHome(startedAt)).catch(() => {
     });
   } catch (_) {
   }
