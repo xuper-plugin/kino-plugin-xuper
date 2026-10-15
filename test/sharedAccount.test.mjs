@@ -289,11 +289,11 @@ test("logout action: clearSettings lists the toggle and the kit drops nothing; t
   t.portal.queue("v5/loginOut", {});
   t.portal.queue("v8/active", ok("T2"));
   const out = await t.settings.action("logout");
-  assert.deepEqual(out.clearSettings, ["email", "password", "useSharedAccount"]);
+  assert.deepEqual(out.clearSettings, ["email", "password", "regEmail", "regPassword", "useSharedAccount"]);
   const drops = [];
   const kept = checkSettingsOutput("action", out, manifest, (x) => x, (d) => drops.push(d));
   assert.deepEqual(drops, []);
-  assert.deepEqual(kept.clearSettings, ["email", "password", "useSharedAccount"]);
+  assert.deepEqual(kept.clearSettings, ["email", "password", "regEmail", "regPassword", "useSharedAccount"]);
   assert.deepEqual(t.portal.paths(), ["v5/loginOut", "v8/active"]);
 });
 

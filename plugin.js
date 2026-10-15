@@ -141,6 +141,18 @@ function intOrNull(v) {
   const n = Number(s);
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
+function configuredPair(config) {
+  const t = (k) => asText(config.get(k)).trim();
+  const own = { email: t("email"), password: t("password") };
+  if (own.email !== "" && own.password !== "") return own;
+  const created = { email: t("regEmail"), password: t("regPassword") };
+  if (created.email !== "" && created.password !== "") return created;
+  return own;
+}
+function creationFields(config) {
+  const t = (k) => asText(config.get(k)).trim();
+  return { email: t("regEmail") || t("email"), password: t("regPassword") || t("password") };
+}
 
 // src/trace.js
 var MAX_LINE_CHARS = 160;
@@ -854,8 +866,8 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     }
   };
   const ownAccount = () => {
-    const email = kino2.config.get("email"), password = kino2.config.get("password");
-    return blank2(email) || blank2(password) ? null : { email: str2(email).trim(), password: str2(password).trim() };
+    const { email, password } = configuredPair(kino2.config);
+    return blank2(email) || blank2(password) ? null : { email, password };
   };
   const configuredAccount = () => {
     const own = ownAccount();
@@ -5127,7 +5139,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     trace(kino2, "settings", "fail", { code: errCode(e) });
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
-  const savedAccount = () => ({ email: str5(kino2.config.get("email")).trim(), password: str5(kino2.config.get("password")).trim() });
+  const savedAccount = () => configuredPair(kino2.config);
   async function settingsStatus2() {
     await null;
     try {
@@ -5168,7 +5180,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       throw surface(e);
     }
-    return { message: say(kino2, "signedOut"), refresh: true, clearSettings: ["email", "password", "useSharedAccount"] };
+    return { message: say(kino2, "signedOut"), refresh: true, clearSettings: ["email", "password", "regEmail", "regPassword", "useSharedAccount"] };
   }
   async function switchSeed() {
     let r;
@@ -5190,7 +5202,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     return { message: ok ? say(kino2, "seedsLoaded", { n: session.seedPool().length }) : say(kino2, "offlineRetry"), refresh: true };
   }
   function typedEmail() {
-    const { email } = savedAccount();
+    const { email } = creationFields(kino2.config);
     if (email === "") throw told(kino2, "auth_required", "Escribe tu correo en Ajustes", say(kino2, "fillEmail"));
     if (!email.includes("@")) throw told(kino2, "auth_required", "Escribe un correo v\xE1lido", say(kino2, "badEmail"));
     return email;
@@ -5213,7 +5225,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     const email = typedEmail();
     const code = str5(kino2.config.get("verifyCode")).trim();
     if (code === "") throw told(kino2, "auth_required", "Escribe el c\xF3digo de verificaci\xF3n", say(kino2, "fillCode"));
-    const { password } = savedAccount();
+    const { password } = creationFields(kino2.config);
     if (password === "") throw told(kino2, "auth_required", "Escribe tu contrase\xF1a en Ajustes", say(kino2, "fillAccount"));
     const pending = registration.pendingFor(email);
     if (!pending) throw told(kino2, "unavailable", "Pide el c\xF3digo otra vez", say(kino2, "askCodeAgain"));
@@ -5225,7 +5237,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
       throw surface(e);
     }
     const message = done && done.loggedIn === false ? say(kino2, "accountCreatedSignIn") : say(kino2, "accountCreatedSignedIn");
-    return { message, refresh: true, clearSettings: ["verifyCode"] };
+    return { message, refresh: true, clearSettings: ["verifyCode", "email", "password"] };
   }
   const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
   async function action2(key) {
@@ -5238,9 +5250,13 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   async function validateSettings2(values) {
     await null;
     const v = values && typeof values === "object" ? values : {};
-    const email = str5(v.email).trim(), password = str5(v.password).trim();
+    const t = (k) => str5(v[k]).trim();
+    const email = t("email"), password = t("password");
+    const regEmail = t("regEmail"), regPassword = t("regPassword");
     const sharedOn = v.useSharedAccount === true || v.useSharedAccount === "true";
-    if (sharedOn && email === "" && password === "") {
+    const hasOwn = email !== "" || password !== "";
+    const hasCreated = regEmail !== "" || regPassword !== "";
+    if (sharedOn && !hasOwn && !hasCreated) {
       const bounds2 = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
       try {
         await session.useShared(bounds2);
@@ -5250,21 +5266,28 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
         throw surface(e);
       }
     }
-    if (email === "" && password === "") return null;
+    if (!hasOwn && !hasCreated) return null;
     const errors = {};
     if (sharedOn) errors.useSharedAccount = say(kino2, "removeAccountOrShared");
-    if (email === "") errors.email = say(kino2, "enterEmail");
-    else if (!email.includes("@")) errors.email = say(kino2, "enterValidEmail");
+    if (hasOwn) {
+      if (email === "") errors.email = say(kino2, "enterEmail");
+      else if (!email.includes("@")) errors.email = say(kino2, "enterValidEmail");
+    }
+    if (hasCreated) {
+      if (regEmail === "") errors.regEmail = say(kino2, "enterEmail");
+      else if (!regEmail.includes("@")) errors.regEmail = say(kino2, "enterValidEmail");
+    }
     if (Object.keys(errors).length > 0) return errors;
-    if (password === "") return null;
+    const pair = email !== "" && password !== "" ? { email, password, field: "password" } : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
+    if (pair === null) return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
     try {
-      await session.login(email, password, bounds);
+      await session.login(pair.email, pair.password, bounds);
       return null;
     } catch (e) {
       if (refusedCredentials(e)) {
-        const creating = str5(v.verifyCode).trim() !== "" || registration !== void 0 && registration !== null && registration.pendingFor(email) !== null;
-        return creating ? null : { password: say(kino2, "credentialsRefused") };
+        const creating = t("verifyCode") !== "" || registration !== void 0 && registration !== null && registration.pendingFor(pair.email) !== null;
+        return creating ? null : { [pair.field]: say(kino2, "credentialsRefused") };
       }
       throw surface(e);
     }

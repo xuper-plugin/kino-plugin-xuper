@@ -194,7 +194,7 @@ async function sent(extra = {}, over = {}) {
 test("register: validate -> bind -> login with the pending device; only then the session is replaced", async () => {
   const w = await sent();
   const out = await w.settings.action("register");
-  assert.deepEqual(out, { message: "Cuenta creada y sesión iniciada", refresh: true, clearSettings: ["verifyCode"] });
+  assert.deepEqual(out, { message: "Cuenta creada y sesión iniciada", refresh: true, clearSettings: ["verifyCode", "email", "password"] });
   keep(out);
   assert.deepEqual(w.paths(), ["v2/validateVerifyCode", "v2/bindEmail", "v8/login"]);
   const pendSn = md5("SNTOK-P" + SNTOKEN_SALT);
@@ -324,7 +324,7 @@ test("register: login failing AFTER bindEmail is not an error: the account exist
     const out = keep(await w.settings.action("register"));
     assert.equal(out.message, "Cuenta creada. Toca Iniciar sesión para entrar.");
     assert.equal(out.refresh, true);
-    assert.deepEqual(out.clearSettings, ["verifyCode"], "the code is spent");
+    assert.deepEqual(out.clearSettings, ["verifyCode", "email", "password"], "the code is spent");
     assert.equal(w.base.storage.get(PENDING_KEY), null);
     assert.deepEqual(w.stored(), STORED);
   }
@@ -370,11 +370,45 @@ test("Crear cuenta end to end: save the email alone, send the code, save code + 
 
   const out = await w.settings.action("register");
   assert.equal(out.message, "Cuenta creada y sesión iniciada");
-  assert.deepEqual(out.clearSettings, ["verifyCode"]);
+  assert.deepEqual(out.clearSettings, ["verifyCode", "email", "password"]);
   const s = w.stored();
   assert.equal(s.userToken, "tok-new");
   assert.equal(s.acct, w.session.accountKey(EMAIL, PW));
   assert.equal(w.session.accountState(), "held", "the new account is the one in use");
+});
+
+test("Crear cuenta with its own email and password: the account typed there is the one the session keeps", async () => {
+  const saved = {};
+  let bound = false;
+  const routes = goodRoutes({
+    "v2/bindEmail": () => { bound = true; return {}; },
+    "v8/login": () => (bound ? { userId: "u-new", userToken: "tok-new", jwtToken: "jwt-new" } : refuse("用户不存在")),
+  });
+  const w = world({ routes, saved });
+
+  assert.equal(await save(w, saved, { regEmail: EMAIL }), null, "the email of the block alone is saved");
+  assert.deepEqual(w.requests, [], "and costs no portal call");
+  assert.equal((await w.settings.action("sendCode")).message, "Te enviamos un código a " + EMAIL);
+  assert.equal(saved.email, undefined, "the sign-in fields were never filled");
+
+  assert.equal(await save(w, saved, { regEmail: EMAIL, regPassword: PW, verifyCode: CODE }), null,
+    "a refused login does not block saving while a registration is pending");
+  const out = await w.settings.action("register");
+  assert.equal(out.message, "Cuenta creada y sesión iniciada");
+  const s = w.stored();
+  assert.equal(s.userToken, "tok-new");
+  assert.equal(s.acct, w.session.accountKey(EMAIL, PW));
+  // The session reads the account from the block it was typed in: it is not dropped for lack of one.
+  assert.equal(w.session.accountState(), "held");
+  assert.equal((await w.settings.settingsStatus()).status.includes(EMAIL), true, "the status names the account");
+});
+
+test("validateSettings: the block's own fields get their own field errors", async () => {
+  const w = world({ routes: goodRoutes({ "v8/login": () => refuse("密码错误") }), saved: {} });
+  assert.deepEqual(await w.settings.validateSettings({ regEmail: "sin-arroba" }), { regEmail: "Escribe un correo válido" });
+  assert.deepEqual(await w.settings.validateSettings({ regPassword: PW }), { regEmail: "Escribe tu correo" });
+  const refused = await w.settings.validateSettings({ regEmail: EMAIL, regPassword: PW });
+  assert.deepEqual(Object.keys(refused), ["regPassword"], "a refused pair is told on the password of that block");
 });
 
 test("validateSettings: a filled verify code alone (no pending device here) also saves over a refused login", async () => {

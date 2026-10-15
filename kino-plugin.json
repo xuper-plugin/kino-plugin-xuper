@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "2.2.26",
+  "version": "2.2.27",
   "apiVersion": 6,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -28,35 +28,17 @@
       "key": "account",
       "label": "Cuenta",
       "type": "section",
-      "hint": "Opcional. Cuenta nueva: correo, Enviar código, código, contraseña, Crear cuenta."
+      "hint": "Opcional. Sin cuenta accedes al catálogo con sesión anónima."
     },
     {
       "key": "email",
       "label": "Correo electrónico",
-      "type": "text",
-      "hint": "Cuenta nueva: guárdalo y toca Enviar código."
-    },
-    {
-      "key": "sendCode",
-      "label": "Enviar código (cuenta nueva)",
-      "type": "action"
-    },
-    {
-      "key": "verifyCode",
-      "label": "Código de verificación",
-      "type": "text",
-      "hint": "Cuenta nueva: el código que llega a tu correo"
+      "type": "text"
     },
     {
       "key": "password",
       "label": "Contraseña",
-      "type": "password",
-      "hint": "Cuenta nueva: la que quieras; guárdala y toca Crear cuenta."
-    },
-    {
-      "key": "register",
-      "label": "Crear cuenta",
-      "type": "action"
+      "type": "password"
     },
     {
       "key": "status",
@@ -79,6 +61,40 @@
       "label": "Usar cuenta compartida",
       "type": "toggle",
       "hint": "Muchas personas la usan; puede cerrar la sesión de otra."
+    },
+    {
+      "key": "createAccount",
+      "label": "Crear cuenta",
+      "type": "section",
+      "hint": "Correo, Enviar código, código y contraseña. Guarda antes de cada botón."
+    },
+    {
+      "key": "regEmail",
+      "label": "Correo electrónico",
+      "type": "text",
+      "hint": "Donde llega el código: guárdalo y toca Enviar código"
+    },
+    {
+      "key": "sendCode",
+      "label": "Enviar código",
+      "type": "action"
+    },
+    {
+      "key": "verifyCode",
+      "label": "Código de verificación",
+      "type": "text",
+      "hint": "El código que llega a tu correo"
+    },
+    {
+      "key": "regPassword",
+      "label": "Contraseña",
+      "type": "password",
+      "hint": "La de tu cuenta nueva: guárdala y toca Crear cuenta"
+    },
+    {
+      "key": "register",
+      "label": "Crear cuenta",
+      "type": "action"
     },
     {
       "key": "seeds",

@@ -26,3 +26,24 @@ export function intOrNull(v) {
   const n = Number(s);
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
+
+/**
+ * The account the person's settings ask for. The sign-in fields ("Cuenta") win; when they are not both
+ * filled, the pair typed in "Crear cuenta" is the account (a plugin cannot write its own settings, so the
+ * account it creates has to live where it was typed). Pairs never mix: an email from one block and a
+ * password from the other is not an account. Anything partial comes back as the sign-in fields hold it.
+ */
+export function configuredPair(config) {
+  const t = (k) => asText(config.get(k)).trim();
+  const own = { email: t("email"), password: t("password") };
+  if (own.email !== "" && own.password !== "") return own;
+  const created = { email: t("regEmail"), password: t("regPassword") };
+  if (created.email !== "" && created.password !== "") return created;
+  return own;
+}
+
+/** What the "Crear cuenta" steps read: the fields of that block, else the sign-in ones (older saved setups). */
+export function creationFields(config) {
+  const t = (k) => asText(config.get(k)).trim();
+  return { email: t("regEmail") || t("email"), password: t("regPassword") || t("password") };
+}

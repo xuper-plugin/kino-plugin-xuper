@@ -374,7 +374,7 @@ test("action logout: loginOut with the session, then clearSettings survives the 
   const drops = [];
   const kept = checkSettingsOutput("action", out, manifest, (t) => t, (d) => drops.push(d));
   assert.deepEqual(drops, []);
-  assert.deepEqual(kept.clearSettings, ["email", "password", "useSharedAccount"]);
+  assert.deepEqual(kept.clearSettings, ["email", "password", "regEmail", "regPassword", "useSharedAccount"]);
 });
 
 test("validateSettings with the shared toggle: one v8/login with the (stand-in) shared pair, then the status line and a relogin follow it; the real pair never travels", async () => {
@@ -399,7 +399,7 @@ test("validateSettings with the shared toggle: one v8/login with the (stand-in) 
   assert.deepEqual(checkSettingsOutput("settingsStatus", st, manifest), st);
   assert.equal(await s.plugin.action("useShared"), null, "the action is gone");
   const lo = await s.plugin.action("logout");
-  assert.deepEqual(lo.clearSettings, ["email", "password", "useSharedAccount"]);
+  assert.deepEqual(lo.clearSettings, ["email", "password", "regEmail", "regPassword", "useSharedAccount"]);
   const all = JSON.stringify(s.log) + JSON.stringify(s.kino.storage.get("session"));
   assert.ok(!all.includes(SHARED_EMAIL) && !all.includes(SHARED_PASSWORD), "the real shared pair travelled");
 });
@@ -458,7 +458,7 @@ test("registration: sendCode then register through src/plugin.js over the script
   const drops = [];
   const kept = checkSettingsOutput("action", done, manifest, (t) => t, (d) => drops.push(d));
   assert.deepEqual(drops, []);
-  assert.deepEqual(kept.clearSettings, ["verifyCode"]);
+  assert.deepEqual(kept.clearSettings, ["verifyCode", "email", "password"]);
   assert.equal(kept.refresh, true);
   const stored = JSON.parse(s.kino.storage.get("session"));
   assert.equal(stored.userToken, NEW_TOKEN);

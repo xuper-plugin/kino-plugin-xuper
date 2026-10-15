@@ -175,11 +175,11 @@ test("action logout: drops the session first, then asks the app to clear email, 
   const { settings, sess } = setup({ config: { email: "ana@x.test", password: PW } });
   const out = await settings.action("logout");
   assert.deepEqual(sess.calls, [["logout"]]);
-  assert.deepEqual(out, { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password", "useSharedAccount"] });
+  assert.deepEqual(out, { message: "Sesión cerrada", refresh: true, clearSettings: ["email", "password", "regEmail", "regPassword", "useSharedAccount"] });
   const drops = [];
   const kept = checkSettingsOutput("action", out, manifest, (t) => t, (d) => drops.push(d));
   assert.deepEqual(drops, [], "the kit dropped something");
-  assert.deepEqual(kept.clearSettings, ["email", "password", "useSharedAccount"]);
+  assert.deepEqual(kept.clearSettings, ["email", "password", "regEmail", "regPassword", "useSharedAccount"]);
   assert.equal(kept.message, "Sesión cerrada");
   assert.equal(kept.refresh, true);
 });
@@ -386,27 +386,29 @@ test("manifest: the account form has the actions and no leftover portalUrl", () 
   }
   const valueless = manifest.settings.filter((s) => ["section", "status", "action"].includes(s.type));
   const caps = JSON.parse(readFileSync(new URL("../contract.json", import.meta.url), "utf8")).settings;
-  assert.equal(valueless.length, 10);
+  assert.equal(valueless.length, 11);
   assert.ok(valueless.length <= caps.ui.maxItems && caps.ui.maxItems >= 16);
   assert.ok(manifest.settings.length - valueless.length <= caps.max);
-  assert.equal(manifest.settings.length - valueless.length, 7);
+  assert.equal(manifest.settings.length - valueless.length, 9);
 });
 
-test("manifest: three sections in order; creating an account reads email, send code, code, password, create", () => {
+test("manifest: four sections in order; Crear cuenta has its own email, code and password", () => {
   const keys = manifest.settings.map((s) => s.key);
   const sections = manifest.settings.filter((s) => s.type === "section");
-  assert.deepEqual(sections.map((s) => s.label), ["Cuenta", "Semillas", "Inicio"]);
+  assert.deepEqual(sections.map((s) => s.label), ["Cuenta", "Crear cuenta", "Semillas", "Inicio"]);
   const at = (k) => keys.indexOf(k);
-  const [a, d, h] = sections.map((s) => at(s.key));
-  // The email and password are the sign-in fields; the registration steps sit between them in the order they are done.
-  assert.deepEqual(keys.slice(a + 1, d), ["email", "sendCode", "verifyCode", "password", "register", "status", "login", "logout", "useSharedAccount"]);
+  const [a, c, d, h] = sections.map((s) => at(s.key));
+  assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout", "useSharedAccount"]);
+  // The creation steps in the order they are done, with their own email and password (a plugin cannot write
+  // its settings, so the account it creates is read from where it was typed: see configuredPair).
+  assert.deepEqual(keys.slice(c + 1, d), ["regEmail", "sendCode", "verifyCode", "regPassword", "register"]);
   assert.deepEqual(keys.slice(d + 1, h), ["autoRefreshSeeds", "switchSeed", "refreshSeeds", "contributeSeeds"]);
   assert.deepEqual(keys.slice(h + 1), ["homeCountry"]);
   const by = Object.fromEntries(manifest.settings.map((s) => [s.key, s]));
   assert.equal(by.verifyCode.type, "text");
   assert.equal(by.verifyCode.label, "Código de verificación");
   assert.ok(!by.verifyCode.required);
-  assert.equal(by.sendCode.label, "Enviar código (cuenta nueva)");
+  assert.equal(by.sendCode.label, "Enviar código");
   assert.equal(by.register.label, "Crear cuenta");
   assert.equal(by.autoRefreshSeeds.type, "toggle");
   assert.equal(by.autoRefreshSeeds.label, "Actualizar semillas automáticamente");

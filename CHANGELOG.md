@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.27
+
+- Settings: "Crear cuenta" is its own block again, now with its own email and password: email, "Enviar código", the
+  code, the password and "Crear cuenta", in that order, without hunting for fields in the block above. The account
+  created there is the one the session keeps (it is read from where it was typed; the "Cuenta" fields still win when
+  both are filled), and "Cerrar sesión" clears both blocks. 2.2.26 had folded the steps into the "Cuenta" block.
+  / Ajustes: "Crear cuenta" vuelve a ser un bloque aparte, ahora con su propio correo y contraseña: correo, Enviar
+  código, código, contraseña y Crear cuenta, en ese orden. La cuenta que se crea ahí es la que usa la sesión, y
+  "Cerrar sesión" limpia los dos bloques.
+
 ## 2.2.26
 
 - Settings: creating an account now reads as one flow in the Account tab: email, "Enviar código", the code, the

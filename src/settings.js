@@ -1,7 +1,7 @@
 // The account tab of Ajustes: the status line, the action buttons and the check that runs before
 // the person's email and password are saved. The account itself is NOT stored here: it is the
 // plugin's own settings (`kino.config`), which only the person can edit.
-import { isKinoError } from "./util.js";
+import { isKinoError, configuredPair, creationFields } from "./util.js";
 import { trace, errCode } from "./trace.js";
 import { told, namedCause } from "./portal.js";
 import { say } from "./i18n.js";
@@ -49,7 +49,8 @@ export function makeSettings({ kino, session, clock, registration }) {
     return kino.error("unavailable", "Xuper no está disponible ahora");
   };
 
-  const savedAccount = () => ({ email: str(kino.config.get("email")).trim(), password: str(kino.config.get("password")).trim() });
+  // The account the settings ask for: the "Cuenta" fields, else the pair typed in "Crear cuenta".
+  const savedAccount = () => configuredPair(kino.config);
 
   /** `{ status }`: one line of at most a few short sentences; never throws. */
   async function settingsStatus() {
@@ -98,7 +99,7 @@ export function makeSettings({ kino, session, clock, registration }) {
     try { await session.logout({ timeoutMs: LOGOUT_REQUEST_MS, deadline: clock.now() + LOGOUT_TOTAL_MS }); }
     catch (e) { throw surface(e); }
     // The app clears these only if this action succeeded; session.logout() runs first on purpose.
-    return { message: say(kino, "signedOut"), refresh: true, clearSettings: ["email", "password", "useSharedAccount"] };
+    return { message: say(kino, "signedOut"), refresh: true, clearSettings: ["email", "password", "regEmail", "regPassword", "useSharedAccount"] };
   }
 
   async function switchSeed() {
@@ -123,7 +124,7 @@ export function makeSettings({ kino, session, clock, registration }) {
   // The registration steps need the saved email (and password) as typed: nothing is read from the
   // portal or logged. Blank fields are the person's to fill, so they never cost a portal call.
   function typedEmail() {
-    const { email } = savedAccount();
+    const { email } = creationFields(kino.config);
     if (email === "") throw told(kino, "auth_required", "Escribe tu correo en Ajustes", say(kino, "fillEmail"));
     if (!email.includes("@")) throw told(kino, "auth_required", "Escribe un correo válido", say(kino, "badEmail"));
     return email;
@@ -146,7 +147,7 @@ export function makeSettings({ kino, session, clock, registration }) {
     const email = typedEmail();
     const code = str(kino.config.get("verifyCode")).trim();
     if (code === "") throw told(kino, "auth_required", "Escribe el código de verificación", say(kino, "fillCode"));
-    const { password } = savedAccount();
+    const { password } = creationFields(kino.config);
     if (password === "") throw told(kino, "auth_required", "Escribe tu contraseña en Ajustes", say(kino, "fillAccount"));
     const pending = registration.pendingFor(email);
     if (!pending) throw told(kino, "unavailable", "Pide el código otra vez", say(kino, "askCodeAgain"));
@@ -156,7 +157,9 @@ export function makeSettings({ kino, session, clock, registration }) {
     catch (e) { throw surface(e); }
     // Created but the login after it failed: the account exists, so this is no error (the code is spent).
     const message = done && done.loggedIn === false ? say(kino, "accountCreatedSignIn") : say(kino, "accountCreatedSignedIn");
-    return { message, refresh: true, clearSettings: ["verifyCode"] };
+    // The new account is the one typed in "Crear cuenta" (it stays there: the session reads it from there). An
+    // older pair in "Cuenta" would win over it and drop the session just adopted, so it is emptied.
+    return { message, refresh: true, clearSettings: ["verifyCode", "email", "password"] };
   }
 
   const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };
@@ -182,9 +185,13 @@ export function makeSettings({ kino, session, clock, registration }) {
   async function validateSettings(values) {
     await null;
     const v = values && typeof values === "object" ? values : {};
-    const email = str(v.email).trim(), password = str(v.password).trim();
+    const t = (k) => str(v[k]).trim();
+    const email = t("email"), password = t("password");
+    const regEmail = t("regEmail"), regPassword = t("regPassword");
     const sharedOn = v.useSharedAccount === true || v.useSharedAccount === "true";
-    if (sharedOn && email === "" && password === "") {
+    const hasOwn = email !== "" || password !== "";
+    const hasCreated = regEmail !== "" || regPassword !== "";
+    if (sharedOn && !hasOwn && !hasCreated) {
       // The shared account: one bounded login, so a dead pair is told before saving.
       const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
       try { await session.useShared(bounds); return null; }
@@ -193,19 +200,28 @@ export function makeSettings({ kino, session, clock, registration }) {
         throw surface(e);
       }
     }
-    if (email === "" && password === "") return null;
+    if (!hasOwn && !hasCreated) return null;
     const errors = {};
     if (sharedOn) errors.useSharedAccount = say(kino, "removeAccountOrShared");
-    if (email === "") errors.email = say(kino, "enterEmail");
-    else if (!email.includes("@")) errors.email = say(kino, "enterValidEmail");
+    if (hasOwn) {
+      if (email === "") errors.email = say(kino, "enterEmail");
+      else if (!email.includes("@")) errors.email = say(kino, "enterValidEmail");
+    }
+    if (hasCreated) {
+      if (regEmail === "") errors.regEmail = say(kino, "enterEmail");
+      else if (!regEmail.includes("@")) errors.regEmail = say(kino, "enterValidEmail");
+    }
     if (Object.keys(errors).length > 0) return errors;
-    if (password === "") return null;
+    // The account that will be used: the "Cuenta" pair, else the "Crear cuenta" one (same rule as configuredPair).
+    const pair = email !== "" && password !== "" ? { email, password, field: "password" }
+      : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
+    if (pair === null) return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
-    try { await session.login(email, password, bounds); return null; }
+    try { await session.login(pair.email, pair.password, bounds); return null; }
     catch (e) {
       if (refusedCredentials(e)) {
-        const creating = str(v.verifyCode).trim() !== "" || (registration !== undefined && registration !== null && registration.pendingFor(email) !== null);
-        return creating ? null : { password: say(kino, "credentialsRefused") };
+        const creating = t("verifyCode") !== "" || (registration !== undefined && registration !== null && registration.pendingFor(pair.email) !== null);
+        return creating ? null : { [pair.field]: say(kino, "credentialsRefused") };
       }
       throw surface(e);
     }

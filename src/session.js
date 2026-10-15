@@ -3,7 +3,7 @@
 import { PortalError, mapPortalError, ACCOUNT_IN_USE_ELSEWHERE } from "./portal.js";
 import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom } from "./device.js";
-import { isKinoError } from "./util.js";
+import { isKinoError, configuredPair } from "./util.js";
 import { trace, report, errCode, seedTag } from "./trace.js";
 
 export const DEFAULT_SEEDS_URL =
@@ -122,9 +122,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     catch (_) { /* ignored */ }
   };
   const ownAccount = () => {
-    const email = kino.config.get("email"), password = kino.config.get("password");
     // Trimmed like the settings screen does, so ensure, the login action and adoption key on the same values.
-    return blank(email) || blank(password) ? null : { email: str(email).trim(), password: str(password).trim() };
+    // The sign-in fields, else the pair typed in "Crear cuenta" (see configuredPair).
+    const { email, password } = configuredPair(kino.config);
+    return blank(email) || blank(password) ? null : { email, password };
   };
   // The account the settings ask for (own wins, else the shared pair when chosen; email alone or
   // password alone is no account), whether or not the portal ever accepted it.
