@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.26
+
+- Settings: creating an account now reads as one flow in the Account tab: email, "Enviar código", the code, the
+  password and "Crear cuenta", in that order (the email and password are the same fields used to sign in, so nothing
+  about how accounts are stored changes). Before, the code field sat alone under "Crear cuenta" and the email and
+  password were in a different block above, so the steps were easy to miss.
+  / Ajustes: crear una cuenta ahora se lee como un solo flujo en la pestaña Cuenta: correo, Enviar código, código,
+  contraseña y Crear cuenta, en ese orden. Antes el código quedaba solo en "Crear cuenta" y el correo y la contraseña
+  estaban en otro bloque más arriba.
+
 ## 2.2.25
 
 - Fix: the anonymous session shared after Home no longer makes Home time out. Kino hands Home's rows over only once

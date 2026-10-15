@@ -386,27 +386,27 @@ test("manifest: the account form has the actions and no leftover portalUrl", () 
   }
   const valueless = manifest.settings.filter((s) => ["section", "status", "action"].includes(s.type));
   const caps = JSON.parse(readFileSync(new URL("../contract.json", import.meta.url), "utf8")).settings;
-  assert.equal(valueless.length, 11);
+  assert.equal(valueless.length, 10);
   assert.ok(valueless.length <= caps.ui.maxItems && caps.ui.maxItems >= 16);
   assert.ok(manifest.settings.length - valueless.length <= caps.max);
   assert.equal(manifest.settings.length - valueless.length, 7);
 });
 
-test("manifest: four sections in order, each with its own settings; nothing outside the plugin tab", () => {
+test("manifest: three sections in order; creating an account reads email, send code, code, password, create", () => {
   const keys = manifest.settings.map((s) => s.key);
   const sections = manifest.settings.filter((s) => s.type === "section");
-  assert.deepEqual(sections.map((s) => s.label), ["Cuenta", "Crear cuenta", "Semillas", "Inicio"]);
+  assert.deepEqual(sections.map((s) => s.label), ["Cuenta", "Semillas", "Inicio"]);
   const at = (k) => keys.indexOf(k);
-  const [a, c, d, h] = sections.map((s) => at(s.key));
-  assert.deepEqual(keys.slice(a + 1, c), ["email", "password", "status", "login", "logout", "useSharedAccount"]);
-  assert.deepEqual(keys.slice(c + 1, d), ["verifyCode", "sendCode", "register"]);
+  const [a, d, h] = sections.map((s) => at(s.key));
+  // The email and password are the sign-in fields; the registration steps sit between them in the order they are done.
+  assert.deepEqual(keys.slice(a + 1, d), ["email", "sendCode", "verifyCode", "password", "register", "status", "login", "logout", "useSharedAccount"]);
   assert.deepEqual(keys.slice(d + 1, h), ["autoRefreshSeeds", "switchSeed", "refreshSeeds", "contributeSeeds"]);
   assert.deepEqual(keys.slice(h + 1), ["homeCountry"]);
   const by = Object.fromEntries(manifest.settings.map((s) => [s.key, s]));
   assert.equal(by.verifyCode.type, "text");
   assert.equal(by.verifyCode.label, "Código de verificación");
   assert.ok(!by.verifyCode.required);
-  assert.equal(by.sendCode.label, "Enviar código");
+  assert.equal(by.sendCode.label, "Enviar código (cuenta nueva)");
   assert.equal(by.register.label, "Crear cuenta");
   assert.equal(by.autoRefreshSeeds.type, "toggle");
   assert.equal(by.autoRefreshSeeds.label, "Actualizar semillas automáticamente");
