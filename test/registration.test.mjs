@@ -403,6 +403,15 @@ test("Crear cuenta with its own email and password: the account typed there is t
   assert.equal((await w.settings.settingsStatus()).status.includes(EMAIL), true, "the status names the account");
 });
 
+test("validateSettings: a stale pair in Cuenta neither is checked nor stops Crear cuenta from saving", async () => {
+  const w = world({ routes: goodRoutes({ "v8/login": () => refuse("密码错误") }), saved: {} });
+  const verdict = await w.settings.validateSettings({ email: "", password: "vieja", regEmail: EMAIL });
+  assert.equal(verdict, null, "an incomplete Cuenta does not refuse the save");
+  const verdict2 = await w.settings.validateSettings({ email: "otro@x.co", password: "mala", regEmail: EMAIL });
+  assert.equal(verdict2, null, "a refused Cuenta pair does not refuse the save either");
+  assert.deepEqual(w.requests, [], "and the Cuenta pair costs no portal call while Crear cuenta is being filled");
+});
+
 test("validateSettings: the block's own fields get their own field errors", async () => {
   const w = world({ routes: goodRoutes({ "v8/login": () => refuse("密码错误") }), saved: {} });
   assert.deepEqual(await w.settings.validateSettings({ regEmail: "sin-arroba" }), { regEmail: "Escribe un correo válido" });

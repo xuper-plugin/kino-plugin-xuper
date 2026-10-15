@@ -243,7 +243,7 @@ test("i18n: every text has Spanish and English, different, with the same placeho
   assert.equal(isEnglish(null), false);
   assert.equal(say({ lang: "en" }, "seasonN", { n: 2 }), "Season 2");
   assert.equal(say({ lang: "es-CO" }, "seasonN", { n: 2 }), "Temporada 2");
-  assert.equal(say({ lang: "en" }, "fillEmail"), "Enter your email in Settings ▸ Xuper.");
+  assert.equal(say({ lang: "en" }, "fillEmail"), "Enter your email in Settings ▸ Xuper and tap Save before pressing the button.");
   assert.deepEqual(sayAll("episodeGone"), ["Este capítulo ya no está disponible.", "This episode is no longer available."]);
 });
 

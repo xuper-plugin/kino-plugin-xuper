@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.28
+
+- Fix: while "Crear cuenta" is being filled, what sits in "Cuenta" (an old or wrong pair) is no longer checked and can
+  no longer refuse the save. A red "Credenciales inválidas" high in the form kept the whole form from saving, so the
+  email typed below never reached the plugin and "Enviar código" kept saying the email was missing.
+  / Arreglo: mientras se llena "Crear cuenta", lo que haya en "Cuenta" ya no se revisa ni impide guardar. Un error
+  en rojo arriba bloqueaba todo el guardado y el correo de abajo nunca llegaba al plugin.
+- The "enter your email" message now also says to tap Guardar first, since the buttons read what is saved.
+  / El aviso de correo vacío ahora también dice que pulses Guardar antes de tocar el botón.
+
 ## 2.2.27
 
 - Settings: "Crear cuenta" is its own block again, now with its own email and password: email, "Enviar código", the

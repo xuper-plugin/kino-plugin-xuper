@@ -84,7 +84,7 @@ export const TEXTS = Object.freeze({
   ],
   fillAccount: ["Faltan los datos de tu cuenta: complétalos en {place}.", "Your account details are missing: fill them in {place}."],
   accountRefused: ["Xuper no aceptó esa cuenta. Revisa los datos en {place}.", "Xuper did not accept that account. Check the details in {place}."],
-  fillEmail: ["Escribe tu correo en {place}.", "Enter your email in {place}."],
+  fillEmail: ["Escribe tu correo en {place} y pulsa Guardar antes de tocar el botón.", "Enter your email in {place} and tap Save before pressing the button."],
   badEmail: ["Escribe un correo válido en {place}.", "Enter a valid email in {place}."],
   fillCode: ["Escribe el código que te enviamos en {place}.", "Enter the code we sent you in {place}."],
   askCodeAgain: ["Pide el código otra vez.", "Ask for the code again."],

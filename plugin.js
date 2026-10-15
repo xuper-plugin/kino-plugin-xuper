@@ -372,7 +372,7 @@ var TEXTS = Object.freeze({
   ],
   fillAccount: ["Faltan los datos de tu cuenta: compl\xE9talos en {place}.", "Your account details are missing: fill them in {place}."],
   accountRefused: ["Xuper no acept\xF3 esa cuenta. Revisa los datos en {place}.", "Xuper did not accept that account. Check the details in {place}."],
-  fillEmail: ["Escribe tu correo en {place}.", "Enter your email in {place}."],
+  fillEmail: ["Escribe tu correo en {place} y pulsa Guardar antes de tocar el bot\xF3n.", "Enter your email in {place} and tap Save before pressing the button."],
   badEmail: ["Escribe un correo v\xE1lido en {place}.", "Enter a valid email in {place}."],
   fillCode: ["Escribe el c\xF3digo que te enviamos en {place}.", "Enter the code we sent you in {place}."],
   askCodeAgain: ["Pide el c\xF3digo otra vez.", "Ask for the code again."],
@@ -5254,8 +5254,8 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     const email = t("email"), password = t("password");
     const regEmail = t("regEmail"), regPassword = t("regPassword");
     const sharedOn = v.useSharedAccount === true || v.useSharedAccount === "true";
-    const hasOwn = email !== "" || password !== "";
     const hasCreated = regEmail !== "" || regPassword !== "";
+    const hasOwn = !hasCreated && (email !== "" || password !== "");
     if (sharedOn && !hasOwn && !hasCreated) {
       const bounds2 = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
       try {
@@ -5278,7 +5278,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
       else if (!regEmail.includes("@")) errors.regEmail = say(kino2, "enterValidEmail");
     }
     if (Object.keys(errors).length > 0) return errors;
-    const pair = email !== "" && password !== "" ? { email, password, field: "password" } : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
+    const pair = hasOwn && email !== "" && password !== "" ? { email, password, field: "password" } : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
     if (pair === null) return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
     try {

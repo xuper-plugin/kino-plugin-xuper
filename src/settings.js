@@ -189,8 +189,10 @@ export function makeSettings({ kino, session, clock, registration }) {
     const email = t("email"), password = t("password");
     const regEmail = t("regEmail"), regPassword = t("regPassword");
     const sharedOn = v.useSharedAccount === true || v.useSharedAccount === "true";
-    const hasOwn = email !== "" || password !== "";
     const hasCreated = regEmail !== "" || regPassword !== "";
+    // Typing in "Crear cuenta" is its own flow: what sits in "Cuenta" (an old or wrong pair) is neither checked nor
+    // allowed to refuse the save, or the person never gets the email they typed below saved.
+    const hasOwn = !hasCreated && (email !== "" || password !== "");
     if (sharedOn && !hasOwn && !hasCreated) {
       // The shared account: one bounded login, so a dead pair is told before saving.
       const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
@@ -213,7 +215,7 @@ export function makeSettings({ kino, session, clock, registration }) {
     }
     if (Object.keys(errors).length > 0) return errors;
     // The account that will be used: the "Cuenta" pair, else the "Crear cuenta" one (same rule as configuredPair).
-    const pair = email !== "" && password !== "" ? { email, password, field: "password" }
+    const pair = hasOwn && email !== "" && password !== "" ? { email, password, field: "password" }
       : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
     if (pair === null) return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
