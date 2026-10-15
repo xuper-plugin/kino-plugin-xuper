@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "2.2.28",
+  "version": "2.2.29",
   "apiVersion": 6,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -66,7 +66,7 @@
       "key": "createAccount",
       "label": "Crear cuenta",
       "type": "section",
-      "hint": "Correo, Enviar código, código y contraseña. Guarda antes de cada botón."
+      "hint": "Correo, Enviar código, código y contraseña, en ese orden."
     },
     {
       "key": "regEmail",

@@ -26,7 +26,7 @@ const hexToText = (hex) => Buffer.from(hex, "hex").toString("utf8");
 
 // Real portal + real session over a scripted fetch. Requests are decrypted with the stand-in key;
 // answers go out plain ({returnCode:"0", ...fields}), which the portal accepts as-is.
-function world({ routes = {}, config = { email: EMAIL, password: PW }, hosts = ["h1.test"], onFetch, saved = null } = {}) {
+function world({ routes = {}, config = { email: EMAIL, password: PW }, hosts = ["h1.test"], onFetch, saved = null, appVersion = "0.9.63" } = {}) {
   const clock = { t: 5_000_000, now() { return this.t; } };
   const requests = [];
   const base = fakeKino({ config });
@@ -36,7 +36,7 @@ function world({ routes = {}, config = { email: EMAIL, password: PW }, hosts = [
   // `saved`: a plain map the test edits like the app's settings store (the kit's config is frozen).
   const configOver = saved ? { config: Object.freeze({ get: (k) => saved[k], all: () => ({ ...saved }) }) } : {};
   const kino = Object.freeze({
-    ...base, ...configOver, storage, sleep: async () => {},
+    ...base, ...configOver, appVersion, storage, sleep: async () => {},
     fetch: async (url, opts) => {
       const path = new URL(url).pathname.replace("/api/portalCore/", "");
       const bean = JSON.parse(decrypt(opts.body));
@@ -410,6 +410,33 @@ test("validateSettings: a stale pair in Cuenta neither is checked nor stops Crea
   const verdict2 = await w.settings.validateSettings({ email: "otro@x.co", password: "mala", regEmail: EMAIL });
   assert.equal(verdict2, null, "a refused Cuenta pair does not refuse the save either");
   assert.deepEqual(w.requests, [], "and the Cuenta pair costs no portal call while Crear cuenta is being filled");
+});
+
+test("an older Kino runs the buttons on what was saved: the texts tell the person to save first; a newer one does not", async () => {
+  const noEmail = (appVersion) => world({ routes: goodRoutes(), saved: {}, appVersion });
+  for (const old of ["0.9.62", "sdk", "", "0.9"]) {
+    const w = noEmail(old);
+    await assert.rejects(w.settings.action("sendCode"), (e) => shown(e) !== null && shown(e).includes("pulsa Guardar antes de tocar el botón"), "old: " + JSON.stringify(old));
+  }
+  for (const fresh of ["0.9.63", "0.9.70", "1.0.0"]) {
+    const w = noEmail(fresh);
+    await assert.rejects(w.settings.action("sendCode"), (e) => shown(e) !== null && !shown(e).includes("Guardar"), "new: " + fresh);
+  }
+  const oldKino = world({ routes: goodRoutes(), saved: { regEmail: EMAIL }, appVersion: "0.9.62" });
+  const out = await oldKino.settings.action("sendCode");
+  assert.equal(out.message, "Te enviamos un código a " + EMAIL + ". Si es otro correo, pulsa Guardar y vuelve a tocar el botón.");
+});
+
+test("validateSettings: while a registration is under way the block's pair costs no portal call", async () => {
+  const saved = {};
+  const w = world({ routes: goodRoutes({ "v8/login": () => refuse("用户不存在") }), saved });
+  assert.equal(await w.settings.validateSettings({ regEmail: EMAIL, regPassword: PW, verifyCode: CODE }), null);
+  assert.deepEqual(w.requests, [], "a code typed: nothing to ask the portal");
+  assert.equal(await save(w, saved, { regEmail: EMAIL }), null);
+  await w.settings.action("sendCode");
+  const before = w.requests.length;
+  assert.equal(await w.settings.validateSettings({ regEmail: EMAIL, regPassword: PW }), null);
+  assert.equal(w.requests.length, before, "a code was sent to that email: nothing to ask either");
 });
 
 test("validateSettings: the block's own fields get their own field errors", async () => {

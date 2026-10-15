@@ -141,6 +141,22 @@ function intOrNull(v) {
   const n = Number(s);
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
+var SAVES_BEFORE_ACTION = [0, 9, 63];
+function savesBeforeAction(kino2) {
+  let version = "";
+  try {
+    version = kino2 && typeof kino2.appVersion === "string" ? kino2.appVersion.trim() : "";
+  } catch (_) {
+    return false;
+  }
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) return false;
+  for (let i = 0; i < 3; i++) {
+    const n = Number(m[i + 1]);
+    if (n !== SAVES_BEFORE_ACTION[i]) return n > SAVES_BEFORE_ACTION[i];
+  }
+  return true;
+}
 function configuredPair(config) {
   const t = (k) => asText(config.get(k)).trim();
   const own = { email: t("email"), password: t("password") };
@@ -372,7 +388,9 @@ var TEXTS = Object.freeze({
   ],
   fillAccount: ["Faltan los datos de tu cuenta: compl\xE9talos en {place}.", "Your account details are missing: fill them in {place}."],
   accountRefused: ["Xuper no acept\xF3 esa cuenta. Revisa los datos en {place}.", "Xuper did not accept that account. Check the details in {place}."],
-  fillEmail: ["Escribe tu correo en {place} y pulsa Guardar antes de tocar el bot\xF3n.", "Enter your email in {place} and tap Save before pressing the button."],
+  fillEmail: ["Escribe tu correo en {place}.", "Enter your email in {place}."],
+  // Older Kino runs a button on what was saved, so the person is told to save first (see savesBeforeAction).
+  fillEmailSave: ["Escribe tu correo en {place} y pulsa Guardar antes de tocar el bot\xF3n.", "Enter your email in {place} and tap Save before pressing the button."],
   badEmail: ["Escribe un correo v\xE1lido en {place}.", "Enter a valid email in {place}."],
   fillCode: ["Escribe el c\xF3digo que te enviamos en {place}.", "Enter the code we sent you in {place}."],
   askCodeAgain: ["Pide el c\xF3digo otra vez.", "Ask for the code again."],
@@ -406,6 +424,7 @@ var TEXTS = Object.freeze({
   seedsLoaded: ["{n} semillas cargadas", "{n} seeds loaded"],
   codeAlreadySent: ["Ya te enviamos un c\xF3digo; espera un minuto antes de pedir otro", "We already sent you a code; wait a minute before asking for another"],
   codeSent: ["Te enviamos un c\xF3digo a {email}", "We sent a code to {email}"],
+  codeSentSave: ["Te enviamos un c\xF3digo a {email}. Si es otro correo, pulsa Guardar y vuelve a tocar el bot\xF3n.", "We sent a code to {email}. If that is not the one, tap Save and press the button again."],
   accountCreatedSignIn: ["Cuenta creada. Toca Iniciar sesi\xF3n para entrar.", "Account created. Tap Sign in to enter."],
   accountCreatedSignedIn: ["Cuenta creada y sesi\xF3n iniciada", "Account created and signed in"],
   sharedActivationFailed: ["No se pudo activar la cuenta compartida", "Could not turn on the shared account"],
@@ -5203,7 +5222,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
   }
   function typedEmail() {
     const { email } = creationFields(kino2.config);
-    if (email === "") throw told(kino2, "auth_required", "Escribe tu correo en Ajustes", say(kino2, "fillEmail"));
+    if (email === "") throw told(kino2, "auth_required", "Escribe tu correo en Ajustes", say(kino2, savesBeforeAction(kino2) ? "fillEmail" : "fillEmailSave"));
     if (!email.includes("@")) throw told(kino2, "auth_required", "Escribe un correo v\xE1lido", say(kino2, "badEmail"));
     return email;
   }
@@ -5219,7 +5238,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     } catch (e) {
       throw surface(e);
     }
-    return { message: say(kino2, "codeSent", { email }) };
+    return { message: say(kino2, savesBeforeAction(kino2) ? "codeSent" : "codeSentSave", { email }) };
   }
   async function register() {
     const email = typedEmail();
@@ -5280,6 +5299,7 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     if (Object.keys(errors).length > 0) return errors;
     const pair = hasOwn && email !== "" && password !== "" ? { email, password, field: "password" } : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
     if (pair === null) return null;
+    if (pair.field === "regPassword" && (t("verifyCode") !== "" || registration && registration.pendingFor(pair.email) !== null)) return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
     try {
       await session.login(pair.email, pair.password, bounds);

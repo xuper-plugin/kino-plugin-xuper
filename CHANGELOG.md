@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.29
+
+- Works with the Kino that saves what is typed before a button runs (0.9.63 on): the texts no longer ask the person to
+  tap Guardar first there. Older Kino keeps saying so, and "Te enviamos un código a …" now adds that a different email
+  needs Guardar, since those versions run the button on the saved one.
+  / Compatible con el Kino que guarda lo escrito antes de ejecutar un botón (0.9.63 en adelante): ahí los textos ya no
+  piden pulsar Guardar. En versiones anteriores se sigue diciendo, y el aviso de código enviado agrega que otro correo
+  necesita Guardar.
+- A registration under way (a code typed or sent to that email) no longer asks the portal to sign in with the new
+  account while saving: it was refused by design and only made the button wait.
+  / Mientras hay un registro en curso, al guardar ya no se intenta iniciar sesión con la cuenta nueva (siempre se
+  rechazaba y solo hacía esperar al botón).
+
 ## 2.2.28
 
 - Fix: while "Crear cuenta" is being filled, what sits in "Cuenta" (an old or wrong pair) is no longer checked and can

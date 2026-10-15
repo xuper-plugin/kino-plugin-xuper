@@ -84,7 +84,7 @@ const textToHex = (text) => Buffer.from(text, "utf8").toString("hex");
  * `routes`: path -> (bean, ctx) => { data } | { returnCode, errorMessage } | an Error to throw.
  * Everything the plugin sends over HTTP lands in `log`; the crypto here is the kit's, not src/crypto.js.
  */
-function scriptedKino({ routes = {}, config = {}, seeds = null, seedsText = "[]" } = {}) {
+function scriptedKino({ routes = {}, config = {}, seeds = null, seedsText = "[]", appVersion = "0.9.63" } = {}) {
   const base = fakeKino({ config });
   const log = { requests: [], sleeps: [], other: [] };
   const encrypt = (plain) => textToHex(base.crypto.encrypt("des-ede3-ecb", { key: base.secret("magisKey"), data: plain, padding: "pkcs7" }));
@@ -115,7 +115,7 @@ function scriptedKino({ routes = {}, config = {}, seeds = null, seedsText = "[]"
     get: (k) => (k in overrides ? overrides[k] : base.config.get(k)),
     all: () => ({ ...base.config.all(), ...overrides }),
   });
-  const kino = Object.freeze({ ...base, config: configView, fetch, sleep: async (ms) => { log.sleeps.push(ms); } });
+  const kino = Object.freeze({ ...base, appVersion, config: configView, fetch, sleep: async (ms) => { log.sleeps.push(ms); } });
   if (seeds) base.storage.set("seeds", JSON.stringify(seeds));
   return { kino, log, setConfig: (values) => Object.assign(overrides, values), paths: () => log.requests.map((r) => r.path) };
 }

@@ -1,7 +1,7 @@
 // The account tab of Ajustes: the status line, the action buttons and the check that runs before
 // the person's email and password are saved. The account itself is NOT stored here: it is the
 // plugin's own settings (`kino.config`), which only the person can edit.
-import { isKinoError, configuredPair, creationFields } from "./util.js";
+import { isKinoError, configuredPair, creationFields, savesBeforeAction } from "./util.js";
 import { trace, errCode } from "./trace.js";
 import { told, namedCause } from "./portal.js";
 import { say } from "./i18n.js";
@@ -125,7 +125,7 @@ export function makeSettings({ kino, session, clock, registration }) {
   // portal or logged. Blank fields are the person's to fill, so they never cost a portal call.
   function typedEmail() {
     const { email } = creationFields(kino.config);
-    if (email === "") throw told(kino, "auth_required", "Escribe tu correo en Ajustes", say(kino, "fillEmail"));
+    if (email === "") throw told(kino, "auth_required", "Escribe tu correo en Ajustes", say(kino, savesBeforeAction(kino) ? "fillEmail" : "fillEmailSave"));
     if (!email.includes("@")) throw told(kino, "auth_required", "Escribe un correo válido", say(kino, "badEmail"));
     return email;
   }
@@ -140,7 +140,7 @@ export function makeSettings({ kino, session, clock, registration }) {
     const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock.now() + SEND_CODE_TOTAL_MS };
     try { await registration.sendRegistrationCode(email, bounds); }
     catch (e) { throw surface(e); }
-    return { message: say(kino, "codeSent", { email }) };
+    return { message: say(kino, savesBeforeAction(kino) ? "codeSent" : "codeSentSave", { email }) };
   }
 
   async function register() {
@@ -218,6 +218,10 @@ export function makeSettings({ kino, session, clock, registration }) {
     const pair = hasOwn && email !== "" && password !== "" ? { email, password, field: "password" }
       : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
     if (pair === null) return null;
+    // A registration under way (a code typed, or one sent to that email): the account may not exist yet, so a refused
+    // login is accepted anyway. Skipped, then: the button that triggered this save would only wait for a call whose
+    // answer cannot change the verdict.
+    if (pair.field === "regPassword" && (t("verifyCode") !== "" || (registration && registration.pendingFor(pair.email) !== null))) return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock.now() + VALIDATE_TOTAL_MS };
     try { await session.login(pair.email, pair.password, bounds); return null; }
     catch (e) {

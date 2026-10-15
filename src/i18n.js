@@ -84,7 +84,9 @@ export const TEXTS = Object.freeze({
   ],
   fillAccount: ["Faltan los datos de tu cuenta: complétalos en {place}.", "Your account details are missing: fill them in {place}."],
   accountRefused: ["Xuper no aceptó esa cuenta. Revisa los datos en {place}.", "Xuper did not accept that account. Check the details in {place}."],
-  fillEmail: ["Escribe tu correo en {place} y pulsa Guardar antes de tocar el botón.", "Enter your email in {place} and tap Save before pressing the button."],
+  fillEmail: ["Escribe tu correo en {place}.", "Enter your email in {place}."],
+  // Older Kino runs a button on what was saved, so the person is told to save first (see savesBeforeAction).
+  fillEmailSave: ["Escribe tu correo en {place} y pulsa Guardar antes de tocar el botón.", "Enter your email in {place} and tap Save before pressing the button."],
   badEmail: ["Escribe un correo válido en {place}.", "Enter a valid email in {place}."],
   fillCode: ["Escribe el código que te enviamos en {place}.", "Enter the code we sent you in {place}."],
   askCodeAgain: ["Pide el código otra vez.", "Ask for the code again."],
@@ -119,6 +121,7 @@ export const TEXTS = Object.freeze({
   seedsLoaded: ["{n} semillas cargadas", "{n} seeds loaded"],
   codeAlreadySent: ["Ya te enviamos un código; espera un minuto antes de pedir otro", "We already sent you a code; wait a minute before asking for another"],
   codeSent: ["Te enviamos un código a {email}", "We sent a code to {email}"],
+  codeSentSave: ["Te enviamos un código a {email}. Si es otro correo, pulsa Guardar y vuelve a tocar el botón.", "We sent a code to {email}. If that is not the one, tap Save and press the button again."],
   accountCreatedSignIn: ["Cuenta creada. Toca Iniciar sesión para entrar.", "Account created. Tap Sign in to enter."],
   accountCreatedSignedIn: ["Cuenta creada y sesión iniciada", "Account created and signed in"],
   sharedActivationFailed: ["No se pudo activar la cuenta compartida", "Could not turn on the shared account"],

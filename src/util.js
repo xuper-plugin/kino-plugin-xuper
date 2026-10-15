@@ -27,6 +27,26 @@ export function intOrNull(v) {
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
 
+/** The first Kino that saves the form's unsaved edits before it runs an action button (0.9.63). */
+const SAVES_BEFORE_ACTION = [0, 9, 63];
+
+/**
+ * Whether this Kino saves what is typed in the form before an action button runs, so the button acts on it. Older
+ * ones run the button on what was SAVED: the person has to tap Guardar first, and the texts say so. A missing or
+ * unreadable version counts as an old one. Never throws.
+ */
+export function savesBeforeAction(kino) {
+  let version = "";
+  try { version = kino && typeof kino.appVersion === "string" ? kino.appVersion.trim() : ""; } catch (_) { return false; }
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) return false;
+  for (let i = 0; i < 3; i++) {
+    const n = Number(m[i + 1]);
+    if (n !== SAVES_BEFORE_ACTION[i]) return n > SAVES_BEFORE_ACTION[i];
+  }
+  return true;
+}
+
 /**
  * The account the person's settings ask for. The sign-in fields ("Cuenta") win; when they are not both
  * filled, the pair typed in "Crear cuenta" is the account (a plugin cannot write its own settings, so the
