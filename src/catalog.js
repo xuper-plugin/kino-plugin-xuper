@@ -7,6 +7,8 @@ import { fitRows, makeRowsStore } from "./rowsStore.js";
 import { isSeries } from "./refs.js";
 import { makeSearch, collapseSeasons } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
+import { makeDetails } from "./details.js";
+import { makeTitlesStore } from "./titlesStore.js";
 import { makeIdsStore } from "./idsStore.js";
 import { viewOpts, callDeadline, CALL_BUDGET_MS, slowPortal } from "./portal.js";
 import { isKinoError } from "./util.js";
@@ -160,6 +162,8 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   const store = makeRowsStore({ kino, ttlMs: SNAPSHOT_TTL_MS });
   // The ids episodes() already learned, by contentId: cards carry them, no portal call is added for them.
   const ids = makeIdsStore({ kino, clock });
+  // The titles of the movie cards shown, by contentId, for a movie's details() (titlesStore.js).
+  const titles = makeTitlesStore({ kino, clock });
   const stale = (at) => { const age = clock.now() - at; return age < 0 || age >= ROWS_FRESH_MS; };
 
   // ---- what is served, and how it is kept up to date ----------------------------------------------
@@ -420,6 +424,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     // Asked alongside the VOD rows, inside LIVE_ROW_MS; its failure is no row (never a throw).
     const live = countryRow ? countryRow(Math.min(clock.now() + LIVE_ROW_MS, callDeadline(clock, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
     const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now(), ids.lookup(), isEnglish(kino), isSpanish(kino));
+    titles.rememberMovies(rows.flatMap((r) => r.items));
     const row = await live;
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
@@ -468,6 +473,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const idsOf = ids.lookup();
     const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null)
       .map((i) => ({ ...i, adult: true }));
+    titles.rememberMovies(items);
     const next = offset + BROWSE_PAGE;
     return next < all.length ? { items, next: String(next) } : { items };
   }
@@ -483,11 +489,12 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const list = oneEach(row.all ?? (offset === 0 ? row.shown : []));
     const idsOf = ids.lookup();
     const items = list.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null);
+    titles.rememberMovies(items);
     const next = offset + BROWSE_PAGE;
     return row.all && next < list.length ? { items, next: String(next) } : { items };
   }
 
-  const { search: globalSearch } = makeSearch({ kino, portal, session, clock, tmdb, isAdultId: (id) => adultIds.has(id), idsLookup: ids.lookup });
+  const { search: globalSearch } = makeSearch({ kino, portal, session, clock, tmdb, isAdultId: (id) => adultIds.has(id), idsLookup: ids.lookup, onItems: (items) => titles.rememberMovies(items) });
 
   // Kino's scopedSearch (apiVersion 6): `within` is the browse ref of a "Ver más" page. Those rows are Xuper's own
   // classification across the portal's sections (type x genre, featured), so no portal column matches one and its
@@ -516,6 +523,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const idsOf = ids.lookup();
     const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null)
       .map((i) => (adult ? { ...i, adult: true } : i));
+    titles.rememberMovies(items);
     const next = offset + BROWSE_PAGE;
     return next < ranked.length ? { items, next: String(next) } : { items };
   }
@@ -528,6 +536,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   // The chapter list is shared with resolve, which looks a chapter up by its number.
   const portalChapters = makePortalChapters({ kino, portal, session, clock, onServed: (how) => { served = { served: how }; }, ids });
   const episodes = makeEpisodes({ kino, tmdb, portalChapters, clock, ids });
+  const details = makeDetails({ kino, tmdb, portalChapters, clock, ids, titles });
 
   // The classified rows of the four roots (the same kept rows Home reads), for section and categories:
   // `need` is "section" or "categories" (see buildRows).
@@ -539,5 +548,5 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   /** A lookup of the stored ids (idsStore.js) for the section's cards: `(contentId) => ids | null`. */
   const idsLookup = () => ids.lookup();
 
-  return { home, browse, rows, search, episodes, portalChapters, servedBy, idsLookup };
+  return { home, browse, rows, search, episodes, details, portalChapters, servedBy, idsLookup };
 }

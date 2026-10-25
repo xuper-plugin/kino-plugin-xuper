@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2.32
+
+- A movie's page can now ask TMDB which film it is, so it shows its logo, synopsis and cast. Cards and search results of the
+  portal name no id, and a movie has no episodes call, so Kino had nothing to ask TMDB by. The plugin now answers a movie's
+  ids (`details`, apiVersion 8): the IMDb id the portal's own detail names, else the TMDB film the portal's title CLEARLY
+  means (the same strict rule series already use: exactly one exact title, or the only one holding every word, or one at
+  least twice as popular as the next). With neither it answers nothing, never a guess.
+  / La ficha de una película ya puede preguntarle a TMDB cuál es, para mostrar su logo, sinopsis y reparto. Las tarjetas y
+  los resultados de búsqueda del portal no traen ningún id y una película no tiene la llamada de episodios, así que Kino no
+  tenía con qué preguntar. El plugin ahora responde los ids de una película (`details`, apiVersion 8): el IMDb que nombra el
+  propio detalle del portal o, si no, la película de TMDB que el título del portal significa CLARAMENTE (la misma regla
+  estricta que ya usan las series). Sin ninguno de los dos no responde nada, nunca adivina.
+- A portal season that TMDB splits into several (Dragon Ball Kai: T1 with 98 chapters at the portal, seasons of about 26 at
+  TMDB) now gets its stills: when consecutive TMDB seasons add up EXACTLY to the portal season's chapters, in one way only,
+  the chapters are matched in order. Any other case attaches nothing, as before.
+  / Una temporada del portal que TMDB parte en varias (Dragon Ball Kai: T1 con 98 capítulos en el portal, temporadas de unos
+  26 en TMDB) ahora recibe sus imágenes: cuando varias temporadas seguidas de TMDB suman EXACTAMENTE los capítulos de la del
+  portal, y de una sola manera, los capítulos se emparejan en orden. Cualquier otro caso no pone nada, como antes.
+
 ## 2.2.31
 
 - The shared seed pool is no longer cut to its first 200. The published file now holds many more live seeds, and each

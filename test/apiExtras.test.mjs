@@ -127,7 +127,8 @@ test("theme: the icon's navy and blue, every color passes Kino's guardrails (non
 
 test("store categories: movies, series, anime and live, never adult; the manifest validates", () => {
   assert.deepEqual(manifest.categories, ["movies", "series", "anime", "live"]);
-  assert.equal(manifest.apiVersion, 6);
+  // 8 since 2.2.30: a movie's `details` export (its ids, for TMDB) is only called from apiVersion 8 (Kino 0.9.54). An older Kino refuses the update.
+  assert.equal(manifest.apiVersion, 8);
   const v = validateManifest(JSON.stringify(manifest));
   assert.ok(v.ok !== false && !v.error, JSON.stringify(v).slice(0, 300));
 });

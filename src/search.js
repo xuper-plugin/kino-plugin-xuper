@@ -167,7 +167,7 @@ const distinctBy = (list, keyOf) => {
 
 // `isAdultId(contentId)`: true for a title the 18+ root lists (catalog.js, from what this sandbox read of it).
 // `idsLookup()`: a lookup of the ids episodes() stored (idsStore.js), read once per search.
-export function makeSearch({ kino, portal, session, clock, tmdb = null, isAdultId = () => false, idsLookup = () => () => null }) {
+export function makeSearch({ kino, portal, session, clock, tmdb = null, isAdultId = () => false, idsLookup = () => () => null, onItems = () => {} }) {
   // Any failure reaches the caller as a kino error: portal codes mapped, the rest `unavailable`.
   const surface = (e) => {
     if (e instanceof PortalError) return mapPortalError(e.code, e.message, kino);
@@ -234,7 +234,15 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null, isAdultI
         { value: q, type: "0", columnId: "", filter: "", pageNum: 1, pageSize: PAGE_SIZE },
         viewOpts(v),
       ), { seedFallback: true, deadline });
-      return flatten(response).map(slim).filter((x) => x !== null);
+      const flat = flatten(response);
+      // DIAGNOSTIC (2.2.30, to remove): which id-like FIELD NAMES the portal sends on a search item, never a value.
+      try {
+        if (flat.length > 0 && isObject(flat[0])) {
+          const keys = Object.keys(flat[0]);
+          trace(kino, "search", "raw_keys", { n: keys.length, idKeys: keys.filter((k) => /imdb|tmdb|douban|keyword|extern|ident/i.test(k)).join("|").slice(0, 80), kwImdb: /^tt\d{7,10}$/.test(str(flat[0].keyWords)) ? 1 : 0 });
+        }
+      } catch (_) { /* diagnostic only */ }
+      return flat.map(slim).filter((x) => x !== null);
     }
 
     async function fetchInto(qs) {
@@ -322,6 +330,8 @@ export function makeSearch({ kino, portal, session, clock, tmdb = null, isAdultI
       out.push(item);
       if (out.length >= MAX_OUTPUT_ITEMS) break;
     }
+    // The movie titles shown, for a movie's details() (titlesStore.js). Never fails the search.
+    try { onItems(out); } catch (_) { /* log nothing: the page just has no remembered title */ }
     return out;
   }
 

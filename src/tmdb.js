@@ -5,6 +5,8 @@
 // Kino 0.9.53+ brings its own TMDB door (`kino.tmdb(path, params)`: Kino's key, its cache, parsed JSON);
 // older Kino, or a call to it that throws, falls back to kino.fetch with the sealed `tmdbKey`.
 import { isObject } from "./util.js";
+import { trace } from "./trace.js";
+import { parseSeasonCounts } from "./seasonRuns.js";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANGUAGE = "es-MX";
@@ -95,21 +97,61 @@ const plainWords = (t) => String(t).toLowerCase().normalize("NFD").replace(/\p{M
  *    twice the popularity of the next ("Dragón Ball Kai" is TMDB's "Dragon Ball Z Kai").
  */
 export function pickSeriesByTitle(body, title) {
+  const r = pickResultByTitle(body, title, "name", "original_name");
+  return r === null ? null : { tmdbId: optInt(r.id), title: text(r.name), poster: imageUrl(r.poster_path, "w500"), backdrop: imageUrl(r.backdrop_path, "w1280") };
+}
+
+/**
+ * The movie a TMDB /search/movie answer means by `title` (2.2.30), for a portal movie that names no IMDb id: the same
+ * clear-match rule as [pickSeriesByTitle] over `title`/`original_title`, otherwise `null` (a wrong id would paint another
+ * film's synopsis, cast and logo). `{ tmdbId, title }` of the film.
+ */
+export function pickMovieByTitle(body, title, year = "") {
+  // Several films share a name ("Avatar"): when the card's year is known, only the films of that year are weighed (when there
+  // are none, the answer is weighed whole, the rules below being strict anyway).
+  const wanted = /^\d{4}$/.test(String(year ?? "").trim()) ? String(year).trim() : "";
+  let source = body;
+  let sameYear = [];
+  if (wanted) {
+    const o = bodyOf(body);
+    if (isObject(o) && Array.isArray(o.results)) {
+      sameYear = o.results.filter((r) => isObject(r) && optInt(r.id) > 0 && text(r.release_date).startsWith(wanted));
+      if (sameYear.length > 0) source = { results: sameYear };
+    }
+  }
+  const r = pickResultByTitle(source, title, "title", "original_title");
+  if (r !== null) return { tmdbId: optInt(r.id), title: text(r.title) };
+  // The portal writes a sequel's number or a plural a little differently than TMDB ("Avatar 2: El camino del agua" against
+  // "Avatar: El camino del agua"). With the card's year, ONE film of that year in TMDB's answer that shares at least three
+  // quarters of the title's words is that film: the year and the single candidate are the safeguard.
+  if (wanted && sameYear.length === 1) {
+    const only = sameYear[0];
+    const want = plainWords(title).split(" ").filter((w) => w !== "");
+    if (want.length >= 2) {
+      const have = new Set([...plainWords(text(only.title)).split(" "), ...plainWords(text(only.original_title)).split(" ")]);
+      if (want.filter((w) => have.has(w)).length / want.length >= 0.75) return { tmdbId: optInt(only.id), title: text(only.title) };
+    }
+  }
+  return null;
+}
+
+// The one rule behind both pickers: the result a portal title CLEARLY means, or null. `nameKey`/`originalKey`: the result
+// fields that hold the localized and the original title (tv: name/original_name, movie: title/original_title).
+function pickResultByTitle(body, title, nameKey, originalKey) {
   const o = bodyOf(body);
   const want = plainWords(title);
   if (!isObject(o) || !Array.isArray(o.results) || want === "") return null;
   const hits = o.results.filter((r) => isObject(r) && optInt(r.id) > 0).slice(0, 10);
-  const forms = (r) => [plainWords(text(r.name)), plainWords(text(r.original_name))];
-  const pick = (r) => ({ tmdbId: optInt(r.id), title: text(r.name), poster: imageUrl(r.poster_path, "w500"), backdrop: imageUrl(r.backdrop_path, "w1280") });
+  const forms = (r) => [plainWords(text(r[nameKey])), plainWords(text(r[originalKey]))];
   const exact = hits.filter((r) => forms(r).includes(want));
-  if (exact.length === 1) return pick(exact[0]);
+  if (exact.length === 1) return exact[0];
   if (exact.length > 1) return null;
   const words = want.split(" ");
   const holding = hits.filter((r) => forms(r).some((f) => { const fw = f.split(" "); return words.every((w) => fw.includes(w)); }));
-  if (holding.length === 1) return pick(holding[0]);
+  if (holding.length === 1) return holding[0];
   if (holding.length > 1) {
     const ranked = holding.slice().sort((a, b) => (Number(b.popularity) || 0) - (Number(a.popularity) || 0));
-    if ((Number(ranked[0].popularity) || 0) >= 2 * (Number(ranked[1].popularity) || 0) && (Number(ranked[0].popularity) || 0) > 0) return pick(ranked[0]);
+    if ((Number(ranked[0].popularity) || 0) >= 2 * (Number(ranked[1].popularity) || 0) && (Number(ranked[0].popularity) || 0) > 0) return ranked[0];
   }
   return null;
 }
@@ -210,6 +252,24 @@ export function makeTmdb({ kino, clock = null }) {
     return body === null ? null : pickSeriesByTitle(body, title);
   }
 
+  /** `{ tmdbId, title }` of the movie a portal title clearly means (see pickMovieByTitle), or null. `year` (4 digits, optional) narrows it. */
+  async function movieByTitle(title, bounds, year = "") {
+    if (typeof title !== "string" || title.trim() === "") return null;
+    const params = { query: title.trim(), language: TMDB_LANGUAGE };
+    if (/^\d{4}$/.test(String(year ?? "").trim())) params.year = String(year).trim();
+    const body = await read("/search/movie", params, bounds);
+    // For the log: how many results TMDB answered (never the title), so a miss says if TMDB knew nothing or nothing was clear.
+    try { const o = bodyOf(body); trace(kino, "tmdb", "movie_search", { results: isObject(o) && Array.isArray(o.results) ? o.results.length : -1 }); } catch (_) { /* log only */ }
+    return body === null ? null : pickMovieByTitle(body, title, year);
+  }
+
+  /** `[{ season, count }]` of the series' real seasons (see seasonRuns.js), or null when it could not be had. */
+  async function seriesSeasons(tvId, bounds) {
+    if (!Number.isInteger(tvId) || tvId <= 0) return null;
+    const body = await read(`/tv/${tvId}`, { language: TMDB_LANGUAGE }, bounds);
+    return body === null ? null : parseSeasonCounts(body);
+  }
+
   /** The season's `[{ episode, name, overview, still, airDate, runtimeMinutes }]`, or null when it could not be had. `language` overrides es-MX. */
   async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, bounds) {
     if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
@@ -217,5 +277,5 @@ export function makeTmdb({ kino, clock = null }) {
     return body === null ? null : parseSeasonEpisodes(body);
   }
 
-  return { titleForms, seriesByImdb, seriesByTitle, seasonEpisodes };
+  return { titleForms, seriesByImdb, seriesByTitle, movieByTitle, seriesSeasons, seasonEpisodes };
 }

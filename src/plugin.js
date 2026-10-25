@@ -40,6 +40,8 @@ export async function browse(ref, cursor) {
 export async function section(arg) { await null; return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg)), {}, servedBy); }
 export async function categories() { await null; return traced(kino, clock, "categories", () => guarded(({ categories: c }) => c.categories()), {}, servedBy); }
 export async function episodes(ref) { await null; return traced(kino, clock, "episodes", () => guarded(({ catalog }) => catalog.episodes(ref)), {}, servedBy); }
+// apiVersion 8: a movie's ids (IMDb from the portal's detail, else a clear TMDB match by title) so its page can ask TMDB.
+export async function details(ref) { await null; return traced(kino, clock, "details", () => guarded(({ catalog }) => catalog.details(ref)), {}, servedBy); }
 // `options` (the retry reason) drives a live channel's reopen; VOD ignores it.
 export async function resolve(ref, options) {
   await null;

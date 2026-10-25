@@ -13,6 +13,7 @@ import { makeByteCache } from "./byteCache.js";
 import { isObject, isKinoError, optStringStrict } from "./util.js";
 import { say } from "./i18n.js";
 import { cleanSeriesTitle } from "./titleClean.js";
+import { pickSeasonRun } from "./seasonRuns.js";
 
 // One kino.storage key for every cached series (the whole storage is 256 KB and shared with the home
 // trees and the search results): never over 32,000 bytes, oldest series evicted first. A full
@@ -188,20 +189,54 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
   // `byTitle` (2.2.23): the series TMDB named from the portal's title when the portal gave no IMDb id. Its chapters
   // are crossed by number all the same: the numbering guard below (declared total == TMDB's) is what keeps a
   // wrong season from attaching stills that don't belong.
+  // The chapters of the consecutive TMDB seasons that add up to `expected`, numbered 1..expected in order, or null.
+  async function acrossTmdbSeasons(tvId, portalSeason, expected, bounds) {
+    if (typeof tmdb.seriesSeasons !== "function") return null;
+    try {
+      const all = await tmdb.seriesSeasons(tvId, bounds);
+      const run = pickSeasonRun(all, expected, portalSeason);
+      // DIAGNOSTIC (2.2.30, to remove): the chapter counts TMDB lists per season, numbers only.
+      const c = (i) => (Array.isArray(all) && all[i] ? all[i].count : -1);
+      trace(kino, "episodes", "run", { seasons: Array.isArray(all) ? all.length : -1, c1: c(0), c2: c(1), c3: c(2), c4: c(3), c5: c(4), c6: c(5), c7: c(6), c8: c(7), total: expected, found: run === null ? 0 : run.length });
+      if (run === null) return null;
+      const out = [];
+      for (const s of run) {
+        const eps = await tmdb.seasonEpisodes(tvId, s.season, undefined, bounds);
+        if (!eps || eps.length !== s.count) { trace(kino, "episodes", "run_season", { season: s.season, want: s.count, got: eps ? eps.length : -1 }); return null; }
+        for (const e of eps) out.push({ ...e, episode: out.length + 1 });
+      }
+      return out.length === expected ? out : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   async function enrich(raw, bounds, byTitle = null) {
     const none = { extra: new Map(), series: null };
-    if (!tmdb || raw.season === null) return none;
+    // DIAGNOSTIC (2.2.30, to remove): why a chapter list came with or without TMDB's stills. Numbers and a reason word only.
+    const why = (reason, more = {}) => trace(kino, "episodes", "enrich", { why: reason, season: raw.season ?? -1, declared: raw.declared ?? -1, items: raw.items.length, ...more });
+    if (!tmdb) { why("no_tmdb"); return none; }
+    if (raw.season === null) { why("no_season"); return none; }
     const viaImdb = IMDB.test(raw.imdb);
-    if (!viaImdb && !byTitle) return none;
+    if (!viaImdb && !byTitle) { why("no_series_id"); return none; }
     try {
       const series = viaImdb ? await tmdb.seriesByImdb(raw.imdb, bounds) : byTitle;
-      if (!series) return none;
-      const fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season, undefined, bounds);
-      if (!fromTmdb) return { extra: new Map(), series };
+      if (!series) { why("series_null", { via: viaImdb ? "imdb" : "title" }); return none; }
+      let fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season, undefined, bounds);
+      if (!fromTmdb) { why("season_null", { via: viaImdb ? "imdb" : "title" }); return { extra: new Map(), series }; }
+      let acrossSeasons = false;
       // Numbering guard: the season's DECLARED total (not the published count) must equal TMDB's, or
       // the portal split the series differently and crossing by number would attach stills that don't belong.
       const expected = raw.declared !== null && raw.declared > 0 ? raw.declared : raw.items.length;
-      if (expected !== fromTmdb.length) return { extra: new Map(), series };
+      if (expected !== fromTmdb.length) {
+        // TMDB may split the portal's season into several (T1 = 98 chapters against TMDB's seasons of 26): when consecutive TMDB
+        // seasons add up to exactly the portal's total, in one way only, their chapters in order are the portal's (seasonRuns.js).
+        const merged = fromTmdb.length < expected ? await acrossTmdbSeasons(series.tmdbId, raw.season, expected, bounds) : null;
+        if (merged === null) { why("count_mismatch", { expected, tmdbLen: fromTmdb.length, via: viaImdb ? "imdb" : "title" }); return { extra: new Map(), series }; }
+        fromTmdb = merged;
+        acrossSeasons = true;
+      }
+      why("ok", { tmdbLen: fromTmdb.length, stills: fromTmdb.filter((c) => c.still.trim() !== "").length, via: viaImdb ? "imdb" : "title", merged: acrossSeasons ? 1 : 0 });
 
       const rows = new Map();
       for (const c of fromTmdb) {
@@ -215,9 +250,9 @@ export function makeEpisodes({ kino, tmdb = null, portalChapters, clock = null, 
         };
         if (Object.values(row).some((v) => v !== null)) rows.set(c.episode, row); else rows.delete(c.episode);
       }
-      // English fallback ONLY for empty synopses, with its own catch.
+      // English fallback ONLY for empty synopses, with its own catch. Not for chapters crossed across several TMDB seasons: it asks one season.
       const missing = new Set([...rows].filter(([, r]) => r.overview === null).map(([n]) => n));
-      if (missing.size === 0) return { extra: rows, series };
+      if (missing.size === 0 || acrossSeasons) return { extra: rows, series };
       let inEnglish = [];
       try { inEnglish = (await tmdb.seasonEpisodes(series.tmdbId, raw.season, "en-US", bounds)) ?? []; } catch (_) { inEnglish = []; }
       for (const c of inEnglish) {
