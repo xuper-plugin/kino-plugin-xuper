@@ -744,3 +744,36 @@ test("periodic refresh: a pool drained by expiry is re-downloaded after 15 min, 
   assert.equal(await run([seedExp(1, 1100)]), 1);   // its only seed is dying: asks again
   assert.equal(await run([seed(1), seed(2)]), 0);   // nothing expiring: waits its 3 h
 });
+
+
+test("a published pool bigger than a device keeps is sampled at random, not cut to its first 200", async () => {
+  const big = Array.from({ length: 1000 }, (_, i) => seed(i + 1));
+  const a = setup({ fetchAnswer: big, random: () => 0 });
+  const b = setup({ fetchAnswer: big, random: () => 0.999 });
+  assert.equal(await a.session.refreshSeeds(), true);
+  assert.equal(await b.session.refreshSeeds(), true);
+  const pa = a.session.seedPool();
+  const pb = b.session.seedPool();
+  assert.equal(pa.length, 200);
+  assert.equal(pb.length, 200);
+  assert.equal(new Set(pa.map((e) => e.sn)).size, 200); // no repeats
+  assert.notDeepEqual(pa.map((e) => e.sn), pb.map((e) => e.sn)); // two devices keep different seeds
+  assert.ok(pb.some((e) => Number(e.sn.split("-")[1]) > 200)); // seeds past the old cut-off are reachable
+});
+
+test("a pool that fits is kept in its order; seeds about to die are drawn last", async () => {
+  const small = Array.from({ length: 5 }, (_, i) => seed(i + 1));
+  const s1 = setup({ fetchAnswer: small });
+  await s1.session.refreshSeeds();
+  assert.deepEqual(s1.session.seedPool().map((e) => e.sn), small.map((e) => e.sn));
+  const nowS = 1_000_000 / 1000;
+  const mixed = [
+    ...Array.from({ length: 300 }, (_, i) => ({ ...seed(i + 1), exp: nowS + 36000 })),
+    ...Array.from({ length: 100 }, (_, i) => ({ ...seed(1000 + i), exp: nowS + 60 })),
+  ];
+  const s2 = setup({ fetchAnswer: mixed, random: () => 0.5 });
+  await s2.session.refreshSeeds();
+  const kept = s2.session.seedPool();
+  assert.equal(kept.length, 200);
+  assert.ok(kept.every((e) => e.exp === nowS + 36000)); // the dying ones never take a slot while 200 live ones exist
+});

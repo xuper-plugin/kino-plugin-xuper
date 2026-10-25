@@ -26,6 +26,9 @@ const MIN_REQUEST_MS = 1_000; // less time left than this before a call's deadli
 const PERIODIC_REFRESH_MS = 3 * 3600_000;
 const PERIODIC_TIMEOUT_MS = 5_000;
 const MAX_SEEDS = 200; // keeps the stored pool far below the 256 KB storage limit
+// The published file may hold many more seeds than a device keeps (the collector publishes every live one it has): each
+// device keeps MAX_SEEDS of them AT RANDOM, so thousands of devices spread over the whole pool instead of all burning
+// the same first 200.
 // A seed carries `exp` (epoch seconds, published by the collector). One with less life left than this is not
 // picked: it would die mid-call. The published pool already holds hours of margin; this guards a pool that
 // sat in storage. Seeds from an older pool have no `exp` and are always usable.
@@ -59,6 +62,23 @@ function makeLock() {
     tail = run.then(() => {}, () => {});
     return run;
   };
+}
+
+/**
+ * At most [max] of [list], chosen at random (a partial Fisher-Yates with [rand], one draw per kept entry). A list that
+ * already fits is returned as it came, in its order. Entries about to die ([minLifeMs] left or less at [now]) are not
+ * drawn while enough others remain; they only fill what the live ones leave.
+ */
+export function sampleSeeds(list, max, rand, now, minLifeMs) {
+  if (list.length <= max) return list;
+  const alive = list.filter((e) => !(typeof e.exp === "number" && e.exp * 1000 - now < minLifeMs));
+  const pool = (alive.length >= max ? alive : alive.concat(list.filter((e) => !alive.includes(e)))).slice();
+  const n = Math.min(max, pool.length);
+  for (let i = 0; i < n; i++) {
+    const j = i + Math.min(pool.length - i - 1, Math.floor(rand() * (pool.length - i)));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, n);
 }
 
 /** A pool entry as the plugin keeps it: the three identity fields, plus `exp` when the pool carries one. */
@@ -396,9 +416,10 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     let list;
     try { list = JSON.parse(res.text()); } catch (_) { list = null; }
     if (!Array.isArray(list)) { report(kino, "seeds", "refresh", { ok: false, why: "parse" }); return false; }
-    const clean = list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken))
-      .slice(0, MAX_SEEDS)
-      .map(seedEntry);
+    const clean = sampleSeeds(
+      list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken)),
+      MAX_SEEDS, rand, clock.now(), SEED_MIN_LIFE_MS,
+    ).map(seedEntry);
     // Only a non-empty answer replaces the pool (native SeedRefresher.reseed()).
     if (clean.length === 0) { trace(kino, "seeds", "refresh", { ok: false, why: "empty" }); return false; }
     // A full store keeps the old pool: a download that cannot be kept is a failed one.
