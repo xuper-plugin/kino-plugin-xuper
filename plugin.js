@@ -835,6 +835,17 @@ function makeLock() {
     return run;
   };
 }
+function sampleSeeds(list, max, rand, now, minLifeMs) {
+  if (list.length <= max) return list;
+  const alive = list.filter((e) => !(typeof e.exp === "number" && e.exp * 1e3 - now < minLifeMs));
+  const pool = (alive.length >= max ? alive : alive.concat(list.filter((e) => !alive.includes(e)))).slice();
+  const n = Math.min(max, pool.length);
+  for (let i = 0; i < n; i++) {
+    const j = i + Math.min(pool.length - i - 1, Math.floor(rand() * (pool.length - i)));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, n);
+}
 function seedEntry(e) {
   const out = { sn: str2(e.sn), userId: str2(e.userId), userToken: str2(e.userToken) };
   if (typeof e.exp === "number" && Number.isFinite(e.exp) && e.exp > 0) out.exp = e.exp;
@@ -1176,7 +1187,13 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       report(kino2, "seeds", "refresh", { ok: false, why: "parse" });
       return false;
     }
-    const clean = list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).slice(0, MAX_SEEDS).map(seedEntry);
+    const clean = sampleSeeds(
+      list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)),
+      MAX_SEEDS,
+      rand,
+      clock2.now(),
+      SEED_MIN_LIFE_MS
+    ).map(seedEntry);
     if (clean.length === 0) {
       trace(kino2, "seeds", "refresh", { ok: false, why: "empty" });
       return false;

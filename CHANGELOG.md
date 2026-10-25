@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.31
+
+- The shared seed pool is no longer cut to its first 200. The published file now holds many more live seeds, and each
+  device keeps 200 of them AT RANDOM (those about to expire are drawn last), so thousands of people spread over the whole
+  pool instead of all trying the same few. A file of 200 or fewer behaves as before.
+  / El grupo de semillas compartidas ya no se corta en las primeras 200. El archivo publicado trae muchas más semillas
+  vivas y cada aparato se queda con 200 AL AZAR (las que están por vencer se eligen al final), así miles de personas se
+  reparten todo el grupo en vez de probar todas las mismas pocas. Un archivo de 200 o menos funciona como antes.
+
 ## 2.2.29
 
 - Works with the Kino that saves what is typed before a button runs (0.9.63 on): the texts no longer ask the person to
