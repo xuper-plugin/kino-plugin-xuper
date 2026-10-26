@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.33
+
+- A device now shares its fresh anonymous guest session every 3 hours instead of every 10, so the published seed pool holds
+  more live sessions. Nothing about the person travels with it, and the plugin's own "contribute seeds" setting still turns it off.
+  / Un aparato ahora comparte su sesión anónima nueva cada 3 horas en vez de cada 10, para que el grupo de semillas publicado
+  tenga más sesiones vivas. No viaja nada de la persona, y el ajuste "contribuir semillas" del plugin sigue apagándolo.
+
 ## 2.2.32
 
 - A movie's page can now ask TMDB which film it is, so it shows its logo, synopsis and cast. Cards and search results of the

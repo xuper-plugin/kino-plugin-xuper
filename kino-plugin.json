@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "2.2.32",
+  "version": "2.2.33",
   "apiVersion": 8,
   "entry": "plugin.js",
   "icon": "icon.png",

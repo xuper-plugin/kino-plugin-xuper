@@ -104,12 +104,12 @@ test("happy path: mints a fresh session, validates it, sends the exact seed shap
     customer: "M-2",
     availableTime: 28800,
   });
-  // The window is stamped so the device won't contribute again for 10 h.
+  // The window is stamped so the device won't contribute again for 3 h.
   assert.equal(kino.storage.get(AT_KEY), String(NOW));
 });
 
-test("the interval is the owner's value (10 h) and there is no dice", () => {
-  assert.equal(CONTRIB_INTERVAL_MS, 10 * 3600_000);
+test("the interval is the owner's value (3 h) and there is no dice", () => {
+  assert.equal(CONTRIB_INTERVAL_MS, 3 * 3600_000);
 });
 
 // ---- 2.2.25: the contribution never pushes Home past Kino's 20 s -----------------------------------

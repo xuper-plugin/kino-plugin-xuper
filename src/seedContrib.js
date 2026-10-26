@@ -25,9 +25,10 @@ import { PortalError } from "./portal.js";
 import { trace, errCode } from "./trace.js";
 import { isKinoError } from "./util.js";
 
-// At most one contribution per device every 10 hours (owner, 2026-10-08). A fresh anonymous Magis
-// guest session lives ~12 h, so a fresh contribution every 10 h keeps the pool live without churn.
-export const CONTRIB_INTERVAL_MS = 10 * 3600_000;
+// At most one contribution per device every 3 hours (owner, 2026-10-26; it was 10 h from 2026-10-08). A fresh
+// anonymous Magis guest session lives ~12 h and the published pool drops those with under 3 h left, so a device
+// contributing every 3 h keeps a fleet-sized pool full of seeds that are still worth handing out.
+export const CONTRIB_INTERVAL_MS = 3 * 3600_000;
 // The column the fresh session must be able to fetch to count as working (matches the minter's
 // SEED_VALIDATE_COLUMN): a geo-blocked or dead session cannot read it, so it is never contributed.
 export const VALIDATE_COLUMN = "masnew_movies";

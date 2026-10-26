@@ -5172,7 +5172,7 @@ function makeCategories({ catalog, kino: kino2 = null, liveTiles = null }) {
 }
 
 // src/seedContrib.js
-var CONTRIB_INTERVAL_MS = 10 * 36e5;
+var CONTRIB_INTERVAL_MS = 3 * 36e5;
 var VALIDATE_COLUMN = "masnew_movies";
 var REQUEST_MS = 1e4;
 var TOTAL_MS = 25e3;
