@@ -45,7 +45,7 @@ test("the block adds only the screen, opened from the plugin's settings page, th
   assert.deepEqual(Object.keys(BLOCK).sort(), ["capabilities", "screen", "settings"]);
   assert.deepEqual(BLOCK.capabilities, ["screen"]);
   assert.deepEqual(BLOCK.screen.opensFrom, ["settings"]);
-  assert.equal(BLOCK.screen.settingsIn, "both");
+  assert.equal(BLOCK.screen.settingsIn, "screen");
   assert.equal(BLOCK.screen.menuOpens, undefined, "the menu keeps opening the section");
   assert.ok(BLOCK.screen.label.length <= 20 && BLOCK.screen.labelEn.length <= 20);
   assert.ok(BLOCK.screen.settingsButton.label.length <= 40 && BLOCK.screen.settingsButton.labelEn.length <= 40);

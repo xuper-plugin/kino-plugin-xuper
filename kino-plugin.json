@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "apiVersion": 8,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -178,7 +178,7 @@
   "enhancements": {
     "14": {
       "capabilities": ["screen"],
-      "screen": {"label":"Configuración","labelEn":"Settings","opensFrom":["settings"],"settingsButton":{"label":"Abrir configuración","labelEn":"Open settings"},"settingsIn":"both"},
+      "screen": {"label":"Configuración","labelEn":"Settings","opensFrom":["settings"],"settingsButton":{"label":"Abrir configuración","labelEn":"Open settings"},"settingsIn":"screen"},
       "settings": [
         {"key":"account","label":"Cuenta","type":"section","hint":"Opcional. Sin cuenta accedes al catálogo con sesión anónima.","labelEn":"Account","hintEn":"Optional. Without an account you use the catalog with an anonymous session."},
         {"key":"email","label":"Correo electrónico","type":"text","labelEn":"Email"},

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.3
+
+- On a Kino that reads the configuration screen, the settings page shows only the «Abrir configuración» button: the old form is no longer repeated under it (`settingsIn: "screen"`). It comes back by itself when the screen cannot open, and a Kino without screens keeps the old form as before.
+
 ## 2.3.2
 
 - The configuration screen's tabs sit in the same row as its refresh and help buttons (the tabs are the app bar's title), so the bar is one row tall.
