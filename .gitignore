@@ -4,3 +4,6 @@ node_modules/
 .kino-cookies.json
 *.pem
 .kino-shared.json
+
+# Private development notes, never published
+PARITY.md

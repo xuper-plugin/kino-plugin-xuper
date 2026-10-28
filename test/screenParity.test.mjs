@@ -1,7 +1,7 @@
 // THE PARITY PASS (the last gate before any release of the configuration screen): every capability of the old settings
 // form (the checklist of the analysis, section 3.8) is walked row by row. For each row: the element is present on the
 // phone AND on the TV, its event reaches the OLD function (spied), and the old sentence (or its improved version) shows.
-// A row reads "same" or "better"; anything else fails the gate. PARITY.md lists the same rows for people.
+// A row reads "same" or "better"; anything else fails the gate.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -245,7 +245,7 @@ const ROWS = [
   ["Kino-side item behaviour (TV text dialog, sync)", "Secret and text fields use Kino's TV dialog; config writes save and sync as Ajustes' Guardar", async (d) => {
     const { tree } = await on(d, accountWorld(), { page: "signin" });
     assert.ok(allNodes(await tree()).some((n) => n.type === "textInput"));
-    return "same"; // the TV dialog and the sync between devices are device checks (PARITY.md)
+    return "same"; // the TV dialog and the sync between devices are device checks
   }],
 ];
 
