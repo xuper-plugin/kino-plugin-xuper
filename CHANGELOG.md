@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.3.0
+
+- A configuration screen of its own on a newer Kino (one that reads apiVersion 14): an «Abrir configuración» button at the
+  top of the plugin's settings opens three tabs. **Cuenta**: the account in use (its email shown masked), signing in on a
+  page of its own (checked with the service before it is saved, the verdict under the field, «Guardar sin comprobar» when
+  the service does not answer), creating an account in three steps (the code works only on the device that asked for it
+  and never travels to the other devices; «Reenviar código» waits a minute by itself and warns that the previous code stops
+  working), the shared account told at its own switch, and «Cerrar sesión», which clears the account even when the
+  anonymous session cannot start right away. **Conexión**: the region, the session in use, how many seeds are usable (not
+  just stored), when they were downloaded, why a download failed, and the anonymous contribution with its last time and
+  what it shares. **Inicio y ayuda**: the country row, frequent questions and a diagnostics card with no personal data.
+  Everything in Spanish and English. The usual settings form stays where it was, unchanged, and an older Kino sees only
+  that form: the plugin still installs as apiVersion 8.
+  / Una pantalla de configuración propia en un Kino más nuevo (uno que lee la apiVersion 14): un botón «Abrir
+  configuración» arriba de los ajustes del plugin abre tres pestañas. **Cuenta**: la cuenta en uso (su correo se muestra
+  oculto), iniciar sesión en su propia página (se comprueba con el servicio antes de guardarla, el veredicto bajo el campo,
+  «Guardar sin comprobar» si el servicio no responde), crear una cuenta en tres pasos (el código solo sirve en el aparato
+  que lo pidió y nunca viaja a los otros aparatos; «Reenviar código» espera un minuto solo y avisa que el código anterior
+  deja de valer), la cuenta compartida explicada en su propio interruptor, y «Cerrar sesión», que borra la cuenta aunque la
+  sesión anónima no pueda empezar enseguida. **Conexión**: la zona, la sesión en uso, cuántas semillas sirven (no solo
+  cuántas hay guardadas), cuándo se descargaron, por qué falló una descarga, y el aporte anónimo con su última vez y qué
+  comparte. **Inicio y ayuda**: la fila del país, preguntas frecuentes y un diagnóstico sin datos personales. Todo en
+  español e inglés. El formulario de ajustes de siempre sigue donde estaba, sin cambios, y un Kino más viejo ve solo ese
+  formulario: el plugin se sigue instalando como apiVersion 8.
+
 ## 2.2.33
 
 - A device now shares its fresh anonymous guest session every 3 hours instead of every 10, so the published seed pool holds

@@ -5,7 +5,7 @@ import { twin } from "./i18n.js";
 import { RESEND_WAIT_MS } from "./screenModel.js";
 
 /** The plugin's version, shown in the diagnostics (kept equal to kino-plugin.json by a test). */
-export const PLUGIN_VERSION = "2.2.33";
+export const PLUGIN_VERSION = "2.3.0";
 /** Every network press may take Kino's longest press budget: the old buttons' own bounds (25 s) fit inside it. */
 export const PRESS_MS = 30_000;
 export const TABS = ["account", "connection", "more"];
