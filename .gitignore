@@ -3,3 +3,4 @@ node_modules/
 .kino-storage.json
 .kino-cookies.json
 *.pem
+.kino-shared.json

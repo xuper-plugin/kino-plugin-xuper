@@ -10,9 +10,9 @@ function fromHex(h) {
   for (let i = 0; i < h.length; i += HEX_CHUNK) {
     const piece = h.slice(i, i + HEX_CHUNK);
     if (NOT_LOWER_HEX.test(piece)) throw new Error("not hex");
-    const text2 = decodeURIComponent(piece.replace(PAIR, "%$&"));
-    if (NOT_ASCII.test(text2)) throw new Error("not ascii");
-    parts.push(text2);
+    const text3 = decodeURIComponent(piece.replace(PAIR, "%$&"));
+    if (NOT_ASCII.test(text3)) throw new Error("not ascii");
+    parts.push(text3);
   }
   return parts.join("");
 }
@@ -24,19 +24,19 @@ function hostFromHex(kino2, h) {
   for (let i = 0; i < h.length; i += HOST_CHUNK) {
     const piece = h.slice(i, i + HOST_CHUNK);
     const sealed = kino2.crypto.encrypt("aes-128-ecb", { key: PASS_KEY, data: piece, inputEncoding: "hex" });
-    const text2 = kino2.crypto.decrypt("aes-128-ecb", { key: PASS_KEY, data: sealed });
-    if (typeof text2 !== "string" || text2.length * 2 !== piece.length) throw new Error("not ascii");
-    parts.push(text2);
+    const text3 = kino2.crypto.decrypt("aes-128-ecb", { key: PASS_KEY, data: sealed });
+    if (typeof text3 !== "string" || text3.length * 2 !== piece.length) throw new Error("not ascii");
+    parts.push(text3);
   }
   return parts.join("");
 }
 function wireText(kino2, h) {
-  let text2 = null;
+  let text3 = null;
   try {
-    text2 = hostFromHex(kino2, h);
+    text3 = hostFromHex(kino2, h);
   } catch (_) {
   }
-  return text2 === null ? { text: fromHex(h), how: "engine" } : { text: text2, how: "host" };
+  return text3 === null ? { text: fromHex(h), how: "engine" } : { text: text3, how: "host" };
 }
 function makeCrypto(kino2, { onDecode = null } = {}) {
   const fail = (what) => kino2.error("unavailable", "el portal no se pudo " + what);
@@ -60,13 +60,13 @@ function makeCrypto(kino2, { onDecode = null } = {}) {
         const startedAt = Date.now();
         const { text: b64, how } = wireText(kino2, wire);
         if (onDecode) onDecode({ how, bytes: wire.length, ms: Date.now() - startedAt });
-        const text2 = kino2.crypto.decrypt("des-ede3-ecb", {
+        const text3 = kino2.crypto.decrypt("des-ede3-ecb", {
           key: kino2.secret("magisKey"),
           data: b64,
           padding: "pkcs7"
         });
-        if (typeof text2 !== "string" || text2 === "") throw new Error("empty");
-        return text2;
+        if (typeof text3 !== "string" || text3 === "") throw new Error("empty");
+        return text3;
       } catch (_) {
         throw fail("descifrar");
       }
@@ -452,7 +452,165 @@ var TEXTS = Object.freeze({
   server: ["Servidor {n}", "Server {n}"],
   backup: ["respaldo", "backup"],
   retry: ["reintento {n}", "retry {n}"],
-  versionN: ["Versi\xF3n {n}", "Version {n}"]
+  versionN: ["Versi\xF3n {n}", "Version {n}"],
+  // The configuration screen (apiVersion 14 through the manifest's enhancements; src/screen*.js). Its nodes carry both
+  // languages (`text` / `textEn`): Kino picks by the person's language.
+  scrTitle: ["Configuraci\xF3n", "Settings"],
+  scrTabAccount: ["Cuenta", "Account"],
+  scrTabConnection: ["Conexi\xF3n", "Connection"],
+  scrTabMore: ["Inicio y ayuda", "Home & help"],
+  scrRefresh: ["Actualizar estado", "Refresh status"],
+  scrHelp: ["Ayuda", "Help"],
+  scrClassicNote: ["Tu versi\xF3n de Kino muestra aqu\xED el formulario de siempre.", "Your Kino version shows the usual form here."],
+  scrGenericError: ["No se pudo completar. Int\xE9ntalo de nuevo en un momento.", "It could not be done. Try again in a moment."],
+  scrBack: ["Volver", "Back"],
+  scrOn: ["Activado", "On"],
+  scrOff: ["Desactivado", "Off"],
+  // Account tab.
+  scrAnonBanner: [
+    "Sin cuenta: usas una sesi\xF3n an\xF3nima. Pel\xEDculas y series funcionan; algunos canales en vivo piden cuenta.",
+    "No account: you use an anonymous session. Movies and series work; some live channels need an account."
+  ],
+  scrSignIn: ["Iniciar sesi\xF3n", "Sign in"],
+  scrSignInSub: ["Con tu correo y tu contrase\xF1a", "With your email and password"],
+  scrCreate: ["Crear una cuenta", "Create an account"],
+  scrCreateSub: ["Gratis, con tu correo", "Free, with your email"],
+  scrAccHeld: ["Conectado", "Signed in"],
+  scrAccPending: ["Conectando\u2026 (sesi\xF3n an\xF3nima mientras tanto)", "Connecting\u2026 (anonymous session meanwhile)"],
+  scrAccRefused: ["No aceptada: usas la sesi\xF3n an\xF3nima", "Not accepted: you use the anonymous session"],
+  scrRefusedBanner: [
+    "El servicio no acept\xF3 tu cuenta. Revisa el correo y la contrase\xF1a, o vuelve a intentarlo.",
+    "The service did not accept your account. Check the email and the password, or try again."
+  ],
+  scrRetry: ["Reintentar", "Try again"],
+  scrConnectNow: ["Conectar ahora", "Connect now"],
+  scrChangeAccount: ["Cambiar de cuenta", "Change account"],
+  scrSignOut: ["Cerrar sesi\xF3n", "Sign out"],
+  scrSignOutConfirm: ["\xBFCerrar sesi\xF3n de tu cuenta?", "Sign out of your account?"],
+  scrSignOutPartial: [
+    "Cerraste sesi\xF3n. La sesi\xF3n an\xF3nima se activar\xE1 al cargar el cat\xE1logo.",
+    "You signed out. The anonymous session will start when the catalog loads."
+  ],
+  scrSharedSwitch: ["Usar cuenta compartida", "Use the shared account"],
+  scrSharedHint: ["Muchas personas la usan; puede cerrar la sesi\xF3n de otra.", "Many people use it; it may sign someone else out."],
+  scrSharedOn: ["Cuenta compartida activada", "Shared account turned on"],
+  scrSharedOff: ["Cuenta compartida desactivada", "Shared account turned off"],
+  scrSharedOwnFirst: ["Para usarla, primero cierra la sesi\xF3n de tu cuenta.", "To use it, first sign out of your account."],
+  scrSharedTurnOff: ["Apagar la cuenta compartida", "Turn off the shared account"],
+  // Sign-in page.
+  scrSignInTitle: ["Inicia sesi\xF3n con tu cuenta", "Sign in with your account"],
+  scrSignInCaption: [
+    "Se comprueba con el servicio antes de guardarla, y se guarda como tus otros ajustes en tus aparatos vinculados.",
+    "It is checked with the service before it is saved, and it is saved like your other settings on your linked devices."
+  ],
+  scrEmailLabel: ["Correo electr\xF3nico", "Email"],
+  scrEmailError: ["Revisa el correo", "Check the email"],
+  scrPasswordLabel: ["Contrase\xF1a", "Password"],
+  scrPasswordError: ["Escribe la contrase\xF1a", "Enter the password"],
+  scrUncheckedTitle: ["No se pudo comprobar ahora", "It could not be checked now"],
+  scrSaveUnchecked: ["Guardar sin comprobar", "Save without checking"],
+  scrSavedUnchecked: [
+    "Guardada sin comprobar: se comprobar\xE1 al cargar el cat\xE1logo.",
+    "Saved without checking: it will be checked when the catalog loads."
+  ],
+  scrTypeBoth: ["Escribe el correo y la contrase\xF1a, y vuelve a tocar el bot\xF3n.", "Enter the email and the password, and press the button again."],
+  // Registration page.
+  scrStepEmail: ["Tu correo", "Your email"],
+  scrStepCode: ["C\xF3digo y contrase\xF1a", "Code and password"],
+  scrStepDone: ["Listo", "Done"],
+  scrStepOf: ["Paso {n} de 3", "Step {n} of 3"],
+  scrSendCode: ["Enviar c\xF3digo", "Send code"],
+  scrRegTvNote: [
+    "Es m\xE1s c\xF3modo en el tel\xE9fono: tus ajustes se sincronizan con este aparato.",
+    "It is easier on the phone: your settings sync with this device."
+  ],
+  scrCodeSentTo: ["Enviamos un c\xF3digo a {email}.", "We sent a code to {email}."],
+  scrSentAt: ["Enviado", "Sent"],
+  scrCodeRules: ["El c\xF3digo vale 30 minutos y solo en este aparato.", "The code works for 30 minutes and only on this device."],
+  scrCodeLabel: ["C\xF3digo", "Code"],
+  scrCodeError: ["Escribe el c\xF3digo que lleg\xF3 a tu correo", "Enter the code that came to your email"],
+  scrNewPassword: ["Contrase\xF1a de tu cuenta nueva", "Password for your new account"],
+  scrCreateButton: ["Crear cuenta", "Create account"],
+  scrResend: ["Reenviar c\xF3digo", "Send the code again"],
+  scrResendIn: ["en", "in"],
+  scrResendConfirm: ["El c\xF3digo anterior deja de valer. \xBFEnviar otro?", "The previous code stops working. Send another one?"],
+  scrResent: ["Te enviamos otro c\xF3digo; el anterior ya no vale.", "We sent you another code; the previous one no longer works."],
+  scrChangeEmail: ["Cambiar correo", "Change email"],
+  scrCreatedPending: [
+    "Cuenta creada. La sesi\xF3n se inicia sola en un momento, o toca Conectar ahora.",
+    "Account created. The session starts by itself in a moment, or tap Connect now."
+  ],
+  scrAskAgain: ["Volver a pedir el c\xF3digo", "Ask for the code again"],
+  // Connection tab.
+  scrStatusCard: ["Estado", "Status"],
+  scrRegion: ["Tu zona", "Your region"],
+  scrRegionBlocked: ["Bloqueada", "Blocked"],
+  scrRegionFree: ["Libre", "Open"],
+  scrSession: ["Sesi\xF3n", "Session"],
+  scrSessionAccount: ["Tu cuenta", "Your account"],
+  scrSessionAnon: ["An\xF3nima propia", "Your own anonymous one"],
+  scrSessionSeed: ["Semilla de respaldo", "Backup seed"],
+  scrSessionNone: ["Todav\xEDa ninguna", "None yet"],
+  scrSeedsRow: ["Semillas", "Seeds"],
+  scrSeedsCount: ["{usable} utilizables de {pool}", "{usable} usable of {pool}"],
+  scrSeedsUpdated: ["Descargadas", "Downloaded"],
+  scrSeedsNever: ["A\xFAn no se descargaron en este aparato", "Not downloaded on this device yet"],
+  scrNoSeedsBanner: ["Por ahora no hay sesiones utilizables para tu zona.", "There are no usable sessions for your region right now."],
+  scrSeedsTitle: ["Semillas de respaldo", "Backup seeds"],
+  scrSeedsIntro: ["Sesiones an\xF3nimas de respaldo para cuando tu zona est\xE1 bloqueada.", "Anonymous backup sessions for when your region is blocked."],
+  scrAccountNoSeeds: ["Tu cuenta no usa semillas: estas opciones solo sirven sin cuenta.", "Your account does not use seeds: these options only work without an account."],
+  scrAutoHelp: [
+    "Activado, las semillas se descargan cada 3 horas mientras tu zona est\xE1 bloqueada y no usas cuenta. Si no tienes ninguna, se descargan igual cuando hacen falta.",
+    "When on, the seeds are downloaded every 3 hours while your region is blocked and you use no account. If you have none, they are downloaded anyway when needed."
+  ],
+  scrChangeSeed: ["Cambiar semilla", "Change seed"],
+  scrChangeSeedHint: ["Prueba otra sesi\xF3n de respaldo si esta va mal", "Try another backup session if this one goes wrong"],
+  scrUpdateSeeds: ["Actualizar semillas", "Update seeds"],
+  scrUpdateSeedsHint: ["Vuelve a descargar las sesiones de respaldo", "Downloads the backup sessions again"],
+  scrSeedsBadFile: ["El archivo de semillas no lleg\xF3 bien; int\xE9ntalo m\xE1s tarde.", "The seed file did not come through right; try again later."],
+  scrSeedsLoadedUsable: ["{n} semillas cargadas, {usable} utilizables", "{n} seeds loaded, {usable} usable"],
+  scrContribTitle: ["Aportar", "Contribute"],
+  scrContribHelp: [
+    "De vez en cuando comparte una sesi\xF3n an\xF3nima nueva, creada solo para eso: nunca la tuya ni tus datos. Solo se env\xEDa si el diagn\xF3stico de Kino est\xE1 activado para este plugin.",
+    "Now and then it shares a new anonymous session, created only for that: never yours, never your data. It is only sent while Kino's diagnostics are on for this plugin."
+  ],
+  scrContribLast: ["\xDAltimo aporte", "Last contribution"],
+  scrContribNever: ["Este aparato a\xFAn no ha aportado.", "This device has not contributed yet."],
+  scrContribWhatTitle: ["\xBFQu\xE9 se comparte?", "What is shared?"],
+  scrContribWhat: [
+    "Una sesi\xF3n de invitado an\xF3nima reci\xE9n creada (un n\xFAmero de aparato y su permiso de acceso), comprobada antes de enviarla. Nunca tu cuenta, tu historial ni datos de este aparato. Como mucho una cada 3 horas.",
+    "A brand-new anonymous guest session (a device number and its access grant), checked before it is sent. Never your account, your history or data about this device. At most one every 3 hours."
+  ],
+  // Home & help tab.
+  scrHomeTitle: ["Inicio", "Home"],
+  scrHomeHint: ["Una fila con los canales en vivo de tu pa\xEDs al final de Inicio.", "A row with your country's live channels at the end of Home."],
+  scrFaqTitle: ["Preguntas frecuentes", "Frequently asked questions"],
+  scrFaqAnonQ: ["\xBFQu\xE9 es la sesi\xF3n an\xF3nima?", "What is the anonymous session?"],
+  scrFaqAnonA: [
+    "Una sesi\xF3n de invitado que el servicio da a cualquiera, sin cuenta. Alcanza para pel\xEDculas y series; algunos canales en vivo piden cuenta.",
+    "A guest session the service gives anyone, with no account. It is enough for movies and series; some live channels need an account."
+  ],
+  scrFaqSeedsQ: ["\xBFQu\xE9 son las semillas?", "What are seeds?"],
+  scrFaqSeedsA: [
+    "Sesiones an\xF3nimas que comparten otros aparatos. Se usan solo cuando el servicio bloquea tu zona y no usas cuenta.",
+    "Anonymous sessions other devices share. They are used only when the service blocks your region and you use no account."
+  ],
+  scrFaqSharedQ: ["\xBFQu\xE9 es la cuenta compartida?", "What is the shared account?"],
+  scrFaqSharedA: [
+    "Una cuenta que usan muchas personas a la vez. Funciona sin registrarte, pero el servicio deja pocas sesiones abiertas: puede cerrar la de otra persona, y otra la tuya.",
+    "An account many people use at once. It works without signing up, but the service keeps few sessions open: it may sign someone else out, and someone else may sign you out."
+  ],
+  scrFaqSyncQ: ["\xBFMi cuenta pasa a mis otros aparatos?", "Does my account reach my other devices?"],
+  scrFaqSyncA: [
+    "S\xED: el correo y la contrase\xF1a se guardan como tus otros ajustes y se sincronizan con tus aparatos vinculados; la contrase\xF1a viaja cifrada.",
+    "Yes: the email and the password are saved like your other settings and sync with your linked devices; the password travels encrypted."
+  ],
+  scrDiagTitle: ["Diagn\xF3stico", "Diagnostics"],
+  scrDiagPlugin: ["Versi\xF3n del plugin", "Plugin version"],
+  scrDiagKino: ["Versi\xF3n de Kino", "Kino version"],
+  scrDiagDevice: ["Aparato", "Device"],
+  scrDiagNoPersonal: ["Sin datos personales: ni tu correo ni tus sesiones.", "No personal data: neither your email nor your sessions."],
+  scrCopyDiag: ["Copiar diagn\xF3stico", "Copy diagnostics"]
 });
 function say(kino2, key, vars = {}) {
   const pair = TEXTS[key];
@@ -461,10 +619,22 @@ function say(kino2, key, vars = {}) {
   const all = { place: TEXTS.settingsPlace[en ? 1 : 0], ...vars };
   return pair[en ? 1 : 0].replace(/\{(\w+)\}/g, (m, name) => Object.hasOwn(all, name) ? String(all[name]) : m);
 }
+function twin(key, field2 = "text", vars = {}) {
+  const pair = TEXTS[key] || [key, key];
+  const fill = (text3, i) => {
+    const all = { place: TEXTS.settingsPlace[i], ...vars };
+    return text3.replace(/\{(\w+)\}/g, (m, name) => {
+      if (!Object.hasOwn(all, name)) return m;
+      const v = all[name];
+      return Array.isArray(v) ? String(v[i]) : String(v);
+    });
+  };
+  return { [field2]: fill(pair[0], 0), [field2 + "En"]: fill(pair[1], 1) };
+}
 function sayAll(key) {
   const pair = TEXTS[key];
   if (!pair) return [];
-  return pair.map((text2, i) => text2.replace(/\{place\}/g, TEXTS.settingsPlace[i]));
+  return pair.map((text3, i) => text3.replace(/\{place\}/g, TEXTS.settingsPlace[i]));
 }
 
 // src/portal.js
@@ -492,7 +662,7 @@ function accountProblemMessage(code, kino2 = null) {
 }
 var EPISODE_GONE = sayAll("episodeGone")[0];
 var SERIES_GONE = sayAll("seriesGone")[0];
-var isEpisodeGone = (text2) => sayAll("episodeGone").includes(text2);
+var isEpisodeGone = (text3) => sayAll("episodeGone").includes(text3);
 var told = (kino2, code, message, sentence) => kino2.error(code, message, { userMessage: sentence });
 function namedCause(kino2, e) {
   if (e instanceof PortalError && e.code === "portal100024") return told(kino2, "unavailable", "region blocked (portal100024)", say(kino2, "regionBlocked"));
@@ -583,10 +753,10 @@ function contentClass(res) {
   if (ct.startsWith("text/")) return "text";
   return "other";
 }
-function gzipped(res, text2) {
+function gzipped(res, text3) {
   const h = res !== null && typeof res === "object" && res.headers !== null && typeof res.headers === "object" ? res.headers : null;
   const enc = h && typeof h["content-encoding"] === "string" ? h["content-encoding"].toLowerCase() : "";
-  return enc.includes("gzip") || typeof text2 === "string" && text2.charCodeAt(0) === 31;
+  return enc.includes("gzip") || typeof text3 === "string" && text3.charCodeAt(0) === 31;
 }
 var PATH_ALIASES = { "v2/sendEmailVerifyCode": "v2/sendCode", "v2/validateVerifyCode": "v2/checkCode" };
 var tracePath = (path) => Object.hasOwn(PATH_ALIASES, path) ? PATH_ALIASES[path] : path;
@@ -859,7 +1029,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   let inflight = null;
   let exhausted = false;
   const timeLeft = (bounds) => bounds && typeof bounds.deadline === "number" ? bounds.deadline - clock2.now() : Infinity;
-  const readJson = (key) => {
+  const readJson2 = (key) => {
     try {
       const raw = kino2.storage.get(key);
       return raw === null || raw === void 0 ? null : JSON.parse(raw);
@@ -869,7 +1039,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   };
   const writeJson = (key, value) => kino2.storage.set(key, JSON.stringify(value));
   const readSession = () => {
-    const s = readJson("session");
+    const s = readJson2("session");
     const o = s && typeof s === "object" ? s : {};
     return { userId: str2(o.userId), userToken: str2(o.userToken), jwtToken: str2(o.jwtToken), sn: str2(o.sn), acct: str2(o.acct) };
   };
@@ -880,7 +1050,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     sn: str2(s.sn),
     acct: str2(s.acct)
   });
-  const view = () => {
+  const view2 = () => {
     const s = readSession();
     return { userId: s.userId, userToken: s.userToken, sn: null };
   };
@@ -888,7 +1058,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   const accountKey = (email, password) => kino2.crypto.hash("sha256", str2(email) + "\n" + kino2.crypto.hash("md5", str2(password) + PASSWORD_SALT));
   const sharedPair = shared && !blank2(shared.email) && !blank2(shared.password) ? { email: str2(shared.email), password: str2(shared.password) } : null;
   const keyOf = (acc) => sharedPair && acc.email === sharedPair.email && acc.password === sharedPair.password ? "shared" : accountKey(acc.email, acc.password);
-  const legacyShared = () => readJson("sharedAccount") === true;
+  const legacyShared = () => readJson2("sharedAccount") === true;
   const dropLegacy = () => {
     try {
       if (kino2.storage.get("sharedAccount") !== null && kino2.storage.get("sharedAccount") !== void 0) kino2.storage.remove("sharedAccount");
@@ -916,7 +1086,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   const OWN_NOT_A_REFUSAL = /* @__PURE__ */ new Set([...NOT_A_REFUSAL, ...SESSION_DEAD, ACCOUNT_IN_USE_ELSEWHERE]);
   const refusal = (e, key) => e instanceof PortalError && !(key === "shared" ? NOT_A_REFUSAL : OWN_NOT_A_REFUSAL).has(e.code);
   const refusedKey = () => {
-    const r = readJson("refusedAcct");
+    const r = readJson2("refusedAcct");
     if (!r || typeof r !== "object" || typeof r.key !== "string" || typeof r.at !== "number") return "";
     const age = clock2.now() - r.at;
     return age >= 0 && age < REFUSAL_TTL_MS ? r.key : "";
@@ -929,7 +1099,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   };
   const clearRefused = (key) => {
     if (key === "") return;
-    const r = readJson("refusedAcct");
+    const r = readJson2("refusedAcct");
     if (r && typeof r === "object" && r.key === key) {
       try {
         kino2.storage.remove("refusedAcct");
@@ -968,7 +1138,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   }
   const autoRefresh = () => kino2.config.get("autoRefreshSeeds") !== false;
   const regionBlocked = () => {
-    const r = readJson("region");
+    const r = readJson2("region");
     return !!(r && r.blocked === true);
   };
   const setRegion = (blocked) => {
@@ -978,13 +1148,13 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     }
   };
   const seedPool = () => {
-    const raw = readJson("seeds");
+    const raw = readJson2("seeds");
     if (!Array.isArray(raw)) return [];
     return raw.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)).map(seedEntry);
   };
   const deadId = (e) => `${str2(e.sn)}|${str2(e.userToken).slice(-6)}`;
   const deadMarks = () => {
-    const m = readJson(DEAD_KEY);
+    const m = readJson2(DEAD_KEY);
     const out = {};
     if (!m || typeof m !== "object" || Array.isArray(m)) return out;
     const now = clock2.now();
@@ -1009,7 +1179,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
   const pick = (pool) => pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
   const seedSession = (e) => ({ userId: e.userId, userToken: e.userToken, jwtToken: "", sn: e.sn, acct: "" });
   const surface = (e) => e instanceof PortalError ? mapPortalError(e.code, e.message, kino2) : e;
-  const fingerprint = makeFingerprint(kino2);
+  const fingerprint2 = makeFingerprint(kino2);
   function saveFromResponse(j, acct = "") {
     writeSession({ userId: j.userId, userToken: j.userToken, jwtToken: j.jwtToken, sn: readSession().sn, acct });
   }
@@ -1019,7 +1189,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     saveFromResponse(j);
   }
   async function mintDevice(bounds = {}) {
-    const j = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
+    const j = await portal.call("v3/snToken", fingerprint2(), { baseFields: false, ...bounds });
     if (blank2(j && j.snToken)) throw new PortalError("snToken_failed", "el portal no devolvi\xF3 snToken");
     const snToken = str2(j.snToken);
     const sn = snFrom(kino2, j, snToken);
@@ -1165,17 +1335,22 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     trace(kino2, "session", "seed_switch", { pool: pool.length, seed: seedTag(kino2, chosen.sn) });
     return true;
   });
+  let lastOutcome = null;
+  const outcome = (ok, why) => {
+    lastOutcome = { ok, why, at: clock2.now(), n: (lastOutcome ? lastOutcome.n : 0) + 1 };
+    return ok;
+  };
   async function fetchSeeds(timeoutMs) {
     let res;
     try {
       res = await kino2.fetch(seedsUrl, { timeoutMs });
     } catch (e) {
       trace(kino2, "seeds", "refresh", { ok: false, why: "fetch", code: errCode(e) });
-      return false;
+      return outcome(false, "fetch");
     }
     if (res && res.ok === false) {
       report(kino2, "seeds", "refresh", { ok: false, why: "http", status: res.status });
-      return false;
+      return outcome(false, "http");
     }
     let list;
     try {
@@ -1185,7 +1360,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     }
     if (!Array.isArray(list)) {
       report(kino2, "seeds", "refresh", { ok: false, why: "parse" });
-      return false;
+      return outcome(false, "parse");
     }
     const clean = sampleSeeds(
       list.filter((e) => e && typeof e === "object" && !blank2(e.sn) && !blank2(e.userToken)),
@@ -1196,26 +1371,26 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     ).map(seedEntry);
     if (clean.length === 0) {
       trace(kino2, "seeds", "refresh", { ok: false, why: "empty" });
-      return false;
+      return outcome(false, "empty");
     }
     try {
       writeJson("seeds", clean);
     } catch (_) {
       trace(kino2, "seeds", "refresh", { ok: false, why: "store", n: clean.length });
-      return false;
+      return outcome(false, "store");
     }
     try {
       writeJson("seedsAt", clock2.now());
     } catch (_) {
     }
     trace(kino2, "seeds", "refresh", { ok: true, n: clean.length });
-    return true;
+    return outcome(true, null);
   }
   async function refreshSeeds({ periodic = false, timeoutMs = 15e3, deadline, manual = false } = {}) {
     const has = () => seedPool().length > 0;
     if (periodic) {
       if (!autoRefresh() || !regionBlocked() || account()) return has();
-      const at = readJson("seedsAt");
+      const at = readJson2("seedsAt");
       const stored = seedPool();
       const draining = usable(stored).length < Math.min(SEED_LOW_POOL, stored.length);
       const wait = draining ? LOW_POOL_RETRY_MS : PERIODIC_REFRESH_MS;
@@ -1339,7 +1514,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       const j = Math.min(i, Math.floor(rand() * (i + 1)));
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
-    const note = (tries2, outcome) => outcome === "answered" ? report(kino2, "shared_seed", "answered", { tries: tries2, pool: candidates.length, refreshed }) : trace(kino2, "session", "seed_fallback", { outcome, tries: tries2, pool: candidates.length, refreshed });
+    const note = (tries2, outcome2) => outcome2 === "answered" ? report(kino2, "shared_seed", "answered", { tries: tries2, pool: candidates.length, refreshed }) : trace(kino2, "session", "seed_fallback", { outcome: outcome2, tries: tries2, pool: candidates.length, refreshed });
     let tries = 0;
     for (const c of candidates.slice(0, SEED_FALLBACK_TRIES)) {
       if (left() < SEED_FALLBACK_MIN_MS) break;
@@ -1378,7 +1553,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     const attempt = async () => {
       const used = readSession();
       try {
-        return { value: await block({ ...view(), ...bounds }) };
+        return { value: await block({ ...view2(), ...bounds }) };
       } catch (e) {
         if (e instanceof PortalError) {
           if (SESSION_DEAD.has(e.code)) noteDeadSeed(used);
@@ -1387,7 +1562,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
         throw e;
       }
     };
-    const tokenUsed = view().userToken;
+    const tokenUsed = view2().userToken;
     let result = await attempt();
     if (!result.err) return settle(result);
     trace(kino2, "session", "err", { code: result.err.code, sess: mode() });
@@ -1407,12 +1582,12 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     }
     let renewal = await renew(tokenUsed, bounds);
     if (SESSION_DEAD.has(result.err.code) && ownLinked() && transientLogin(renewal.loginError)) {
-      renewal = await renew(view().userToken, bounds);
+      renewal = await renew(view2().userToken, bounds);
     }
     const loginError = renewal.loginError;
     if (loginError instanceof PortalError && loginError.code === ACCOUNT_IN_USE_ELSEWHERE && ownLinked()) result = { err: loginError };
     if (renewal.ok) {
-      const retryToken = view().userToken;
+      const retryToken = view2().userToken;
       result = await attempt();
       if (!result.err) return settle(result);
       if (ownLinked() && SESSION_DEAD.has(result.err.code) && (await renew(retryToken, bounds)).ok) {
@@ -1424,15 +1599,15 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       setRegion(true);
       let rounds = 0;
       const poolFresh = () => {
-        const at = readJson("seedsAt");
+        const at = readJson2("seedsAt");
         const age = typeof at === "number" ? clock2.now() - at : Infinity;
-        const inUse = view().userToken;
+        const inUse = view2().userToken;
         return age >= 0 && age < RESCUE_POOL_FRESH_MS && usable(seedPool()).some((e) => e.userToken !== inUse);
       };
       for (let round = 0; round < SEED_RESCUE_ROUNDS; round++) {
         if (timeLeft(bounds) < MIN_REQUEST_MS) break;
         rounds++;
-        if ((poolFresh() || await refreshSeeds({ deadline })) && await switchToBackup(view().userToken)) {
+        if ((poolFresh() || await refreshSeeds({ deadline })) && await switchToBackup(view2().userToken)) {
           const retry = await attempt();
           if (!retry.err || !SESSION_DEAD.has(retry.err.code)) {
             exhausted = false;
@@ -1530,7 +1705,16 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     switchSeed,
     refreshSeeds,
     seedPool,
-    adoptSession
+    adoptSession,
+    // E4: read-only views for a screen. `seedsAt` is the stored stamp of the last download (the periodic refresh stamps
+    // it before trying, so it is "last tried or loaded"); `usableSeeds` counts the pool seeds a pick could use now.
+    seedsAt: () => {
+      const at = readJson2("seedsAt");
+      return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : null;
+    },
+    usableSeeds: () => usable(seedPool()).length,
+    // E5: `{ ok, why, at, n }` of this runtime's last download, or null when none ran.
+    seedsOutcome: () => lastOutcome ? { ...lastOutcome } : null
   };
 }
 
@@ -1627,7 +1811,7 @@ function genreOfRow(rowId) {
 }
 var cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 var byScore = (a, b) => cmp(b.score ?? -1, a.score ?? -1) || cmp(a.title, b.title) || cmp(a.id, b.id);
-var plain = (text2) => text2.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").trim();
+var plain = (text3) => text3.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").trim();
 function distinctBy(list, key) {
   const seen = /* @__PURE__ */ new Set();
   return list.filter((x) => {
@@ -1640,7 +1824,7 @@ function distinctBy(list, key) {
 var row = (id, title2, items) => ({ id, title: title2, shown: items.slice(0, MAX_ROW_SIZE), all: items });
 var genresOf = (item) => distinctBy(item.genres.map((g) => GENRES.get(g.trim())).filter((g) => g !== void 0), (g) => g[0]);
 var newestFirst = (items) => items.some((i) => i.shelvedAtMs > 0) ? [...items].sort((a, b) => b.shelvedAtMs - a.shelvedAtMs) : items;
-var playable = (section2) => distinctBy(section2.items.filter((i) => i.type !== TRAILER), (i) => i.id);
+var playable = (section3) => distinctBy(section3.items.filter((i) => i.type !== TRAILER), (i) => i.id);
 function yearSections(sections) {
   const out = [];
   for (const s of sections) {
@@ -1723,8 +1907,8 @@ function classify(roots) {
   const sectionsOf = Object.fromEntries(KINDS.map((k) => [k.root, roots[k.root] || []]));
   const kindOf = /* @__PURE__ */ new Map();
   for (const root of PRECEDENCE) {
-    for (const section2 of sectionsOf[root]) {
-      for (const item of section2.items) {
+    for (const section3 of sectionsOf[root]) {
+      for (const item of section3.items) {
         if (item.type !== TRAILER && !kindOf.has(item.id)) kindOf.set(item.id, [root, item]);
       }
     }
@@ -1789,9 +1973,9 @@ var PREFIX = "magis1";
 var SERIES = /* @__PURE__ */ new Set(["teleplay", "series", "variety"]);
 var isSeries = (programType) => SERIES.has(programType);
 var INT2 = /^[+-]?\d+$/;
-function toIntOrNull(text2) {
-  if (!INT2.test(text2)) return null;
-  const n = Number(text2);
+function toIntOrNull(text3) {
+  if (!INT2.test(text3)) return null;
+  const n = Number(text3);
   return n >= -2147483648 && n <= 2147483647 ? n : null;
 }
 var make = (contentId, programType, episode) => ({ contentId, programType, episode, isSeries: isSeries(programType) });
@@ -1868,8 +2052,8 @@ function fromGatewayRef(ref) {
   if (isBlank(data)) return null;
   let json;
   try {
-    const text2 = base64UrlToText(data);
-    json = text2 === null ? null : JSON.parse(text2);
+    const text3 = base64UrlToText(data);
+    json = text3 === null ? null : JSON.parse(text3);
   } catch (_) {
     return null;
   }
@@ -1911,8 +2095,8 @@ function numberOrNull(v) {
   const s = String(v);
   return DEC.test(s) ? Number(s) : null;
 }
-function parseShelveTime(text2) {
-  const raw = typeof text2 === "string" ? text2.trim() : "";
+function parseShelveTime(text3) {
+  const raw = typeof text3 === "string" ? text3.trim() : "";
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2}):(\d{1,2})$/.exec(raw);
   if (!m) return 0;
   const [y, mo, d, h, mi, s] = m.slice(1).map(Number);
@@ -2078,8 +2262,8 @@ function fitRows(rows, { budget = TEXT_BUDGET_BYTES, keepFull = Infinity } = {})
   return null;
 }
 var isIndexList = (a, n) => Array.isArray(a) && a.every((k) => Number.isInteger(k) && k >= 0 && k < n);
-function decodeRows(text2) {
-  const o = JSON.parse(text2);
+function decodeRows(text3) {
+  const o = JSON.parse(text3);
   if (o === null || typeof o !== "object" || o.v !== ROWS_FORMAT || typeof o.p !== "string" || !Array.isArray(o.g) || !Array.isArray(o.t) || !Array.isArray(o.i) || !Array.isArray(o.r) || o.c !== 0 && o.c !== 1) {
     throw new Error("stored rows are malformed");
   }
@@ -2109,31 +2293,31 @@ function decodeRows(text2) {
   });
   return { rows, complete: o.c === 1 };
 }
-function splitParts(text2, budget = PART_BUDGET_BYTES) {
+function splitParts(text3, budget = PART_BUDGET_BYTES) {
   const parts = [];
   let start = 0;
-  while (start < text2.length) {
-    let len = Math.min(budget, text2.length - start);
+  while (start < text3.length) {
+    let len = Math.min(budget, text3.length - start);
     for (; ; ) {
       let end = start + len;
-      const c = text2.charCodeAt(end - 1);
-      if (end < text2.length && c >= 55296 && c < 56320) end--;
-      const size = storedLength(text2.slice(start, end));
+      const c = text3.charCodeAt(end - 1);
+      if (end < text3.length && c >= 55296 && c < 56320) end--;
+      const size = storedLength(text3.slice(start, end));
       if (size <= budget || end - start <= 1) {
         len = end - start;
         break;
       }
       len = Math.max(1, Math.min(end - start - 1, Math.floor((end - start) * budget / size) - 2));
     }
-    parts.push(text2.slice(start, start + len));
+    parts.push(text3.slice(start, start + len));
     start += len;
   }
   return parts.length === 0 ? [""] : parts;
 }
-function checksum(text2) {
+function checksum(text3) {
   let h = 2166136261;
-  for (let k = 0; k < text2.length; k++) {
-    h ^= text2.charCodeAt(k);
+  for (let k = 0; k < text3.length; k++) {
+    h ^= text3.charCodeAt(k);
     h = Math.imul(h, 16777619) >>> 0;
   }
   return h.toString(36);
@@ -2141,13 +2325,13 @@ function checksum(text2) {
 function makeRowsStore({ kino: kino2, ttlMs }) {
   const partKey = (n) => `${PART_PREFIX}${n}`;
   const isPartKey = (k) => k.startsWith(PART_PREFIX) && /^\d+$/.test(k.slice(PART_PREFIX.length));
-  const digest = (text2) => {
+  const digest = (text3) => {
     try {
-      const h = kino2.crypto.hash("md5", text2);
+      const h = kino2.crypto.hash("md5", text3);
       if (typeof h === "string" && h !== "") return { m: h };
     } catch (_) {
     }
-    return { h: checksum(text2) };
+    return { h: checksum(text3) };
   };
   const ROOT_NAMES = ["peliculas", "series", "anime", "infantil"];
   function read() {
@@ -2157,15 +2341,15 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
       const m = JSON.parse(rawMeta);
       if (m === null || typeof m !== "object" || m.v !== ROWS_FORMAT || typeof m.g !== "string" || !Number.isInteger(m.n) || m.n < 1 || m.n > 64 || !Number.isInteger(m.len) || typeof m.h !== "string" && typeof m.m !== "string" || !Number.isFinite(m.at)) return null;
       const tag = m.g + ":";
-      let text2 = "";
+      let text3 = "";
       for (let n = 0; n < m.n; n++) {
         const part = kino2.storage.get(partKey(n));
         if (typeof part !== "string" || !part.startsWith(tag)) return null;
-        text2 += part.slice(tag.length);
+        text3 += part.slice(tag.length);
       }
-      if (text2.length !== m.len) return null;
-      if (typeof m.m === "string" ? digest(text2).m !== m.m : checksum(text2) !== m.h) return null;
-      const { rows, complete } = decodeRows(text2);
+      if (text3.length !== m.len) return null;
+      if (typeof m.m === "string" ? digest(text3).m !== m.m : checksum(text3) !== m.h) return null;
+      const { rows, complete } = decodeRows(text3);
       let roots;
       if (m.r === void 0) roots = Object.fromEntries(ROOT_NAMES.map((r) => [r, m.at]));
       else if (m.r !== null && typeof m.r === "object" && Object.entries(m.r).every(([k, t]) => ROOT_NAMES.includes(k) && Number.isFinite(t))) roots = m.r;
@@ -2179,10 +2363,10 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
       return null;
     }
   }
-  function write(text2, at, roots, whole2) {
-    const sum = digest(text2);
+  function write(text3, at, roots, whole2) {
+    const sum = digest(text3);
     const gen = (Math.floor(at) % 2176782336).toString(36) + String(sum.m ?? sum.h).slice(0, 4);
-    const parts = splitParts(text2, PART_BUDGET_BYTES - PART_TAG_BYTES);
+    const parts = splitParts(text3, PART_BUDGET_BYTES - PART_TAG_BYTES);
     let keys = [];
     try {
       keys = kino2.storage.keys();
@@ -2198,7 +2382,7 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
     }
     try {
       parts.forEach((p, n) => kino2.storage.set(partKey(n), `${gen}:${p}`, { ttlMs }));
-      kino2.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text2.length, ...sum, at, r: roots, w: whole2 }), { ttlMs });
+      kino2.storage.set(META_KEY, JSON.stringify({ v: ROWS_FORMAT, g: gen, n: parts.length, len: text3.length, ...sum, at, r: roots, w: whole2 }), { ttlMs });
       return true;
     } catch (e) {
       for (let n = 0; n < parts.length; n++) {
@@ -2261,16 +2445,16 @@ function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, va
         entries = entries.filter((e) => e.k !== a.k);
         entries.push(entry);
       }
-      let text2 = encode2(entries);
+      let text3 = encode2(entries);
       let evicted = 0;
-      while (storedLength(text2) > budgetBytes && entries.length > 0) {
+      while (storedLength(text3) > budgetBytes && entries.length > 0) {
         entries.shift();
         evicted++;
-        text2 = encode2(entries);
+        text3 = encode2(entries);
       }
       if (evicted > 0) trace(kino2, "store", "evict", { what, n: evicted });
       if (entries.length === 0) return;
-      kino2.storage.set(key, text2);
+      kino2.storage.set(key, text3);
     } catch (e) {
       trace(kino2, "store", "full", { what, code: errCode(e) });
     }
@@ -2621,9 +2805,9 @@ function parseSeasonCounts(body) {
   out.sort((a, b) => a.season - b.season);
   return out;
 }
-function safeParse(text2) {
+function safeParse(text3) {
   try {
-    return JSON.parse(text2);
+    return JSON.parse(text3);
   } catch (_) {
     return null;
   }
@@ -2672,9 +2856,9 @@ function isGenericTitle(s) {
   return GENERIC_TITLE.test(rest) || TRAILING_NUMBER.test(rest) && rest.replace(TRAILING_NUMBER, "").trim() === series;
 }
 function toIntOrNull2(v) {
-  const text2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
-  if (text2 === null || !INT4.test(text2)) return null;
-  const n = Number(text2);
+  const text3 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+  if (text3 === null || !INT4.test(text3)) return null;
+  const n = Number(text3);
   return n >= -2147483648 && n <= 2147483647 ? n || 0 : null;
 }
 function parseSeasonList(list, ownId) {
@@ -3215,7 +3399,7 @@ function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = fals
   if (ids) out.ids = ids;
   return out;
 }
-var plainWords = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+var plainWords = (text3) => String(text3).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 function rankWithin(kino2, pool, q) {
   const words = plainWords(q).split(" ").filter((w) => w !== "");
   const forms = [q];
@@ -3854,9 +4038,9 @@ function withScheme(mainAddr) {
 function portalDurationMs(raw) {
   if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw * 1e3) : 0;
   if (typeof raw !== "string") return 0;
-  const text2 = raw.trim();
-  if (text2 === "") return 0;
-  const parts = text2.split(":");
+  const text3 = raw.trim();
+  if (text3 === "") return 0;
+  const parts = text3.split(":");
   if (parts.length > 3 || parts.some((p) => !DIGITS.test(p))) return 0;
   return parts.reduce((acc, p) => acc * 60 + Number(p), 0) * 1e3;
 }
@@ -3872,7 +4056,7 @@ var codecName = (m) => {
   const raw = optStringStrict(m.encodeFormat).trim();
   return CODEC_NAMES[raw.toLowerCase()] ?? raw.toUpperCase();
 };
-var labelOf = (text2) => text2.length <= MAX_LABEL_CHARS ? text2 : text2.slice(0, MAX_LABEL_CHARS).trimEnd();
+var labelOf = (text3) => text3.length <= MAX_LABEL_CHARS ? text3 : text3.slice(0, MAX_LABEL_CHARS).trimEnd();
 function expiresInSeconds(auth, nowMs) {
   const m = EXPIRED.exec(typeof auth === "string" ? auth : "");
   if (!m) return null;
@@ -3915,8 +4099,8 @@ function vodCdn(slb) {
   return first ? { base: first.bases[0], auth: first.auth } : null;
 }
 function slbLifetime(slb, nowMs) {
-  const text2 = optStringStrict(slb.invalidTime);
-  const declaredN = INT7.test(text2) ? Number(text2) : NaN;
+  const text3 = optStringStrict(slb.invalidTime);
+  const declaredN = INT7.test(text3) ? Number(text3) : NaN;
   const declared = declaredN > 0 ? declaredN : SLB_DEFAULT_TTL_S;
   const cdn = vodCdn(slb);
   if (!cdn) return 0;
@@ -3937,7 +4121,7 @@ var slbBean = (apkVersion, liveCodes = ["masnew_live"]) => ({
   pipFlag: "0"
 });
 function makeResolve({ kino: kino2, portal, session, clock: clock2, config, portalChapters, live: live2 = null }) {
-  const unavailable = (text2) => kino2.error("unavailable", text2);
+  const unavailable = (text3) => kino2.error("unavailable", text3);
   let slbCache = null;
   const slbFor = async (v) => {
     if (slbCache && slbCache.token === v.userToken && clock2.now() < slbCache.expiresMs) return slbCache.slb;
@@ -4152,7 +4336,7 @@ var CATEGORIES_TTL_MS = 12 * 36e5;
 var LOGOS_KEY = "liveLogos:v1";
 var LOGOS_TTL_MS = 7 * 24 * 36e5;
 var MAX_LOGO_CHARS = 512;
-var plain2 = (text2) => String(text2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
+var plain2 = (text3) => String(text3).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
 var ALL_CHANNELS = "ChannelList";
 var NAMES = { [ALL_CHANNELS]: "Todos" };
 var ADULT_NAMES = /* @__PURE__ */ new Set(["18+", "adultos", "adulto", "xxx", "+18"]);
@@ -4237,8 +4421,8 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
     if (logos !== void 0) return logos;
     logos = {};
     try {
-      const text2 = kino2.storage.get(LOGOS_KEY);
-      const map = typeof text2 === "string" ? JSON.parse(text2) : null;
+      const text3 = kino2.storage.get(LOGOS_KEY);
+      const map = typeof text3 === "string" ? JSON.parse(text3) : null;
       if (isObject(map)) {
         for (const [g, url] of Object.entries(map)) if (usableLogo(url)) logos[g] = url;
       }
@@ -4266,9 +4450,9 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
   }
   function storedGenreCategories() {
     try {
-      const text2 = kino2.storage.get(CATEGORIES_KEY);
-      if (typeof text2 !== "string") return null;
-      const rows = JSON.parse(text2);
+      const text3 = kino2.storage.get(CATEGORIES_KEY);
+      if (typeof text3 !== "string") return null;
+      const rows = JSON.parse(text3);
       if (!Array.isArray(rows)) return null;
       return rows.filter((r) => Array.isArray(r) && typeof r[0] === "string" && POSITIVE.test(r[0]) && typeof r[1] === "string").map((r) => ({ id: r[0], genre: r[1] }));
     } catch (_) {
@@ -4954,8 +5138,8 @@ function liveCdns(slb) {
   return out;
 }
 function expiresOf(slb) {
-  const text2 = optStringStrict(isObject(slb) ? slb.invalidTime : "");
-  const n = INT8.test(text2) ? Number(text2) : NaN;
+  const text3 = optStringStrict(isObject(slb) ? slb.invalidTime : "");
+  const n = INT8.test(text3) ? Number(text3) : NaN;
   const ttl = n > 0 ? n : DEFAULT_TTL_S;
   return Math.min(MAX_EXPIRES_S, Math.max(MIN_EXPIRES_S, ttl));
 }
@@ -4963,10 +5147,10 @@ function makeLive({ kino: kino2, portal, session, clock: clock2, config, random 
   const rand = random || (() => parseInt(kino2.crypto.randomBytes(4, "hex"), 16) / 4294967296);
   const rotation = makeLiveRotation({ kino: kino2, clock: clock2, random: rand });
   const served = /* @__PURE__ */ new Map();
-  const unavailable = (text2) => kino2.error("unavailable", text2);
-  const bad = (why, text2) => {
+  const unavailable = (text3) => kino2.error("unavailable", text3);
+  const bad = (why, text3) => {
     trace(kino2, "live", "bad", { why });
-    return unavailable(text2);
+    return unavailable(text3);
   };
   const channelNotFound = (e) => e.code === "not_found" ? kino2.error("not_found", TEXT.unknownChannel) : e;
   const surface = (e) => {
@@ -5111,10 +5295,10 @@ function heroOf(rows) {
   for (const row2 of rows) {
     for (const item of row2.items) {
       if (item.adult === true || !item.backdrop || typeof item.overview !== "string" || item.overview.trim() === "") continue;
-      const text2 = item.overview.trim();
+      const text3 = item.overview.trim();
       return {
         title: item.title,
-        text: text2.length <= MAX_HERO_TEXT ? text2 : `${text2.slice(0, MAX_HERO_TEXT - 1).trimEnd()}\u2026`,
+        text: text3.length <= MAX_HERO_TEXT ? text3 : `${text3.slice(0, MAX_HERO_TEXT - 1).trimEnd()}\u2026`,
         image: item.backdrop
       };
     }
@@ -5122,7 +5306,7 @@ function heroOf(rows) {
   return null;
 }
 function makeSection({ kino: kino2, catalog, clock: clock2 }) {
-  async function section2(arg) {
+  async function section3(arg) {
     const asked = arg !== null && typeof arg === "object" ? arg.tab : null;
     const tab = asked === null || asked === void 0 || asked === "" ? TABS[0].id : asked;
     if (!TABS.some((t) => t.id === tab)) throw kino2.error("not_found", "No se encontr\xF3 esa pesta\xF1a");
@@ -5134,7 +5318,7 @@ function makeSection({ kino: kino2, catalog, clock: clock2 }) {
     const tabs = TABS.map((t) => ({ id: t.id, label: english ? TAB_LABELS_EN[t.id] : t.label }));
     return { tabs, tab, ...hero ? { hero } : {}, rows: tabRows };
   }
-  return { section: section2 };
+  return { section: section3 };
 }
 
 // src/categories.js
@@ -5189,7 +5373,7 @@ function hasRealData(col) {
   return Object.keys(col).length > 0;
 }
 function makeSeedContrib({ kino: kino2, portal, clock: clock2 }) {
-  const fingerprint = makeFingerprint(kino2);
+  const fingerprint2 = makeFingerprint(kino2);
   let running = false;
   const enabled = () => {
     try {
@@ -5215,7 +5399,7 @@ function makeSeedContrib({ kino: kino2, portal, clock: clock2 }) {
   async function mintAnonymous(deadline) {
     const bounds = { timeoutMs: REQUEST_MS, deadline: Math.min(clock2.now() + TOTAL_MS, deadline) };
     try {
-      const mint = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
+      const mint = await portal.call("v3/snToken", fingerprint2(), { baseFields: false, ...bounds });
       if (blank(mint && mint.snToken)) {
         trace(kino2, "seed_contrib", "mint", { ok: false, why: "no_sntoken" });
         return null;
@@ -5317,11 +5501,11 @@ function getDeps() {
   const catalog = makeCatalog({ kino, portal, session, clock, tmdb, countryRow: makeCountryRow({ kino, live: live2 }) });
   const liveStream = makeLive({ kino, portal, session, clock, config });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
-  const section2 = makeSection({ kino, catalog, clock });
+  const section3 = makeSection({ kino, catalog, clock });
   const liveTiles = makeLiveTiles({ kino, live: live2, clock });
   const categories2 = makeCategories({ catalog, kino, liveTiles });
   const seedContrib = makeSeedContrib({ kino, portal, clock });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section2, categories: categories2, liveTiles, seedContrib };
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section3, categories: categories2, liveTiles, seedContrib };
   return deps;
 }
 async function guarded(body) {
@@ -5401,9 +5585,9 @@ var REGISTER_TOTAL_MS = 25e3;
 var LOGOUT_REQUEST_MS = 1e4;
 var LOGOUT_TOTAL_MS = 25e3;
 var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
-var clip = (text2, max) => text2.length <= max ? text2 : text2.slice(0, max - 1) + "\u2026";
+var clip = (text3, max) => text3.length <= max ? text3 : text3.slice(0, max - 1) + "\u2026";
 var refusedCredentials = (e) => e !== null && typeof e === "object" && (e.name === "KinoError_auth_required" || e.name === "PortalError");
-function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
+function makeSettings({ kino: kino2, session, clock: clock2, registration: registration2 }) {
   const surface = (e) => {
     const named = namedCause(kino2, e);
     if (named) return named;
@@ -5412,31 +5596,43 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
   const savedAccount = () => configuredPair(kino2.config);
+  function statusFacts() {
+    return {
+      account: session.kind() === "account",
+      kind: session.kind(),
+      accountState: session.accountState(),
+      sharedConfigured: session.sharedConfigured(),
+      usingShared: session.usingShared(),
+      email: savedAccount().email,
+      regionBlocked: session.regionBlocked(),
+      pool: session.seedPool().length,
+      seedsExhausted: session.seedsExhausted(),
+      autoRefresh: kino2.config.get("autoRefreshSeeds") !== false
+    };
+  }
   async function settingsStatus2() {
     await null;
     try {
-      const account = session.kind() === "account";
-      const state = session.accountState();
-      const shared = session.sharedConfigured();
-      const anonymous = state === "pending" ? say(kino2, "statusConnecting", { who: say(kino2, shared ? "whoShared" : "whoOwn") }) : state === "refused" ? say(kino2, shared ? "statusSharedBroken" : "statusOwnRefused") : say(kino2, "statusAnonymous");
-      const who = session.usingShared() ? say(kino2, "statusShared") : say(kino2, "statusConnectedAs", { email: savedAccount().email });
-      const parts = [account ? who : anonymous];
-      if (!account && session.regionBlocked()) {
-        const n = session.seedPool().length;
-        parts.push(n > 0 ? say(kino2, "statusBlockedSeeds", { n }) : say(kino2, "statusBlockedNoSeeds"));
-        if (session.seedsExhausted()) parts.push(say(kino2, "seedsBanner"));
-        else if (kino2.config.get("autoRefreshSeeds") === false) parts.push(say(kino2, "statusAutoRefreshOff"));
+      const f = statusFacts();
+      const anonymous = f.accountState === "pending" ? say(kino2, "statusConnecting", { who: say(kino2, f.sharedConfigured ? "whoShared" : "whoOwn") }) : f.accountState === "refused" ? say(kino2, f.sharedConfigured ? "statusSharedBroken" : "statusOwnRefused") : say(kino2, "statusAnonymous");
+      const who = f.usingShared ? say(kino2, "statusShared") : say(kino2, "statusConnectedAs", { email: f.email });
+      const parts = [f.account ? who : anonymous];
+      if (!f.account && f.regionBlocked) {
+        parts.push(f.pool > 0 ? say(kino2, "statusBlockedSeeds", { n: f.pool }) : say(kino2, "statusBlockedNoSeeds"));
+        if (f.seedsExhausted) parts.push(say(kino2, "seedsBanner"));
+        else if (!f.autoRefresh) parts.push(say(kino2, "statusAutoRefreshOff"));
       }
-      const text2 = parts.length === 1 ? parts[0] : parts.join(". ") + ".";
-      return { status: clip(text2, STATUS_MAX) };
+      const text3 = parts.length === 1 ? parts[0] : parts.join(". ") + ".";
+      return { status: clip(text3, STATUS_MAX) };
     } catch (_) {
       return { status: say(kino2, "statusUnknown") };
     }
   }
-  async function login() {
+  const capped = (ms, cap) => typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? Math.min(ms, cap) : ms;
+  async function login(cap) {
     const { email, password } = savedAccount();
     if (email === "" || password === "") throw told(kino2, "auth_required", "Escribe tu correo y contrase\xF1a en Ajustes", say(kino2, "fillAccount"));
-    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock2.now() + LOGIN_TOTAL_MS };
+    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock2.now() + capped(LOGIN_TOTAL_MS, cap) };
     try {
       await session.login(email, password, bounds);
     } catch (e) {
@@ -5446,18 +5642,18 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     }
     return { message: say(kino2, "signedIn"), refresh: true };
   }
-  async function logout() {
+  async function logout(cap) {
     try {
-      await session.logout({ timeoutMs: LOGOUT_REQUEST_MS, deadline: clock2.now() + LOGOUT_TOTAL_MS });
+      await session.logout({ timeoutMs: LOGOUT_REQUEST_MS, deadline: clock2.now() + capped(LOGOUT_TOTAL_MS, cap) });
     } catch (e) {
       throw surface(e);
     }
     return { message: say(kino2, "signedOut"), refresh: true, clearSettings: ["email", "password", "regEmail", "regPassword", "useSharedAccount"] };
   }
-  async function switchSeed() {
+  async function switchSeed(cap) {
     let r;
     try {
-      r = await session.switchSeed({ timeoutMs: SEED_PROBE_MS, deadline: clock2.now() + SEED_SWITCH_TOTAL_MS });
+      r = await session.switchSeed({ timeoutMs: SEED_PROBE_MS, deadline: clock2.now() + capped(SEED_SWITCH_TOTAL_MS, cap) });
     } catch (e) {
       throw surface(e);
     }
@@ -5479,44 +5675,51 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     if (!email.includes("@")) throw told(kino2, "auth_required", "Escribe un correo v\xE1lido", say(kino2, "badEmail"));
     return email;
   }
-  async function sendCode() {
-    const email = typedEmail();
-    const prev = registration.pendingFor(email);
-    if (prev && prev.at !== null && clock2.now() >= prev.at && clock2.now() - prev.at < RESEND_WAIT_MS) {
-      return { message: say(kino2, "codeAlreadySent") };
-    }
-    const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock2.now() + SEND_CODE_TOTAL_MS };
+  async function sendCodeTo(email, { cap } = {}) {
+    const prev = registration2.pendingFor(email);
+    if (prev && prev.at !== null && clock2.now() >= prev.at && clock2.now() - prev.at < RESEND_WAIT_MS) return { sent: false, at: prev.at };
+    const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock2.now() + capped(SEND_CODE_TOTAL_MS, cap) };
+    let pending;
     try {
-      await registration.sendRegistrationCode(email, bounds);
+      pending = await registration2.sendRegistrationCode(email, bounds);
     } catch (e) {
       throw surface(e);
     }
-    return { message: say(kino2, savesBeforeAction(kino2) ? "codeSent" : "codeSentSave", { email }) };
+    return { sent: true, at: pending && typeof pending.at === "number" ? pending.at : clock2.now() };
   }
-  async function register() {
-    const email = typedEmail();
-    const code = str5(kino2.config.get("verifyCode")).trim();
+  async function registerWith({ email, code: typedCode, password }, { cap } = {}) {
+    const code = str5(typedCode).trim();
     if (code === "") throw told(kino2, "auth_required", "Escribe el c\xF3digo de verificaci\xF3n", say(kino2, "fillCode"));
-    const { password } = creationFields(kino2.config);
-    if (password === "") throw told(kino2, "auth_required", "Escribe tu contrase\xF1a en Ajustes", say(kino2, "fillAccount"));
-    const pending = registration.pendingFor(email);
+    if (str5(password) === "") throw told(kino2, "auth_required", "Escribe tu contrase\xF1a en Ajustes", say(kino2, "fillAccount"));
+    const pending = registration2.pendingFor(email);
     if (!pending) throw told(kino2, "unavailable", "Pide el c\xF3digo otra vez", say(kino2, "askCodeAgain"));
-    const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock2.now() + REGISTER_TOTAL_MS };
+    const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock2.now() + capped(REGISTER_TOTAL_MS, cap) };
     let done;
     try {
-      done = await registration.confirmRegistration(pending, code, password, bounds);
+      done = await registration2.confirmRegistration(pending, code, password, bounds);
     } catch (e) {
       throw surface(e);
     }
-    const message = done && done.loggedIn === false ? say(kino2, "accountCreatedSignIn") : say(kino2, "accountCreatedSignedIn");
+    return { loggedIn: !(done && done.loggedIn === false) };
+  }
+  async function sendCode(cap) {
+    const email = typedEmail();
+    const out = await sendCodeTo(email, { cap });
+    if (!out.sent) return { message: say(kino2, "codeAlreadySent") };
+    return { message: say(kino2, savesBeforeAction(kino2) ? "codeSent" : "codeSentSave", { email }) };
+  }
+  async function register(cap) {
+    const email = typedEmail();
+    const done = await registerWith({ email, code: kino2.config.get("verifyCode"), password: creationFields(kino2.config).password }, { cap });
+    const message = done.loggedIn === false ? say(kino2, "accountCreatedSignIn") : say(kino2, "accountCreatedSignedIn");
     return { message, refresh: true, clearSettings: ["verifyCode", "email", "password"] };
   }
-  const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...registration ? { sendCode, register } : {} };
-  async function action2(key) {
+  const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...registration2 ? { sendCode, register } : {} };
+  async function action2(key, opts) {
     await null;
     const run = Object.prototype.hasOwnProperty.call(ACTIONS, key) ? ACTIONS[key] : null;
     if (!run) return null;
-    const out = await run();
+    const out = await run(opts !== null && typeof opts === "object" ? opts.totalMs : void 0);
     return { ...out, message: clip(out.message, MESSAGE_MAX) };
   }
   async function validateSettings2(values) {
@@ -5552,20 +5755,20 @@ function makeSettings({ kino: kino2, session, clock: clock2, registration }) {
     if (Object.keys(errors).length > 0) return errors;
     const pair = hasOwn && email !== "" && password !== "" ? { email, password, field: "password" } : regEmail !== "" && regPassword !== "" ? { email: regEmail, password: regPassword, field: "regPassword" } : null;
     if (pair === null) return null;
-    if (pair.field === "regPassword" && (t("verifyCode") !== "" || registration && registration.pendingFor(pair.email) !== null)) return null;
+    if (pair.field === "regPassword" && (t("verifyCode") !== "" || registration2 && registration2.pendingFor(pair.email) !== null)) return null;
     const bounds = { timeoutMs: VALIDATE_REQUEST_MS, deadline: clock2.now() + VALIDATE_TOTAL_MS };
     try {
       await session.login(pair.email, pair.password, bounds);
       return null;
     } catch (e) {
       if (refusedCredentials(e)) {
-        const creating = t("verifyCode") !== "" || registration !== void 0 && registration !== null && registration.pendingFor(pair.email) !== null;
+        const creating = t("verifyCode") !== "" || registration2 !== void 0 && registration2 !== null && registration2.pendingFor(pair.email) !== null;
         return creating ? null : { [pair.field]: say(kino2, "credentialsRefused") };
       }
       throw surface(e);
     }
   }
-  return { settingsStatus: settingsStatus2, action: action2, validateSettings: validateSettings2 };
+  return { settingsStatus: settingsStatus2, action: action2, validateSettings: validateSettings2, statusFacts, ...registration2 ? { sendCodeTo, registerWith } : {} };
 }
 
 // src/registration.js
@@ -5576,12 +5779,12 @@ var NOT_SAVED = "No se pudo guardar el pedido; int\xE9ntalo de nuevo";
 var CONFIRM_FAILED = "C\xF3digo inv\xE1lido o cuenta ya registrada";
 var str6 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
-  const fingerprint = makeFingerprint(kino2);
-  const failure = (e, text2, sentence) => {
+  const fingerprint2 = makeFingerprint(kino2);
+  const failure = (e, text3, sentence) => {
     trace(kino2, "register", "fail", { code: errCode(e) });
     const named = namedCause(kino2, e);
     if (named) return named;
-    if (e instanceof PortalError) return told(kino2, "unavailable", text2, sentence);
+    if (e instanceof PortalError) return told(kino2, "unavailable", text3, sentence);
     if (e !== null && typeof e === "object" && typeof e.name === "string" && e.name.startsWith("KinoError_")) return e;
     return kino2.error("unavailable", "Xuper no est\xE1 disponible ahora");
   };
@@ -5612,7 +5815,7 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   async function sendRegistrationCode(email, bounds = {}) {
     await null;
     try {
-      const mint = await portal.call("v3/snToken", fingerprint(), { baseFields: false, ...bounds });
+      const mint = await portal.call("v3/snToken", fingerprint2(), { baseFields: false, ...bounds });
       if (blank(mint && mint.snToken)) throw new PortalError("snToken_failed", "el portal no devolvi\xF3 snToken");
       const snToken = str6(mint.snToken);
       const sn = snFrom(kino2, mint, snToken);
@@ -5669,6 +5872,841 @@ function makeRegistration({ kino: kino2, portal, session, clock: clock2 }) {
   return { sendRegistrationCode, confirmRegistration, pendingFor };
 }
 
+// src/screenModel.js
+var RESEND_WAIT_MS2 = 6e4;
+var CODE_LIFE_MS = 30 * 6e4;
+var str7 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
+function maskEmail(email) {
+  const e = str7(email).trim();
+  const at = e.lastIndexOf("@");
+  if (at < 1 || at === e.length - 1) return "";
+  const local = e.slice(0, at);
+  const domain = e.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  const tld = dot > 0 && dot < domain.length - 1 ? domain.slice(dot) : "";
+  return `${[...local][0]}\u2022\u2022\u2022@${[...domain][0]}\u2022\u2022\u2022${tld}`;
+}
+var initialOf = (email) => {
+  const c = [...str7(email).trim()][0];
+  return c && /[A-Za-z0-9À-ɏ]/.test(c) ? c.toUpperCase() : "?";
+};
+var readJson = (kino2, key) => {
+  try {
+    const raw = kino2.storage.get(key);
+    return raw === null || raw === void 0 ? null : JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+};
+function snapshot({ kino: kino2, settings: settings2, session }) {
+  let f = null;
+  try {
+    f = settings2.statusFacts();
+  } catch (_) {
+    f = null;
+  }
+  const pair = (() => {
+    try {
+      return configuredPair(kino2.config);
+    } catch (_) {
+      return { email: "", password: "" };
+    }
+  })();
+  const toggle = (() => {
+    try {
+      return kino2.config.get("useSharedAccount");
+    } catch (_) {
+      return void 0;
+    }
+  })();
+  const sharedToggle = toggle === true || toggle === void 0 && readJson(kino2, "sharedAccount") === true;
+  const num = (fn) => {
+    try {
+      const v = fn();
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    } catch (_) {
+      return null;
+    }
+  };
+  const contribAt = num(() => Number(kino2.storage.get(AT_KEY)));
+  const usable = num(() => session.usableSeeds()) ?? 0;
+  const pool = f ? f.pool : 0;
+  const account = f ? f.account : false;
+  const regionBlocked = f ? f.regionBlocked : false;
+  return {
+    ok: f !== null,
+    accountState: f ? f.accountState : "none",
+    account,
+    usingShared: f ? f.usingShared : false,
+    sharedConfigured: f ? f.sharedConfigured : false,
+    // An own account is typed (both fields of either pair), whatever the portal said about it.
+    ownConfigured: pair.email !== "" && pair.password !== "",
+    sharedToggle,
+    emailMasked: maskEmail(f ? f.email : pair.email),
+    initial: initialOf(f ? f.email : pair.email),
+    kind: f ? f.kind : "none",
+    regionBlocked,
+    pool,
+    usable,
+    seedsAt: num(() => session.seedsAt()),
+    // Derived from what is stored, not from the session's in-memory flag (which a runtime restart forgets): blocked, no
+    // account, and no seed a pick could use.
+    exhausted: !account && regionBlocked && usable === 0,
+    auto: f ? f.autoRefresh : true,
+    contribOn: (() => {
+      try {
+        return kino2.config.get("contributeSeeds") !== false;
+      } catch (_) {
+        return true;
+      }
+    })(),
+    contribAt: contribAt !== null && contribAt > 0 ? contribAt : null
+  };
+}
+function fingerprint(s) {
+  return [
+    s.ok,
+    s.accountState,
+    s.account,
+    s.usingShared,
+    s.sharedConfigured,
+    s.ownConfigured,
+    s.sharedToggle,
+    s.emailMasked,
+    s.kind,
+    s.regionBlocked,
+    s.pool,
+    s.usable,
+    s.seedsAt,
+    s.exhausted,
+    s.auto,
+    s.contribOn,
+    s.contribAt
+  ].join("|");
+}
+
+// src/screenView.js
+var PLUGIN_VERSION = "2.2.33";
+var PRESS_MS = 3e4;
+var TABS2 = ["account", "connection", "more"];
+var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
+var CODE_PATTERN = "^\\s*[0-9A-Za-z]{4,12}\\s*$";
+var text2 = (key, extra = {}, vars) => ({ type: "Text", ...twin(key, "text", vars), ...extra });
+var press = (event, arg) => ({ event, ...arg !== void 0 ? { arg } : {}, timeoutMs: PRESS_MS });
+var errorOf = (msg) => typeof msg === "string" && msg !== "" ? { forceErrorText: msg.slice(0, 200) } : {};
+var banner = (b, key) => b && typeof b.text === "string" && b.text !== "" ? [{
+  type: "MaterialBanner",
+  key,
+  role: ["info", "warning", "error", "success"].includes(b.role) ? b.role : "info",
+  text: b.text.slice(0, 2e3),
+  ...typeof b.textEn === "string" ? { textEn: b.textEn.slice(0, 2e3) } : {},
+  ...b.action ? { action: b.action } : {}
+}] : [];
+var caption = (key, extra = {}, vars) => text2(key, { style: "caption", color: "muted", ...extra }, vars);
+var section = (key) => text2(key, { style: "h4" });
+function accountTab(s, st) {
+  const out = [];
+  const conflict = st.sharedError ? { ...errorOf(st.sharedError) } : {};
+  if (s.ownConfigured) {
+    const stateKey = s.accountState === "held" ? "scrAccHeld" : s.accountState === "refused" ? "scrAccRefused" : "scrAccPending";
+    out.push({ type: "Card", key: "accountCard", children: [
+      {
+        type: "ListTile",
+        key: "accountTile",
+        title: s.emailMasked || "\u2022\u2022\u2022",
+        ...twin(stateKey, "subtitle"),
+        leading: { type: "CircleAvatar", text: s.initial }
+      },
+      ...s.accountState === "refused" ? [{
+        type: "MaterialBanner",
+        key: "refusedBanner",
+        role: "error",
+        ...twin("scrRefusedBanner"),
+        action: { ...twin("scrRetry", "label"), onTap: press("account.retry") }
+      }] : [],
+      { type: "Row", wrap: true, gap: 8, children: [
+        ...s.accountState !== "held" ? [{ type: "ElevatedButton", key: "connectNow", ...twin("scrConnectNow", "labelText"), icon: "sync", onPressed: press("account.retry"), autofocus: true }] : [],
+        { type: "Button", variant: "secondary", key: "changeAccount", ...twin("scrChangeAccount", "labelText"), icon: "person", onPressed: { event: "go", arg: "signin" } },
+        { type: "TextButton", key: "signOut", ...twin("scrSignOut", "labelText"), ...twin("scrSignOutConfirm", "confirm"), onPressed: press("account.logout") }
+      ] }
+    ] });
+  } else {
+    if (s.sharedConfigured) {
+      const stateKey = s.accountState === "held" ? "scrAccHeld" : s.accountState === "refused" ? "statusSharedBroken" : "scrAccPending";
+      out.push({ type: "Card", key: "sharedCard", children: [
+        { type: "ListTile", key: "sharedTile", ...twin("statusShared", "title"), ...twin(stateKey, "subtitle"), leading: { type: "CircleAvatar", icon: "language" } }
+      ] });
+    } else {
+      out.push({ type: "MaterialBanner", key: "anonBanner", role: "info", ...twin("scrAnonBanner") });
+    }
+    out.push({ type: "Card", key: "accountActions", children: [
+      {
+        type: "ListTile",
+        key: "goSignIn",
+        ...twin("scrSignIn", "title"),
+        ...twin("scrSignInSub", "subtitle"),
+        leading: { type: "CircleAvatar", icon: "person" },
+        trailing: { type: "Icon", name: "arrow_forward" },
+        onTap: { event: "go", arg: "signin" },
+        autofocus: true
+      },
+      {
+        type: "ListTile",
+        key: "goRegister",
+        ...twin("scrCreate", "title"),
+        ...twin("scrCreateSub", "subtitle"),
+        leading: { type: "CircleAvatar", icon: "add" },
+        trailing: { type: "Icon", name: "arrow_forward" },
+        onTap: { event: "go", arg: "register" }
+      }
+    ] });
+  }
+  out.push({ type: "Card", key: "sharedSwitchCard", children: [
+    { type: "Switch", key: "sharedSwitch", ...twin("scrSharedSwitch", "labelText"), value: s.sharedToggle, onChanged: "shared.change", ...conflict },
+    caption("scrSharedHint"),
+    ...s.ownConfigured && !s.sharedToggle ? [caption("scrSharedOwnFirst")] : []
+  ] });
+  return out;
+}
+function connectionTab(s, st) {
+  const sessionKey = s.account ? s.usingShared ? "statusShared" : "scrSessionAccount" : s.kind === "seed" ? "scrSessionSeed" : s.kind === "own" ? "scrSessionAnon" : "scrSessionNone";
+  const statusCard = { type: "Card", key: "statusCard", children: [
+    section("scrStatusCard"),
+    {
+      type: "ListTile",
+      key: "regionRow",
+      ...twin("scrRegion", "title"),
+      leading: { type: "Icon", name: "language" },
+      trailing: { type: "Badge", ...twin(s.regionBlocked ? "scrRegionBlocked" : "scrRegionFree") }
+    },
+    { type: "ListTile", key: "sessionRow", ...twin("scrSession", "title"), ...twin(sessionKey, "subtitle"), leading: { type: "Icon", name: "sync" } },
+    {
+      type: "ListTile",
+      key: "seedsRow",
+      ...twin("scrSeedsRow", "title"),
+      ...twin("scrSeedsCount", "subtitle", { usable: s.usable, pool: s.pool }),
+      leading: { type: "Icon", name: "list" }
+    },
+    s.seedsAt ? caption("scrSeedsUpdated", { key: "seedsAt", time: s.seedsAt }) : caption("scrSeedsNever", { key: "seedsAt" })
+  ] };
+  const out = [statusCard];
+  if (s.exhausted) {
+    out.push({
+      type: "MaterialBanner",
+      key: "noSeedsBanner",
+      role: "warning",
+      ...twin("scrNoSeedsBanner"),
+      action: { ...twin("scrUpdateSeeds", "label"), onTap: press("seeds.refresh") }
+    });
+  }
+  out.push(...banner(st.seedsBanner, "seedsResult"));
+  const noSeeds = s.account;
+  out.push({ type: "Card", key: "seedsCard", children: [
+    section("scrSeedsTitle"),
+    caption("scrSeedsIntro"),
+    ...noSeeds ? [{ type: "MaterialBanner", key: "accountNoSeeds", role: "info", ...twin("scrAccountNoSeeds") }] : [],
+    // Kino's own item for the toggle (its label and hint in both languages from the manifest), saved as it changes.
+    { type: "settings", key: "autoRefreshForm", keys: ["autoRefreshSeeds"], autoSave: true, onSaved: "saved" },
+    caption("scrAutoHelp"),
+    { type: "Row", wrap: true, gap: 8, children: [
+      {
+        type: "ElevatedButton",
+        key: "switchSeed",
+        ...twin("scrChangeSeed", "labelText"),
+        icon: "refresh",
+        enabled: !noSeeds,
+        ...twin("scrChangeSeedHint", "tooltip"),
+        onPressed: press("seeds.switch")
+      },
+      {
+        type: "Button",
+        variant: "secondary",
+        key: "refreshSeeds",
+        ...twin("scrUpdateSeeds", "labelText"),
+        icon: "download",
+        enabled: !noSeeds,
+        ...twin("scrUpdateSeedsHint", "tooltip"),
+        onPressed: press("seeds.refresh")
+      }
+    ] },
+    caption("scrChangeSeedHint"),
+    caption("scrUpdateSeedsHint")
+  ] });
+  out.push({ type: "Card", key: "contribCard", children: [
+    section("scrContribTitle"),
+    { type: "settings", key: "contribForm", keys: ["contributeSeeds"], autoSave: true, onSaved: "saved" },
+    caption("scrContribHelp"),
+    s.contribAt ? caption("scrContribLast", { key: "contribAt", time: s.contribAt }) : caption("scrContribNever", { key: "contribAt" }),
+    { type: "ExpansionTile", key: "contribWhat", items: [{ key: "what", ...twin("scrContribWhatTitle", "title"), children: [text2("scrContribWhat")] }] }
+  ] });
+  return out;
+}
+function diagnosticRows(s, { device, appVersion }) {
+  const on = (b) => b ? ["Activado", "On"] : ["Desactivado", "Off"];
+  const accountWord = s.ownConfigured ? s.accountState === "held" ? ["propia, conectada", "own, signed in"] : s.accountState === "refused" ? ["propia, no aceptada", "own, not accepted"] : ["propia, conectando", "own, connecting"] : s.sharedConfigured ? s.accountState === "held" ? ["compartida, conectada", "shared, signed in"] : ["compartida, sin conexi\xF3n", "shared, not signed in"] : ["ninguna", "none"];
+  const sessionWord = { account: ["cuenta", "account"], seed: ["semilla", "seed"], own: ["an\xF3nima", "anonymous"], none: ["ninguna", "none"] }[s.kind] || ["?", "?"];
+  return [
+    ["scrDiagPlugin", [PLUGIN_VERSION, PLUGIN_VERSION]],
+    ["scrDiagKino", [appVersion || "?", appVersion || "?"]],
+    ["scrDiagDevice", [device === "tv" ? "televisor" : device === "desktop" ? "computador" : "tel\xE9fono", device === "tv" ? "TV" : device === "desktop" ? "desktop" : "phone"]],
+    ["scrTabAccount", accountWord],
+    ["scrSession", sessionWord],
+    ["scrRegion", s.regionBlocked ? ["bloqueada", "blocked"] : ["libre", "open"]],
+    ["scrSeedsRow", [`${s.usable}/${s.pool}`, `${s.usable}/${s.pool}`]],
+    ["seedsAuto", on(s.auto)],
+    ["scrContribTitle", on(s.contribOn)]
+  ];
+}
+var DIAG_LABELS = { seedsAuto: ["Actualizaci\xF3n autom\xE1tica", "Automatic update"] };
+var labelOf2 = (key, i) => DIAG_LABELS[key] ? DIAG_LABELS[key][i] : twin(key, "t")[i === 0 ? "t" : "tEn"];
+function diagnosticText(s, ctx, lang) {
+  const i = lang === "en" ? 1 : 0;
+  const rows = diagnosticRows(s, ctx);
+  const pairs = rows.map(([k, v]) => `${labelOf2(k, i)}: ${v[i]}`);
+  const lines = [];
+  for (let n = 0; n < pairs.length; n += 2) lines.push(pairs.slice(n, n + 2).join(" \xB7 "));
+  return lines.slice(0, 6).join("\n").slice(0, 500);
+}
+function moreTab(s, ctx) {
+  const { device, appVersion, lang } = ctx;
+  const faq = [
+    ["anon", "scrFaqAnonQ", "scrFaqAnonA"],
+    ["seeds", "scrFaqSeedsQ", "scrFaqSeedsA"],
+    ["shared", "scrFaqSharedQ", "scrFaqSharedA"],
+    ["contrib", "scrContribWhatTitle", "scrContribWhat"],
+    ["sync", "scrFaqSyncQ", "scrFaqSyncA"]
+  ];
+  const rows = diagnosticRows(s, ctx).map(([k, v], n) => ({ type: "TableRow", key: "diag" + n, children: [
+    { type: "TableCell", ...DIAG_LABELS[k] ? { text: DIAG_LABELS[k][0], textEn: DIAG_LABELS[k][1] } : twin(k) },
+    { type: "TableCell", text: v[0], textEn: v[1] }
+  ] }));
+  return [
+    { type: "Card", key: "homeCard", children: [
+      section("scrHomeTitle"),
+      caption("scrHomeHint"),
+      // Kino's own select (the same 19 options, their English names from the manifest), saved as it changes.
+      { type: "settings", key: "homeForm", keys: ["homeCountry"], autoSave: true, onSaved: "saved" }
+    ] },
+    { type: "Card", key: "faqCard", children: [
+      section("scrFaqTitle"),
+      { type: "ExpansionTile", key: "faq", items: faq.map(([key, q, a]) => ({ key, ...twin(q, "title"), children: [text2(a)] })) }
+    ] },
+    { type: "Card", key: "diagCard", children: [
+      section("scrDiagTitle"),
+      { type: "DataTable", key: "diagTable", columns: [{ flex: 2 }, { flex: 3 }], wrap: true, zebra: true, children: rows },
+      caption("scrDiagNoPersonal"),
+      {
+        type: "Button",
+        variant: "secondary",
+        key: "copyDiag",
+        icon: "copy",
+        ...twin("scrCopyDiag", "labelText"),
+        devices: ["phone", "desktop"],
+        onPressed: { go: { copy: { text: diagnosticText(s, { device, appVersion }, lang), label: twin("scrDiagTitle", "t")[lang === "en" ? "tEn" : "t"] } } }
+      }
+    ] }
+  ];
+}
+function mainPage(s, st, ctx) {
+  const tab = TABS2.includes(st.tab) ? st.tab : "account";
+  const body = tab === "connection" ? connectionTab(s, st) : tab === "more" ? moreTab(s, ctx) : accountTab(s, st);
+  return {
+    type: "Scaffold",
+    appBar: {
+      type: "AppBar",
+      ...twin("scrTitle", "title"),
+      actions: [
+        { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
+        { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } }
+      ],
+      bottom: { type: "TabBar", key: "tabs", value: tab, onChanged: "tab", tabs: [
+        { value: "account", ...twin("scrTabAccount", "label") },
+        { value: "connection", ...twin("scrTabConnection", "label") },
+        { value: "more", ...twin("scrTabMore", "label") }
+      ] }
+    },
+    body: { type: "SingleChildScrollView", key: tab + "Body", children: [
+      { type: "Column", padding: { compact: 16, expanded: 24 }, gap: 12, children: [...banner(st.notice, "notice"), ...body] }
+    ] },
+    // A sign-in that has not happened yet (credentials that arrived by sync, a background login): re-read every 15 s, no
+    // network, until it settles.
+    ...s.accountState === "pending" ? { every: { ms: 15e3, event: "tick" } } : {}
+  };
+}
+function signInPage(s, st) {
+  const si = st.signin || {};
+  return { type: "SingleChildScrollView", key: "signinBody", children: [{ type: "Column", padding: { compact: 16, expanded: 32 }, gap: 12, children: [
+    text2("scrSignInTitle", { style: "h3" }),
+    caption("scrSignInCaption"),
+    ...banner(si.banner, "signinBanner"),
+    { type: "Form", key: "signinForm", onSubmitted: press("signin.submit"), gap: 12, children: [
+      {
+        type: "TextField",
+        key: "signinEmail",
+        kind: "email",
+        ...twin("scrEmailLabel", "labelText"),
+        required: true,
+        maxLength: 200,
+        pattern: EMAIL_PATTERN,
+        ...twin("scrEmailError", "errorText"),
+        ...errorOf(si.emailError),
+        autofocus: true
+      },
+      {
+        type: "TextField",
+        key: "signinPw",
+        obscureText: true,
+        ...twin("scrPasswordLabel", "labelText"),
+        required: true,
+        maxLength: 500,
+        ...twin("scrPasswordError", "errorText"),
+        ...errorOf(si.pwError)
+      },
+      { type: "ElevatedButton", key: "signinSubmit", ...twin("scrSignIn", "labelText"), icon: "person", submit: true }
+    ] },
+    ...si.unchecked ? [{ type: "TextButton", key: "saveUnchecked", ...twin("scrSaveUnchecked", "labelText"), onPressed: { event: "signin.saveUnchecked" } }] : [],
+    ...s.sharedToggle ? [caption("scrSharedOwnFirst")] : []
+  ] }] };
+}
+var REG_STEPS = ["email", "code", "done"];
+function registerPage(s, st, ctx) {
+  const r = st.reg || {};
+  const step = REG_STEPS.includes(r.step) ? r.step : "email";
+  const at = REG_STEPS.indexOf(step);
+  const errors = r.errors || {};
+  const masked = r.emailMasked || "";
+  const stateOf = (k) => {
+    const i = REG_STEPS.indexOf(k);
+    return i < at ? "done" : i === at ? "current" : "pending";
+  };
+  const emailStep = [
+    caption("scrRegTvNote", { devices: ["tv"] }),
+    ...banner(r.banner, "regBanner"),
+    { type: "Form", key: "regEmailForm", onSubmitted: press("reg.send"), gap: 12, children: [
+      {
+        type: "TextField",
+        key: "regEmailInput",
+        kind: "email",
+        ...twin("scrEmailLabel", "labelText"),
+        required: true,
+        maxLength: 200,
+        pattern: EMAIL_PATTERN,
+        ...twin("scrEmailError", "errorText"),
+        ...errorOf(errors.email),
+        autofocus: true
+      },
+      { type: "ElevatedButton", key: "regSend", ...twin("scrSendCode", "labelText"), icon: "send", submit: true }
+    ] }
+  ];
+  const resendAt = typeof r.sentAt === "number" ? r.sentAt + RESEND_WAIT_MS2 : 0;
+  const codeStep = [
+    text2("scrCodeSentTo", {}, { email: masked }),
+    ...typeof r.sentAt === "number" ? [caption("scrSentAt", { key: "sentAt", time: r.sentAt })] : [],
+    caption("scrCodeRules"),
+    ...banner(r.banner, "regBanner"),
+    { type: "Form", key: "regCodeForm", onSubmitted: press("reg.confirm"), gap: 12, children: [
+      {
+        type: "TextField",
+        key: "regCode",
+        kind: "text",
+        ...twin("scrCodeLabel", "labelText"),
+        required: true,
+        maxLength: 40,
+        pattern: CODE_PATTERN,
+        ...twin("scrCodeError", "errorText"),
+        ...errorOf(errors.code),
+        autofocus: true
+      },
+      {
+        type: "TextField",
+        key: "regPw",
+        obscureText: true,
+        ...twin("scrNewPassword", "labelText"),
+        required: true,
+        maxLength: 500,
+        ...twin("scrPasswordError", "errorText"),
+        ...errorOf(errors.pw)
+      },
+      { type: "ElevatedButton", key: "regConfirm", ...twin("scrCreateButton", "labelText"), icon: "check", submit: true }
+    ] },
+    { type: "Row", wrap: true, gap: 8, crossAxisAlignment: "center", children: [
+      {
+        type: "TextButton",
+        key: "regResend",
+        ...twin("scrResend", "labelText"),
+        ...twin("scrResendConfirm", "confirm"),
+        ...resendAt > 0 ? { enabledAt: resendAt } : {},
+        onPressed: press("reg.resend")
+      },
+      ...resendAt > ctx.now ? [caption("scrResendIn", { key: "resendIn", time: resendAt, timeFormat: "countdown" })] : [],
+      { type: "TextButton", key: "regChangeEmail", ...twin("scrChangeEmail", "labelText"), onPressed: { event: "reg.back", arg: "email" } }
+    ] }
+  ];
+  const doneStep = [
+    r.loggedIn === false ? { type: "MaterialBanner", key: "regDone", role: "info", ...twin("scrCreatedPending") } : { type: "MaterialBanner", key: "regDone", role: "success", ...twin("accountCreatedSignedIn") },
+    { type: "Row", wrap: true, gap: 8, children: [
+      ...r.loggedIn === false ? [{ type: "ElevatedButton", key: "regConnect", ...twin("scrConnectNow", "labelText"), icon: "sync", onPressed: press("account.retry") }] : [],
+      { type: "Button", variant: r.loggedIn === false ? "secondary" : "primary", key: "regFinish", ...twin("scrBack", "labelText"), onPressed: "reg.finish", autofocus: true }
+    ] }
+  ];
+  const children = { email: emailStep, code: codeStep, done: doneStep };
+  const titles = { email: "scrStepEmail", code: "scrStepCode", done: "scrStepDone" };
+  return { type: "SingleChildScrollView", key: "registerBody", children: [{ type: "Column", padding: { compact: 16, expanded: 32 }, gap: 12, children: [
+    text2("scrCreate", { style: "h3" }),
+    { type: "steps", key: "regSteps", onStepTap: "reg.back", items: REG_STEPS.map((k) => ({
+      key: k,
+      ...twin(titles[k], "title"),
+      state: stateOf(k),
+      ...k === "email" && at > 0 && masked ? { subtitle: masked, subtitleEn: masked } : {},
+      ...k === step ? { children: children[k] } : {}
+    })) }
+  ] }] };
+}
+function classicPage() {
+  return { type: "SingleChildScrollView", key: "classicBody", children: [{ type: "Column", padding: 16, gap: 12, children: [
+    caption("scrClassicNote"),
+    { type: "settings", key: "classicForm" }
+  ] }] };
+}
+function view({ s, state, route, modern, device, appVersion, lang, now }) {
+  const st = state && typeof state === "object" ? state : {};
+  if (!modern) return classicPage();
+  const name = route && typeof route.name === "string" ? route.name : "main";
+  const ctx = { device, appVersion, lang, now };
+  if (name === "signin") return signInPage(s, st);
+  if (name === "register") return registerPage(s, st, ctx);
+  return mainPage(s, st, ctx);
+}
+
+// src/screenEvents.js
+var str8 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
+var TOAST_PRESS_MS = 17e3;
+function makeEvents({ kino: kino2, clock: clock2, deps: deps2 }) {
+  const sentence = (e) => e && typeof e.userMessage === "string" && e.userMessage.trim() !== "" ? e.userMessage.trim() : say(kino2, "scrGenericError");
+  const toastOf = (textOrKey, role, vars) => typeof textOrKey === "string" && Object.hasOwn(TEXTS, textOrKey) ? { ...twin(textOrKey, "text", vars), role } : { text: str8(textOrKey).slice(0, 300), role };
+  const cfg = (k) => {
+    try {
+      return kino2.config.get(k);
+    } catch (_) {
+      return void 0;
+    }
+  };
+  const pending = () => {
+    const d = deps2();
+    return d.registration;
+  };
+  const capOf = (arg) => arg === "toast" ? TOAST_PRESS_MS : void 0;
+  const bump = () => ({ v: clock2.now() });
+  function resumeReg() {
+    const email = str8(cfg("regEmail")).trim();
+    if (email === "") return null;
+    let p = null;
+    try {
+      p = pending().pendingFor(email);
+    } catch (_) {
+      p = null;
+    }
+    return p && typeof p.at === "number" ? { step: "code", email, emailMasked: maskEmail(email), sentAt: p.at } : null;
+  }
+  const on = {
+    // Nothing to load: the tabs read what is stored. A registration under way on this device is picked up again.
+    open({ route, state }) {
+      const name = route && route.name;
+      const patch = { fp: fingerprint(snapshot({ kino: kino2, ...deps2() })) };
+      if (name === "register" && !(state.reg && state.reg.step)) patch.reg = resumeReg() || { step: "email" };
+      return { state: patch };
+    },
+    tab({ value, arg }) {
+      const tab = TABS2.includes(value) ? value : TABS2.includes(arg) ? arg : null;
+      return tab ? { state: { tab, notice: null, seedsBanner: null } } : null;
+    },
+    refresh() {
+      return { state: { ...bump(), fp: fingerprint(snapshot({ kino: kino2, ...deps2() })) } };
+    },
+    // A timer: re-render only when what the tabs show changed (no network).
+    tick({ state }) {
+      const fp = fingerprint(snapshot({ kino: kino2, ...deps2() }));
+      return fp === state.fp ? null : { state: { fp } };
+    },
+    // Kino's own settings items in the screen saved (keys only, never values): draw the status again.
+    saved() {
+      return { state: { ...bump(), fp: fingerprint(snapshot({ kino: kino2, ...deps2() })) } };
+    },
+    go({ arg }) {
+      if (arg === "signin") return { route: { push: "signin" }, state: { signin: null } };
+      if (arg === "register") return { route: { push: "register" }, state: { reg: resumeReg() || { step: "email" } } };
+      return null;
+    },
+    dismiss() {
+      return null;
+    },
+    // ---- sign in: the old pre-save check (a real login), then the pair is written as Ajustes' Guardar would ----
+    async "signin.submit"({ value }) {
+      const v = value && typeof value === "object" ? value : {};
+      const email = str8(v.signinEmail).trim();
+      const password = str8(v.signinPw).trim();
+      const missing = {};
+      if (!email.includes("@")) missing.emailError = say(kino2, "enterValidEmail");
+      if (password === "") missing.pwError = say(kino2, "scrPasswordError");
+      if (Object.keys(missing).length) return { state: { signin: missing } };
+      let errors;
+      try {
+        errors = await deps2().settings.validateSettings({ email, password, useSharedAccount: cfg("useSharedAccount") === true });
+      } catch (e) {
+        trace(kino2, "screen", "signin", { ok: false, code: errCode(e) });
+        return { state: { signin: { unchecked: true, banner: { role: "warning", text: sentence(e) } } } };
+      }
+      if (errors && typeof errors === "object") {
+        trace(kino2, "screen", "signin", { ok: false, why: Object.keys(errors).sort().join("+") });
+        const s = {};
+        if (errors.useSharedAccount) s.banner = { role: "error", text: errors.useSharedAccount, action: { ...twin("scrSharedTurnOff", "label"), onTap: "shared.off" } };
+        if (errors.email) s.emailError = errors.email;
+        if (errors.password) s.pwError = errors.password;
+        if (!s.banner && !s.emailError && !s.pwError) s.banner = { role: "error", text: Object.values(errors).map(str8).find(Boolean) || say(kino2, "scrGenericError") };
+        return { state: { signin: s } };
+      }
+      trace(kino2, "screen", "signin", { ok: true });
+      return { config: { email, password }, route: { pop: true }, state: { signin: null, ...bump() }, toast: toastOf("signedIn", "success") };
+    },
+    "signin.saveUnchecked"({ state }) {
+      const inputs = state.inputs || {};
+      const email = str8(inputs.signinEmail).trim();
+      const password = str8(inputs.signinPw).trim();
+      if (!email.includes("@") || password === "") return { toast: toastOf("scrTypeBoth", "warning") };
+      return { config: { email, password }, route: { pop: true }, state: { signin: null, ...bump() }, toast: toastOf("scrSavedUnchecked", "info") };
+    },
+    // ---- the account in use ----
+    async "account.retry"({ arg }) {
+      try {
+        const out = await deps2().settings.action("login", { totalMs: capOf(arg) });
+        return { state: bump(), toast: toastOf(out ? out.message : say(kino2, "signedIn"), "success") };
+      } catch (e) {
+        return { state: bump(), toast: toastOf(sentence(e), "error") };
+      }
+    },
+    // The old "Cerrar sesión" (log out, re-activate the anonymous session), then its clearSettings as `config`. Unlike the
+    // old form, the settings are cleared even when the anonymous re-activation failed: the token is already forgotten by
+    // then, and keeping the account would sign it in again on the next call although the person asked to sign out.
+    async "account.logout"() {
+      let out = null;
+      let failed = null;
+      try {
+        out = await deps2().settings.action("logout");
+      } catch (e) {
+        failed = e;
+      }
+      trace(kino2, "screen", "logout", failed ? { ok: false, code: errCode(failed) } : { ok: true });
+      const cleared = out && Array.isArray(out.clearSettings) ? out.clearSettings : ["email", "password", "regEmail", "regPassword", "useSharedAccount"];
+      const config = Object.fromEntries(cleared.map((k) => [k, k === "useSharedAccount" ? false : null]));
+      return {
+        config,
+        state: { ...bump(), sharedError: null, inputs: { sharedSwitch: false } },
+        toast: failed ? toastOf("scrSignOutPartial", "warning") : toastOf(out && out.message ? out.message : say(kino2, "signedOut"), "success")
+      };
+    },
+    // ---- the shared account: the old pre-save check runs at the switch, not at Guardar ----
+    async "shared.change"({ value }) {
+      if (value !== true) return { config: { useSharedAccount: false }, state: { sharedError: null, ...bump() }, toast: toastOf("scrSharedOff", "info") };
+      const values = {
+        email: cfg("email"),
+        password: cfg("password"),
+        regEmail: cfg("regEmail"),
+        regPassword: cfg("regPassword"),
+        verifyCode: cfg("verifyCode"),
+        useSharedAccount: true
+      };
+      let errors;
+      try {
+        errors = await deps2().settings.validateSettings(values);
+      } catch (e) {
+        return { state: { sharedError: sentence(e), inputs: { sharedSwitch: false } } };
+      }
+      if (errors && typeof errors === "object") {
+        const msg = str8(errors.useSharedAccount) || Object.values(errors).map(str8).find(Boolean) || say(kino2, "scrGenericError");
+        return { state: { sharedError: msg, inputs: { sharedSwitch: false } } };
+      }
+      return { config: { useSharedAccount: true }, state: { sharedError: null, ...bump() }, toast: toastOf("scrSharedOn", "success") };
+    },
+    "shared.off"() {
+      return { config: { useSharedAccount: false }, state: { signin: null, sharedError: null, inputs: { sharedSwitch: false }, ...bump() }, toast: toastOf("scrSharedOff", "info") };
+    },
+    // ---- seeds ----
+    async "seeds.switch"({ arg }) {
+      const d = deps2();
+      let before = "";
+      try {
+        before = str8(d.session.current().sn);
+      } catch (_) {
+        before = "";
+      }
+      let out;
+      try {
+        out = await d.settings.action("switchSeed", { totalMs: capOf(arg) });
+      } catch (e) {
+        return { state: bump(), toast: toastOf(sentence(e), "error") };
+      }
+      let after = "";
+      try {
+        after = str8(d.session.current().sn);
+      } catch (_) {
+        after = "";
+      }
+      const message = out ? out.message : say(kino2, "scrGenericError");
+      if (after !== "" && after !== before) return { state: bump(), toast: toastOf(message, "success") };
+      const final = [say(kino2, "accountNoSeeds"), say(kino2, "noOtherSeed")].includes(message);
+      return {
+        state: bump(),
+        toast: { ...toastOf(message, final ? "info" : "error"), ...final ? {} : { action: { ...twin("scrRetry", "label"), event: "seeds.switch", arg: "toast" } } }
+      };
+    },
+    async "seeds.refresh"() {
+      const d = deps2();
+      const seq = () => {
+        try {
+          const o2 = d.session.seedsOutcome();
+          return o2 ? o2.n : 0;
+        } catch (_) {
+          return 0;
+        }
+      };
+      const before = seq();
+      let out;
+      try {
+        out = await d.settings.action("refreshSeeds");
+      } catch (e) {
+        return { state: bump(), toast: toastOf(sentence(e), "error") };
+      }
+      let o = null;
+      try {
+        o = d.session.seedsOutcome();
+      } catch (_) {
+        o = null;
+      }
+      if (o && o.n !== before) {
+        if (!o.ok) return { state: bump(), toast: toastOf(o.why === "fetch" ? say(kino2, "offlineRetry") : say(kino2, "scrSeedsBadFile"), "error") };
+        let usable = 0;
+        try {
+          usable = d.session.usableSeeds();
+        } catch (_) {
+          usable = 0;
+        }
+        return { state: bump(), toast: toastOf("scrSeedsLoadedUsable", "success", { n: d.session.seedPool().length, usable }) };
+      }
+      return { state: bump(), toast: toastOf(out ? out.message : say(kino2, "scrGenericError"), "info") };
+    },
+    // ---- create an account: three steps, the old portal calls (E3) with what was typed here ----
+    async "reg.send"({ value }) {
+      const email = str8(value && value.regEmailInput).trim();
+      if (!email.includes("@")) return { state: { reg: { step: "email", errors: { email: say(kino2, "enterValidEmail") } } } };
+      return sendTo(email, false);
+    },
+    async "reg.resend"({ state }) {
+      const email = str8(state.reg && state.reg.email).trim();
+      if (!email.includes("@")) return { state: { reg: { step: "email" } } };
+      return sendTo(email, true);
+    },
+    async "reg.confirm"({ value, state }) {
+      const reg = state.reg && typeof state.reg === "object" ? state.reg : {};
+      const email = str8(reg.email).trim();
+      if (!email.includes("@")) return { state: { reg: { step: "email" } } };
+      const v = value && typeof value === "object" ? value : {};
+      const password = str8(v.regPw).trim();
+      const keep = { step: "code", email, emailMasked: maskEmail(email), sentAt: reg.sentAt };
+      let done;
+      try {
+        done = await deps2().settings.registerWith({ email, code: v.regCode, password });
+      } catch (e) {
+        const msg = sentence(e);
+        trace(kino2, "screen", "register", { ok: false, code: errCode(e) });
+        if (msg === say(kino2, "fillCode") || msg === say(kino2, "codeRefused")) return { state: { reg: { ...keep, errors: { code: msg } } } };
+        if (msg === say(kino2, "fillAccount")) return { state: { reg: { ...keep, errors: { pw: msg } } } };
+        if (msg === say(kino2, "askCodeAgain")) {
+          return { state: { reg: { ...keep, banner: { role: "error", text: msg, action: { ...twin("scrAskAgain", "label"), onTap: { event: "reg.resend", timeoutMs: 3e4 } } } } } };
+        }
+        return { state: { reg: { ...keep, banner: { role: "error", text: msg } } } };
+      }
+      trace(kino2, "screen", "register", { ok: true, in: done.loggedIn === true });
+      return {
+        config: { email, password, regEmail: null, regPassword: null, verifyCode: null },
+        state: { reg: { step: "done", loggedIn: done.loggedIn === true, emailMasked: maskEmail(email) }, ...bump() },
+        toast: toastOf(done.loggedIn ? "accountCreatedSignedIn" : "scrCreatedPending", done.loggedIn ? "success" : "info")
+      };
+    },
+    "reg.back"({ arg, state }) {
+      const reg = state.reg && typeof state.reg === "object" ? state.reg : {};
+      if (arg !== "email" || reg.step === "done") return null;
+      return { state: { reg: { step: "email", email: reg.email } } };
+    },
+    "reg.finish"() {
+      return { route: { pop: true }, state: { reg: null, ...bump() } };
+    }
+  };
+  async function sendTo(email, resend) {
+    const masked = maskEmail(email);
+    let r;
+    try {
+      r = await deps2().settings.sendCodeTo(email);
+    } catch (e) {
+      const msg = sentence(e);
+      trace(kino2, "screen", "send_code", { ok: false, code: errCode(e) });
+      if (msg === say(kino2, "requestNotSaved")) {
+        return { state: { reg: { step: "email", email, banner: { role: "error", text: msg, action: { ...twin("scrAskAgain", "label"), onTap: { event: "reg.resend", timeoutMs: 3e4 } } } } } };
+      }
+      return { state: { reg: { step: resend ? "code" : "email", email, emailMasked: masked, errors: resend ? {} : { email: msg }, ...resend ? { banner: { role: "error", text: msg } } : {} } } };
+    }
+    trace(kino2, "screen", "send_code", { ok: true, sent: r.sent === true });
+    const toast = !r.sent ? toastOf("codeAlreadySent", "info") : resend ? toastOf("scrResent", "success") : toastOf("scrCodeSentTo", "success", { email: masked });
+    return { config: { regEmail: email }, state: { reg: { step: "code", email, emailMasked: masked, sentAt: r.at } }, toast };
+  }
+  return async function screenEvent2(ev) {
+    const e = ev && typeof ev === "object" ? ev : {};
+    const name = typeof e.name === "string" ? e.name : "";
+    const handler = Object.hasOwn(on, name) ? on[name] : null;
+    if (!handler) return null;
+    const state = e.state && typeof e.state === "object" ? e.state : {};
+    try {
+      return await handler({ ...e, state }) ?? null;
+    } catch (err) {
+      trace(kino2, "screen", "bug", { event: name, code: errCode(err) });
+      return { toast: toastOf("scrGenericError", "error") };
+    }
+  };
+}
+
+// src/screen.js
+function modernKit(kino2) {
+  try {
+    return !!(kino2 && kino2.screen && Array.isArray(kino2.screen.names) && kino2.screen.names.includes("steps"));
+  } catch (_) {
+    return false;
+  }
+}
+function makeScreen({ kino: kino2, clock: clock2, deps: deps2 }) {
+  const screenEvent2 = makeEvents({ kino: kino2, clock: clock2, deps: deps2 });
+  async function screen2(ctx) {
+    const c = ctx && typeof ctx === "object" ? ctx : {};
+    const modern = modernKit(kino2);
+    const s = modern ? snapshot({ kino: kino2, ...deps2() }) : null;
+    let appVersion = "";
+    try {
+      appVersion = typeof kino2.appVersion === "string" ? kino2.appVersion : "";
+    } catch (_) {
+      appVersion = "";
+    }
+    return view({
+      s,
+      state: c.state,
+      route: c.route,
+      modern,
+      device: c.device === "tv" || c.device === "desktop" ? c.device : "phone",
+      appVersion,
+      lang: c.lang === "en" ? "en" : "es",
+      now: clock2.now()
+    });
+  }
+  return { screen: screen2, screenEvent: screenEvent2 };
+}
+
 // src/plugin.js
 var servedBy = () => getDeps().catalog.servedBy();
 async function search(query) {
@@ -5704,7 +6742,7 @@ async function browse(ref, cursor) {
     servedBy
   );
 }
-async function section(arg) {
+async function section2(arg) {
   await null;
   return traced(kino, clock, "section", () => guarded(({ section: s }) => s.section(arg)), {}, servedBy);
 }
@@ -5758,9 +6796,14 @@ async function migrate(input) {
   }
 }
 var settingsInstance = null;
-var settings = () => settingsInstance ?? (settingsInstance = (() => {
+var registrationInstance = null;
+var registration = () => registrationInstance ?? (registrationInstance = (() => {
   const { session, portal } = getDeps();
-  return makeSettings({ kino, session, clock, registration: makeRegistration({ kino, portal, session, clock }) });
+  return makeRegistration({ kino, portal, session, clock });
+})());
+var settings = () => settingsInstance ?? (settingsInstance = (() => {
+  const { session } = getDeps();
+  return makeSettings({ kino, session, clock, registration: registration() });
 })());
 async function settingsStatus() {
   await null;
@@ -5789,6 +6832,26 @@ async function validateSettings(values) {
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }
+var screenInstance = null;
+var configScreen = () => screenInstance ?? (screenInstance = makeScreen({
+  kino,
+  clock,
+  deps: () => ({ settings: settings(), session: getDeps().session, registration: registration() })
+}));
+async function screen(ctx) {
+  await null;
+  try {
+    return await traced(kino, clock, "screen", () => configScreen().screen(ctx));
+  } catch (e) {
+    trace(kino, "screen", "render_fail", { code: errCode(e) });
+    return { type: "Column", padding: 16, children: [{ type: "settings", key: "classicForm" }] };
+  }
+}
+async function screenEvent(ev) {
+  await null;
+  const name = ev && typeof ev.name === "string" ? ev.name.slice(0, 40) : "?";
+  return traced(kino, clock, "screenEvent", () => configScreen().screenEvent(ev), { event: name });
+}
 export {
   action,
   browse,
@@ -5801,8 +6864,10 @@ export {
   liveSearch,
   migrate,
   resolve,
+  screen,
+  screenEvent,
   search,
-  section,
+  section2 as section,
   settingsStatus,
   sign,
   validateSettings

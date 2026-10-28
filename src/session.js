@@ -406,10 +406,11 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     return true;
   });
 
-  // E5: how the last download of this runtime ended ({ ok, why, at }), beside the boolean every caller already reads, so a
-  // screen can tell "no connection" from "the pool file did not come back right". In memory: a restart forgets it.
+  // E5: how the last download of this runtime ended ({ ok, why, at, n }: n counts the downloads), beside the boolean every
+  // caller already reads, so a screen can tell "no connection" from "the pool file did not come back right". In memory: a
+  // restart forgets it.
   let lastOutcome = null;
-  const outcome = (ok, why) => { lastOutcome = { ok, why, at: clock.now() }; return ok; };
+  const outcome = (ok, why) => { lastOutcome = { ok, why, at: clock.now(), n: (lastOutcome ? lastOutcome.n : 0) + 1 }; return ok; };
 
   /** Downloads the pool; true when it stored a non-empty one. Never throws. */
   async function fetchSeeds(timeoutMs) {
@@ -766,7 +767,7 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     // it before trying, so it is "last tried or loaded"); `usableSeeds` counts the pool seeds a pick could use now.
     seedsAt: () => { const at = readJson("seedsAt"); return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : null; },
     usableSeeds: () => usable(seedPool()).length,
-    // E5: `{ ok, why, at }` of this runtime's last download, or null when none ran.
+    // E5: `{ ok, why, at, n }` of this runtime's last download, or null when none ran.
     seedsOutcome: () => (lastOutcome ? { ...lastOutcome } : null),
   };
 }

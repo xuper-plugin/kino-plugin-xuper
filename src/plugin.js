@@ -3,6 +3,7 @@ import { signRequest } from "./liveSign.js";
 import { makeMigrate } from "./migrate.js";
 import { makeSettings } from "./settings.js";
 import { makeRegistration } from "./registration.js";
+import { makeScreen } from "./screen.js";
 import { isKinoError } from "./util.js";
 import { isChannelRef } from "./refs.js";
 import { isLiveTileRef } from "./liveTiles.js";
@@ -82,9 +83,14 @@ export async function migrate(input) {
 
 // The settings form runs even with no account saved: it needs the session, never the catalog.
 let settingsInstance = null;
-const settings = () => (settingsInstance ??= (() => {
+let registrationInstance = null;
+const registration = () => (registrationInstance ??= (() => {
   const { session, portal } = getDeps();
-  return makeSettings({ kino, session, clock, registration: makeRegistration({ kino, portal, session, clock }) });
+  return makeRegistration({ kino, portal, session, clock });
+})());
+const settings = () => (settingsInstance ??= (() => {
+  const { session } = getDeps();
+  return makeSettings({ kino, session, clock, registration: registration() });
 })());
 export async function settingsStatus() {
   await null;
@@ -106,4 +112,25 @@ export async function validateSettings(values) {
     if (isKinoError(e)) throw e;
     throw kino.error("unavailable", "Xuper no está disponible ahora");
   }
+}
+
+// The configuration screen (apiVersion 14, only through the manifest's enhancements: an older Kino never calls these). It
+// is a thin layer over the very instances above: the same settings, session and registration as the old form.
+let screenInstance = null;
+const configScreen = () => (screenInstance ??= makeScreen({
+  kino, clock, deps: () => ({ settings: settings(), session: getDeps().session, registration: registration() }),
+}));
+export async function screen(ctx) {
+  await null;
+  try { return await traced(kino, clock, "screen", () => configScreen().screen(ctx)); }
+  catch (e) {
+    // A screen that cannot draw its own tree still offers the old form: Kino's settings, nothing lost.
+    trace(kino, "screen", "render_fail", { code: errCode(e) });
+    return { type: "Column", padding: 16, children: [{ type: "settings", key: "classicForm" }] };
+  }
+}
+export async function screenEvent(ev) {
+  await null;
+  const name = ev && typeof ev.name === "string" ? ev.name.slice(0, 40) : "?";
+  return traced(kino, clock, "screenEvent", () => configScreen().screenEvent(ev), { event: name });
 }

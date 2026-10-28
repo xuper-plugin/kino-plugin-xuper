@@ -210,6 +210,7 @@ test("E5: each download's outcome is kept beside the unchanged boolean: fetch, h
     assert.equal(o.ok, ok);
     assert.equal(o.why, why);
     assert.equal(o.at, w.clock.now());
+    assert.equal(o.n, 1);
   }
 });
 
