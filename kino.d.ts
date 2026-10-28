@@ -1425,9 +1425,10 @@ type KinoScreenNode =
   /**
    * Task 18: `autoSave: true` saves its toggles and selects as the person changes them (no `validateSettings`; a locked one only
    * after its code); with only those shown, no Guardar. A node whose keys hold no valued setting (`keys: ["logout"]`) draws its
-   * buttons and no Guardar.
+   * buttons and no Guardar. Screen asks: each autosave that changed something sends `onSaved` too (`kind: "save"`, the key),
+   * as a Guardar does; one that changed nothing sends none.
    */
-  | (KinoScreenBase & { type: "settings"; keys?: string[]; onSaved?: string | { event: string; arg?: string }; autoSave?: boolean })
+  | (KinoScreenBase & { type: "settings"; keys?: string[]; autoSave?: boolean; onSaved?: string | { event: string; arg?: string } })
   /**
    * A line of news across the screen in Kino's colour for its `role` (default info), with an optional title, a button
    * (`action`) and, when `dismissible` (it needs a `key` of its own), Kino's close: it hides the banner at once (in
@@ -1523,8 +1524,12 @@ type KinoScreenNode =
    */
   | (KinoScreenBase & { type: "Scaffold"; appBar?: KinoScreenAppBar; body: KinoScreenNode; floatingActionButton?: KinoScreenNode; bottomNavigationBar?: KinoScreenNavigationBar });
 
-/** Task 17 item G: a Scaffold's top bar: `leading` and up to four `actions` are `IconButton`s with a `labelText`; `bottom` a `TabBar`. */
-type KinoScreenAppBar = KinoScreenBase & { type: "AppBar"; title?: string; titleEn?: string; leading?: KinoScreenNode; actions?: KinoScreenNode[]; bottom?: KinoScreenNode; centerTitle?: boolean; backgroundColor?: KinoScreenColorRole };
+/**
+ * Task 17 item G: a Scaffold's top bar: `leading` and up to four `actions` are `IconButton`s with a `labelText`; `bottom` a `TabBar`.
+ * `title` is a string (with its `titleEn` twin) or, Flutter's way, any node (a `TabBar`, a `Row` of buttons, an `Image`...; at
+ * most 40 nodes) drawn in the room left of the actions: a `TabBar` there shares one row with the actions.
+ */
+type KinoScreenAppBar = KinoScreenBase & { type: "AppBar"; title?: string | KinoScreenNode; titleEn?: string; leading?: KinoScreenNode; actions?: KinoScreenNode[]; bottom?: KinoScreenNode; centerTitle?: boolean; backgroundColor?: KinoScreenColorRole };
 /** Task 17 item G: a Scaffold's bottom bar of 2..5 items; `onChanged`'s `value` is the item's key (keep it in your state). */
 type KinoScreenNavigationBar = KinoScreenBase & { type: "NavigationBar"; items: { key: string; icon: KinoIconName; label: string; labelEn?: string; badge?: KinoScreenBadge }[]; value?: string; selectedIndex?: number; onChanged?: KinoScreenAction };
 

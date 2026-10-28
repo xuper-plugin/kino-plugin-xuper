@@ -230,8 +230,8 @@ export const PROPS = {
   form: [kids("nodes (its fields among them)"), ["onSubmitted", ACTION, "required", "runs only when every field passes; its event's `value` holds every field by key"]],
   settings: [
     ["keys", "string[]", "all settings", "only those settings, in that order; each setting shows at most once per screen"],
-    [S.screenAsks.onSavedField, "event name or `{ event, arg? }`", "none", "sent after Kino's form here saved or one of its action buttons finished: `value` is `{ kind, ok, keys, action?, reason? }`, setting keys only, never a value ([onSaved](#on-saved))"],
     [S.settingsAutoSave.field, "boolean", "`false`", `its ${codes(S.settingsAutoSave.types, " and ")} settings save as they change (no \`validateSettings\`); with only those, no Guardar ([settings node](#settings))`],
+    [S.screenAsks.onSavedField, "event name or `{ event, arg? }`", "none", "sent after Kino's form here saved (Guardar, or an autosave) or one of its action buttons finished: `value` is `{ kind, ok, keys, action?, reason? }`, setting keys only, never a value ([onSaved](#on-saved))"],
   ],
   banner: [
     ["text", "string", "required", "`textEn`"],
@@ -318,7 +318,7 @@ export const PROPS = {
     ["bottomNavigationBar", "a `NavigationBar`", "none", "at the bottom"],
   ],
   appBar: [
-    ["title", "string", "none", "`titleEn`; read as a heading by a screen reader"],
+    ["title", "string or a node", "none", `a string (\`titleEn\` its twin) is read as a heading; or, Flutter's way, any node (a \`TabBar\`, a \`Row\` of buttons...; at most ${S.scaffold.maxAppBarTitleNodes} nodes) in the room left of the actions`],
     ["leading", "an `IconButton`", "none", "with a `labelText` (back, a menu)"],
     ["actions", "`IconButton[]`", "none", `at most ${S.scaffold.maxAppBarActions}, each with a \`labelText\`; a \`badge\` allowed`],
     ["bottom", "a `TabBar`", "none", "under the row"],

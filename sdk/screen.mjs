@@ -1297,7 +1297,7 @@ class Reader {
         const autoSave = this.flag(o, type, S.settingsAutoSave.field);
         return (k) => {
           if (k) { if (keys === null) this.allSettingsShown = true; else keys.forEach((x) => this.shownSettings.add(x)); }
-          return autoSave ? { keys, onSaved, autoSave } : { keys, onSaved };
+          return autoSave ? { keys, autoSave, onSaved } : { keys, onSaved };
         };
       }
       // ---- Task 17 (PluginScreenOutput's FAB, LIST_TILE, AVATAR, PAGE_VIEW) ----
@@ -1404,7 +1404,7 @@ class Reader {
           else this.log(`screen: appBar backgroundColor ${fmt(o.backgroundColor)} is not a color role${colorHint(o.backgroundColor)}, the default used`);
         }
         return (k) => {
-          if (!k) return { title, leading: null, actions: [], bottom: null, centerTitle, background };
+          if (!k) return { title, leading: null, actions: [], bottom: null, centerTitle, background, titleNode: null };
           const leading = this.barButton(opt(o, "leading"), "leading", depth);
           const actions = [];
           const raw = opt(o, "actions");
@@ -1423,7 +1423,19 @@ class Reader {
             if (bt !== "tabs") this.log("screen: appBar bottom must be a TabBar, dropped");
             else bottom = this.node(b, depth + 1);
           }
-          return { title, leading, actions, bottom, centerTitle, background };
+          // Flutter's way: `title` is a string (a Text) or any node (a TabBar, a Row of buttons...), at most
+          // maxAppBarTitleNodes nodes; a bad one is dropped, logged.
+          let titleNode = null;
+          const tn = opt(o, "title");
+          if (isObj(tn)) {
+            const n = this.node(tn, depth + 1);
+            if (n !== null) {
+              const size = countNodes(n);
+              if (size <= S.scaffold.maxAppBarTitleNodes) titleNode = n;
+              else this.log(`screen: appBar title holds ${size} nodes, more than ${S.scaffold.maxAppBarTitleNodes}, dropped`);
+            }
+          }
+          return { title, leading, actions, bottom, centerTitle, background, titleNode };
         };
       }
       case "navigationBar": {
@@ -2993,7 +3005,7 @@ function resolveNode(n, device, widthClass) {
   if (n.type === "scaffold") {
     for (const k of ["appBar", "body", "fab", "bottomBar"]) out[k] = n[k] ? resolveNode(n[k], device, widthClass) : null;
   }
-  if (n.type === "appBar") { out.leading = n.leading ? resolveNode(n.leading, device, widthClass) : null; out.actions = kids(n.actions); out.bottom = n.bottom ? resolveNode(n.bottom, device, widthClass) : null; }
+  if (n.type === "appBar") { out.leading = n.leading ? resolveNode(n.leading, device, widthClass) : null; out.titleNode = n.titleNode ? resolveNode(n.titleNode, device, widthClass) : null; out.actions = kids(n.actions); out.bottom = n.bottom ? resolveNode(n.bottom, device, widthClass) : null; }
   if (n.type === "pageView") { out.pages = kids(n.pages); out.initialPage = Math.min(n.initialPage, Math.max(0, out.pages.length - 1)); }
   // The fallback is read once, with the base node: each class's copy draws it too.
   if (n.type === "image") out.fallback = n.fallback ? resolveNode(n.fallback, device, widthClass) : null;
@@ -3025,7 +3037,7 @@ export function childNodes(n) {
   if (n.type === "listTile") return [n.leading, n.trailing].filter(Boolean);
   if (n.type === "pageView") return n.pages;
   if (n.type === "scaffold") return [n.appBar, n.body, n.fab, n.bottomBar].filter(Boolean);
-  if (n.type === "appBar") return [n.leading, ...n.actions, n.bottom].filter(Boolean);
+  if (n.type === "appBar") return [n.leading, n.titleNode, ...n.actions, n.bottom].filter(Boolean);
   if (n.type === "image") return n.fallback ? [n.fallback] : [];
   if (n.type === ACCORDION) return n.items.flatMap((it) => it.children);
   if (n.type === STEPS) return n.items.flatMap((it) => it.children);

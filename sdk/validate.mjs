@@ -589,8 +589,20 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
     if (!loaded.sandboxed) notes.push("running without the sandbox (KINO_SDK_NO_SANDBOX=1): the plugin can see Node's globals that Kino lacks");
     const plugin = loaded.plugin;
     // download/drm export nothing; channels exports liveCategories + liveChannels (guide optional).
-    const missing = requiredExports(m.capabilities, m.settings, m).filter((f) => typeof plugin[f] !== "function");
+    // Only the plugin's OWN manifest refuses the install (an enhancement's missing exports drop that block, as the app does: the
+    // block's exports are checked below, against what the entry really exports).
+    const own = validateManifestWithoutEnhancements(manifestText).manifest;
+    const missing = requiredExports(own.capabilities, own.settings, own).filter((f) => typeof plugin[f] !== "function");
     if (missing.length) problems.push(`the plugin doesn't export ${missing.join(", ")}: Kino refuses the install ("le falta ${missing.sort().join(", ")}")`);
+    else {
+      const exported = Object.keys(plugin).filter((f) => typeof plugin[f] === "function");
+      const probed = validateManifest(manifestText, { exports: exported });
+      if (probed.ok) {
+        for (const d of probed.manifest.enhancementsDropped) {
+          if (!m.enhancementsDropped.includes(d)) problems.push(`kino-plugin.json: ${d}: Kino ignores this enhancement and runs the plugin as its apiVersion ${m.apiVersion} says`);
+        }
+      }
+    }
     // The player panel (`--run panel <ref> [tab]`): either format, read as the app reads it (Task 8i: a screen-format result's
     // tree with the panel's limits, any other result as the legacy panel).
     if (run === "panel" && !problems.length) {
