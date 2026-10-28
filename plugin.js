@@ -5986,7 +5986,7 @@ function fingerprint(s) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.3.0";
+var PLUGIN_VERSION = "2.3.1";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
@@ -6213,8 +6213,8 @@ function mainPage(s, st, ctx) {
   return {
     type: "Scaffold",
     appBar: {
+      // No title of its own: Kino's title bar above already names the screen, so a second one only repeats it.
       type: "AppBar",
-      ...twin("scrTitle", "title"),
       actions: [
         { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
         { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } }

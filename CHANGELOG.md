@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.1
+
+- The configuration screen no longer repeats its title: Kino's own bar above it already says «Configuración», so the screen's bar keeps only its tabs and its refresh and help buttons.
+
 ## 2.3.0
 
 - A configuration screen of its own on a newer Kino (one that reads apiVersion 14): an «Abrir configuración» button at the

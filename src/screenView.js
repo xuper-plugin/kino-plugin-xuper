@@ -5,7 +5,7 @@ import { twin } from "./i18n.js";
 import { RESEND_WAIT_MS } from "./screenModel.js";
 
 /** The plugin's version, shown in the diagnostics (kept equal to kino-plugin.json by a test). */
-export const PLUGIN_VERSION = "2.3.0";
+export const PLUGIN_VERSION = "2.3.1";
 /** Every network press may take Kino's longest press budget: the old buttons' own bounds (25 s) fit inside it. */
 export const PRESS_MS = 30_000;
 export const TABS = ["account", "connection", "more"];
@@ -181,7 +181,8 @@ function mainPage(s, st, ctx) {
   return {
     type: "Scaffold",
     appBar: {
-      type: "AppBar", ...twin("scrTitle", "title"),
+      // No title of its own: Kino's title bar above already names the screen, so a second one only repeats it.
+      type: "AppBar",
       actions: [
         { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
         { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } },
