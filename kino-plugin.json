@@ -174,5 +174,33 @@
       "encoding": "hex"
     },
     "tmdbKey": "kino-sealed:v1:BvU3io1yZPPb6KxLY5C7cNvm0YOOS7tGf7wY0ioTzhFO_kEvRGrlaFELhhxcs9vqyq0QuzUMBdjujQd4ziih620FD4PsRJHFxt9C0w7Gb0pXA8WER5Xy39c4fsw"
+  },
+  "enhancements": {
+    "14": {
+      "capabilities": ["screen"],
+      "screen": {"label":"Configuración","labelEn":"Settings","opensFrom":["settings"],"settingsButton":{"label":"Abrir configuración","labelEn":"Open settings"},"settingsIn":"both"},
+      "settings": [
+        {"key":"account","label":"Cuenta","type":"section","hint":"Opcional. Sin cuenta accedes al catálogo con sesión anónima.","labelEn":"Account","hintEn":"Optional. Without an account you use the catalog with an anonymous session."},
+        {"key":"email","label":"Correo electrónico","type":"text","labelEn":"Email"},
+        {"key":"password","label":"Contraseña","type":"password","labelEn":"Password"},
+        {"key":"status","label":"Estado de sesión","type":"status","labelEn":"Session status"},
+        {"key":"login","label":"Iniciar sesión","type":"action","labelEn":"Sign in"},
+        {"key":"logout","label":"Cerrar sesión","type":"action","confirm":"¿Cerrar sesión de tu cuenta Xuper?","labelEn":"Sign out","confirmEn":"Sign out of your account?"},
+        {"key":"useSharedAccount","label":"Usar cuenta compartida","type":"toggle","hint":"Muchas personas la usan; puede cerrar la sesión de otra.","labelEn":"Use the shared account","hintEn":"Many people use it; it may sign someone else out."},
+        {"key":"createAccount","label":"Crear cuenta","type":"section","hint":"Correo, Enviar código, código y contraseña, en ese orden.","labelEn":"Create account","hintEn":"Email, Send code, code and password, in that order."},
+        {"key":"regEmail","label":"Correo electrónico","type":"text","hint":"Donde llega el código: guárdalo y toca Enviar código","labelEn":"Email","hintEn":"Where the code arrives: save it and tap Send code"},
+        {"key":"sendCode","label":"Enviar código","type":"action","labelEn":"Send code"},
+        {"key":"verifyCode","label":"Código de verificación","type":"text","hint":"El código que llega a tu correo","labelEn":"Verification code","hintEn":"The code that arrives in your email"},
+        {"key":"regPassword","label":"Contraseña","type":"password","hint":"La de tu cuenta nueva: guárdala y toca Crear cuenta","labelEn":"Password","hintEn":"The one for your new account: save it and tap Create account"},
+        {"key":"register","label":"Crear cuenta","type":"action","labelEn":"Create account"},
+        {"key":"seeds","label":"Semillas","type":"section","hint":"Sesiones de respaldo para cuando tu zona está bloqueada.","labelEn":"Seeds","hintEn":"Backup sessions for when your region is blocked."},
+        {"key":"autoRefreshSeeds","label":"Actualizar semillas automáticamente","type":"toggle","default":true,"hint":"Solo sin cuenta y con la zona bloqueada","labelEn":"Update seeds automatically","hintEn":"Only without an account and with the region blocked"},
+        {"key":"switchSeed","label":"Cambiar semilla","type":"action","hint":"Prueba otra sesión de respaldo si esta va mal","labelEn":"Change seed","hintEn":"Try another backup session if this one goes wrong"},
+        {"key":"refreshSeeds","label":"Actualizar semillas","type":"action","hint":"Vuelve a descargar las sesiones de respaldo","labelEn":"Update seeds","hintEn":"Download the backup sessions again"},
+        {"key":"contributeSeeds","label":"Aportar una sesión anónima","type":"toggle","default":true,"hint":"Comparte una sesión anónima para zonas bloqueadas. Puedes apagarlo.","labelEn":"Share an anonymous session","hintEn":"Shares an anonymous session for blocked regions. You can turn it off."},
+        {"key":"home","label":"Inicio","type":"section","hint":"Una fila con los canales en vivo de tu país al final de Inicio.","labelEn":"Home","hintEn":"A row with your country's live channels at the end of Home."},
+        {"key":"homeCountry","label":"Canales en vivo de tu país","type":"select","default":"none","options":[{"value":"none","label":"Ninguno","labelEn":"None"},{"value":"BO","label":"Bolivia","labelEn":"Bolivia"},{"value":"CL","label":"Chile","labelEn":"Chile"},{"value":"CO","label":"Colombia","labelEn":"Colombia"},{"value":"CR","label":"Costa Rica","labelEn":"Costa Rica"},{"value":"EC","label":"Ecuador","labelEn":"Ecuador"},{"value":"SV","label":"El Salvador","labelEn":"El Salvador"},{"value":"ES","label":"España","labelEn":"Spain"},{"value":"US","label":"Estados Unidos","labelEn":"United States"},{"value":"GT-NI-BZ","label":"Guatemala, Nicaragua o Belice","labelEn":"Guatemala, Nicaragua or Belize"},{"value":"HN","label":"Honduras","labelEn":"Honduras"},{"value":"MX","label":"México","labelEn":"Mexico"},{"value":"PA","label":"Panamá","labelEn":"Panama"},{"value":"PY","label":"Paraguay","labelEn":"Paraguay"},{"value":"PE","label":"Perú","labelEn":"Peru"},{"value":"PR","label":"Puerto Rico","labelEn":"Puerto Rico"},{"value":"DO","label":"República Dominicana","labelEn":"Dominican Republic"},{"value":"UY","label":"Uruguay","labelEn":"Uruguay"},{"value":"VE","label":"Venezuela","labelEn":"Venezuela"}],"labelEn":"Live channels from your country"}
+      ]
+    }
   }
 }
