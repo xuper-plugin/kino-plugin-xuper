@@ -52,27 +52,44 @@ export function makeSettings({ kino, session, clock, registration }) {
   // The account the settings ask for: the "Cuenta" fields, else the pair typed in "Crear cuenta".
   const savedAccount = () => configuredPair(kino.config);
 
+  /**
+   * The facts the status line is made of (E2), read from the session and the settings, never from the network. Throws
+   * when the session cannot be read (settingsStatus turns that into its "unknown" line). `email` is the account's as
+   * typed: whoever shows it masks it.
+   */
+  function statusFacts() {
+    // What the stored token really is: an account configured but not logged in yet (credentials that
+    // arrived by sync, a change of account) or refused is NOT reported as connected.
+    return {
+      account: session.kind() === "account",
+      kind: session.kind(),
+      accountState: session.accountState(),
+      sharedConfigured: session.sharedConfigured(),
+      usingShared: session.usingShared(),
+      email: savedAccount().email,
+      regionBlocked: session.regionBlocked(),
+      pool: session.seedPool().length,
+      seedsExhausted: session.seedsExhausted(),
+      autoRefresh: kino.config.get("autoRefreshSeeds") !== false,
+    };
+  }
+
   /** `{ status }`: one line of at most a few short sentences; never throws. */
   async function settingsStatus() {
     await null;
     try {
-      // What the stored token really is: an account configured but not logged in yet (credentials that
-      // arrived by sync, a change of account) or refused is NOT reported as connected.
-      const account = session.kind() === "account";
-      const state = session.accountState();
-      const shared = session.sharedConfigured();
-      const anonymous = state === "pending"
-        ? say(kino, "statusConnecting", { who: say(kino, shared ? "whoShared" : "whoOwn") })
-        : state === "refused"
-          ? say(kino, shared ? "statusSharedBroken" : "statusOwnRefused")
+      const f = statusFacts();
+      const anonymous = f.accountState === "pending"
+        ? say(kino, "statusConnecting", { who: say(kino, f.sharedConfigured ? "whoShared" : "whoOwn") })
+        : f.accountState === "refused"
+          ? say(kino, f.sharedConfigured ? "statusSharedBroken" : "statusOwnRefused")
           : say(kino, "statusAnonymous");
-      const who = session.usingShared() ? say(kino, "statusShared") : say(kino, "statusConnectedAs", { email: savedAccount().email });
-      const parts = [account ? who : anonymous];
-      if (!account && session.regionBlocked()) {
-        const n = session.seedPool().length;
-        parts.push(n > 0 ? say(kino, "statusBlockedSeeds", { n }) : say(kino, "statusBlockedNoSeeds"));
-        if (session.seedsExhausted()) parts.push(say(kino, "seedsBanner"));
-        else if (kino.config.get("autoRefreshSeeds") === false) parts.push(say(kino, "statusAutoRefreshOff"));
+      const who = f.usingShared ? say(kino, "statusShared") : say(kino, "statusConnectedAs", { email: f.email });
+      const parts = [f.account ? who : anonymous];
+      if (!f.account && f.regionBlocked) {
+        parts.push(f.pool > 0 ? say(kino, "statusBlockedSeeds", { n: f.pool }) : say(kino, "statusBlockedNoSeeds"));
+        if (f.seedsExhausted) parts.push(say(kino, "seedsBanner"));
+        else if (!f.autoRefresh) parts.push(say(kino, "statusAutoRefreshOff"));
       }
       const text = parts.length === 1 ? parts[0] : parts.join(". ") + ".";
       return { status: clip(text, STATUS_MAX) };
@@ -81,10 +98,14 @@ export function makeSettings({ kino, session, clock, registration }) {
     }
   }
 
-  async function login() {
+  // E1: a caller with less time than Kino's 30 s action (a screen call without a press budget of its own) caps the total
+  // bound of a handler; Kino's own `action(key)` passes nothing, and every bound stays as it was.
+  const capped = (ms, cap) => (typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? Math.min(ms, cap) : ms);
+
+  async function login(cap) {
     const { email, password } = savedAccount();
     if (email === "" || password === "") throw told(kino, "auth_required", "Escribe tu correo y contraseña en Ajustes", say(kino, "fillAccount"));
-    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock.now() + LOGIN_TOTAL_MS };
+    const bounds = { timeoutMs: LOGIN_REQUEST_MS, deadline: clock.now() + capped(LOGIN_TOTAL_MS, cap) };
     try { await session.login(email, password, bounds); }
     catch (e) {
       // A region block or an unreadable key is not a wrong password: told as what it is.
@@ -95,16 +116,16 @@ export function makeSettings({ kino, session, clock, registration }) {
     return { message: say(kino, "signedIn"), refresh: true };
   }
 
-  async function logout() {
-    try { await session.logout({ timeoutMs: LOGOUT_REQUEST_MS, deadline: clock.now() + LOGOUT_TOTAL_MS }); }
+  async function logout(cap) {
+    try { await session.logout({ timeoutMs: LOGOUT_REQUEST_MS, deadline: clock.now() + capped(LOGOUT_TOTAL_MS, cap) }); }
     catch (e) { throw surface(e); }
     // The app clears these only if this action succeeded; session.logout() runs first on purpose.
     return { message: say(kino, "signedOut"), refresh: true, clearSettings: ["email", "password", "regEmail", "regPassword", "useSharedAccount"] };
   }
 
-  async function switchSeed() {
+  async function switchSeed(cap) {
     let r;
-    try { r = await session.switchSeed({ timeoutMs: SEED_PROBE_MS, deadline: clock.now() + SEED_SWITCH_TOTAL_MS }); }
+    try { r = await session.switchSeed({ timeoutMs: SEED_PROBE_MS, deadline: clock.now() + capped(SEED_SWITCH_TOTAL_MS, cap) }); }
     catch (e) { throw surface(e); }
     const message = r.result === "ok" ? say(kino, "seedSwitched", { n: r.tries })
       : r.result === "offline" ? say(kino, "offlineRetry")
@@ -130,33 +151,51 @@ export function makeSettings({ kino, session, clock, registration }) {
     return email;
   }
 
-  async function sendCode() {
-    const email = typedEmail();
-    // A double tap must not mint a second device and invalidate the code that is on its way.
+  /**
+   * E3: asks the portal to email `email` (already checked by the caller) a code. `{ sent: false, at }` when one went to the
+   * same address less than a minute ago (a double tap must not mint a second device and invalidate the code on its way),
+   * `{ sent: true, at }` when it went now. A failure is a kino error carrying the sentence the person reads.
+   */
+  async function sendCodeTo(email, { cap } = {}) {
     const prev = registration.pendingFor(email);
-    if (prev && prev.at !== null && clock.now() >= prev.at && clock.now() - prev.at < RESEND_WAIT_MS) {
-      return { message: say(kino, "codeAlreadySent") };
-    }
-    const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock.now() + SEND_CODE_TOTAL_MS };
-    try { await registration.sendRegistrationCode(email, bounds); }
+    if (prev && prev.at !== null && clock.now() >= prev.at && clock.now() - prev.at < RESEND_WAIT_MS) return { sent: false, at: prev.at };
+    const bounds = { timeoutMs: SEND_CODE_REQUEST_MS, deadline: clock.now() + capped(SEND_CODE_TOTAL_MS, cap) };
+    let pending;
+    try { pending = await registration.sendRegistrationCode(email, bounds); }
     catch (e) { throw surface(e); }
-    return { message: say(kino, savesBeforeAction(kino) ? "codeSent" : "codeSentSave", { email }) };
+    return { sent: true, at: pending && typeof pending.at === "number" ? pending.at : clock.now() };
   }
 
-  async function register() {
-    const email = typedEmail();
-    const code = str(kino.config.get("verifyCode")).trim();
+  /**
+   * E3: confirms the registration of `email` with `code` (trimmed here) and `password` (as the caller gives it), on the
+   * temporary device THIS device kept when the code was asked. The checks, their order and their sentences are the
+   * "Crear cuenta" button's. `{ loggedIn }`: false when the account was created but the login after it failed.
+   */
+  async function registerWith({ email, code: typedCode, password }, { cap } = {}) {
+    const code = str(typedCode).trim();
     if (code === "") throw told(kino, "auth_required", "Escribe el código de verificación", say(kino, "fillCode"));
-    const { password } = creationFields(kino.config);
-    if (password === "") throw told(kino, "auth_required", "Escribe tu contraseña en Ajustes", say(kino, "fillAccount"));
+    if (str(password) === "") throw told(kino, "auth_required", "Escribe tu contraseña en Ajustes", say(kino, "fillAccount"));
     const pending = registration.pendingFor(email);
     if (!pending) throw told(kino, "unavailable", "Pide el código otra vez", say(kino, "askCodeAgain"));
-    const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock.now() + REGISTER_TOTAL_MS };
+    const bounds = { timeoutMs: REGISTER_REQUEST_MS, deadline: clock.now() + capped(REGISTER_TOTAL_MS, cap) };
     let done;
     try { done = await registration.confirmRegistration(pending, code, password, bounds); }
     catch (e) { throw surface(e); }
+    return { loggedIn: !(done && done.loggedIn === false) };
+  }
+
+  async function sendCode(cap) {
+    const email = typedEmail();
+    const out = await sendCodeTo(email, { cap });
+    if (!out.sent) return { message: say(kino, "codeAlreadySent") };
+    return { message: say(kino, savesBeforeAction(kino) ? "codeSent" : "codeSentSave", { email }) };
+  }
+
+  async function register(cap) {
+    const email = typedEmail();
+    const done = await registerWith({ email, code: kino.config.get("verifyCode"), password: creationFields(kino.config).password }, { cap });
     // Created but the login after it failed: the account exists, so this is no error (the code is spent).
-    const message = done && done.loggedIn === false ? say(kino, "accountCreatedSignIn") : say(kino, "accountCreatedSignedIn");
+    const message = done.loggedIn === false ? say(kino, "accountCreatedSignIn") : say(kino, "accountCreatedSignedIn");
     // The new account is the one typed in "Crear cuenta" (it stays there: the session reads it from there). An
     // older pair in "Cuenta" would win over it and drop the session just adopted, so it is emptied.
     return { message, refresh: true, clearSettings: ["verifyCode", "email", "password"] };
@@ -164,12 +203,15 @@ export function makeSettings({ kino, session, clock, registration }) {
 
   const ACTIONS = { login, logout, switchSeed, refreshSeeds, ...(registration ? { sendCode, register } : {}) };
 
-  /** Runs the button `key`; an unknown key is `null` (the app shows "Listo"). */
-  async function action(key) {
+  /**
+   * Runs the button `key`; an unknown key is `null` (the app shows "Listo"). `opts.totalMs` (E1) caps each handler's
+   * total bound for a caller with less time than Kino's 30 s action; Kino's own call passes nothing.
+   */
+  async function action(key, opts) {
     await null;
     const run = Object.prototype.hasOwnProperty.call(ACTIONS, key) ? ACTIONS[key] : null;
     if (!run) return null;
-    const out = await run();
+    const out = await run(opts !== null && typeof opts === "object" ? opts.totalMs : undefined);
     return { ...out, message: clip(out.message, MESSAGE_MAX) };
   }
 
@@ -233,5 +275,5 @@ export function makeSettings({ kino, session, clock, registration }) {
     }
   }
 
-  return { settingsStatus, action, validateSettings };
+  return { settingsStatus, action, validateSettings, statusFacts, ...(registration ? { sendCodeTo, registerWith } : {}) };
 }

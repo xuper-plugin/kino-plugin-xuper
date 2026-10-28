@@ -406,27 +406,32 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     return true;
   });
 
+  // E5: how the last download of this runtime ended ({ ok, why, at }), beside the boolean every caller already reads, so a
+  // screen can tell "no connection" from "the pool file did not come back right". In memory: a restart forgets it.
+  let lastOutcome = null;
+  const outcome = (ok, why) => { lastOutcome = { ok, why, at: clock.now() }; return ok; };
+
   /** Downloads the pool; true when it stored a non-empty one. Never throws. */
   async function fetchSeeds(timeoutMs) {
     let res;
     try { res = await kino.fetch(seedsUrl, { timeoutMs }); }
-    catch (e) { trace(kino, "seeds", "refresh", { ok: false, why: "fetch", code: errCode(e) }); return false; }
+    catch (e) { trace(kino, "seeds", "refresh", { ok: false, why: "fetch", code: errCode(e) }); return outcome(false, "fetch"); }
     // A missing pool file (404) is not a parse error: it reaches the board, since a blocked region has no other way in.
-    if (res && res.ok === false) { report(kino, "seeds", "refresh", { ok: false, why: "http", status: res.status }); return false; }
+    if (res && res.ok === false) { report(kino, "seeds", "refresh", { ok: false, why: "http", status: res.status }); return outcome(false, "http"); }
     let list;
     try { list = JSON.parse(res.text()); } catch (_) { list = null; }
-    if (!Array.isArray(list)) { report(kino, "seeds", "refresh", { ok: false, why: "parse" }); return false; }
+    if (!Array.isArray(list)) { report(kino, "seeds", "refresh", { ok: false, why: "parse" }); return outcome(false, "parse"); }
     const clean = sampleSeeds(
       list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken)),
       MAX_SEEDS, rand, clock.now(), SEED_MIN_LIFE_MS,
     ).map(seedEntry);
     // Only a non-empty answer replaces the pool (native SeedRefresher.reseed()).
-    if (clean.length === 0) { trace(kino, "seeds", "refresh", { ok: false, why: "empty" }); return false; }
+    if (clean.length === 0) { trace(kino, "seeds", "refresh", { ok: false, why: "empty" }); return outcome(false, "empty"); }
     // A full store keeps the old pool: a download that cannot be kept is a failed one.
-    try { writeJson("seeds", clean); } catch (_) { trace(kino, "seeds", "refresh", { ok: false, why: "store", n: clean.length }); return false; }
+    try { writeJson("seeds", clean); } catch (_) { trace(kino, "seeds", "refresh", { ok: false, why: "store", n: clean.length }); return outcome(false, "store"); }
     try { writeJson("seedsAt", clock.now()); } catch (_) { /* ignored */ }
     trace(kino, "seeds", "refresh", { ok: true, n: clean.length });
-    return true;
+    return outcome(true, null);
   }
 
   /**
@@ -757,5 +762,11 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
   return {
     ensure, withValidSession, current: readSession, kind, mode, accountState, accountKey, usingShared, sharedConfigured, login, useShared, logout, regionBlocked,
     seedsExhausted: () => exhausted, switchSeed, refreshSeeds, seedPool, adoptSession,
+    // E4: read-only views for a screen. `seedsAt` is the stored stamp of the last download (the periodic refresh stamps
+    // it before trying, so it is "last tried or loaded"); `usableSeeds` counts the pool seeds a pick could use now.
+    seedsAt: () => { const at = readJson("seedsAt"); return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : null; },
+    usableSeeds: () => usable(seedPool()).length,
+    // E5: `{ ok, why, at }` of this runtime's last download, or null when none ran.
+    seedsOutcome: () => (lastOutcome ? { ...lastOutcome } : null),
   };
 }
