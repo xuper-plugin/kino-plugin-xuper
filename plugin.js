@@ -6005,7 +6005,7 @@ var banner = (b, key) => b && typeof b.text === "string" && b.text !== "" ? [{
 var caption = (key, extra = {}, vars) => text2(key, { style: "caption", color: "muted", ...extra }, vars);
 var section = (key) => text2(key, { style: "h4" });
 function accountTab(s, st) {
-  const out = [];
+  const out = s.ok ? [] : [{ type: "MaterialBanner", key: "statusUnknown", role: "warning", ...twin("statusUnknown") }];
   const conflict = st.sharedError ? { ...errorOf(st.sharedError) } : {};
   if (s.ownConfigured) {
     const stateKey = s.accountState === "held" ? "scrAccHeld" : s.accountState === "refused" ? "scrAccRefused" : "scrAccPending";

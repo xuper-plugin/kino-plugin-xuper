@@ -26,7 +26,8 @@ const section = (key) => text(key, { style: "h4" });
 // ---- the main page: three tabs ------------------------------------------------------------------------------------
 
 function accountTab(s, st) {
-  const out = [];
+  // The session could not be read (the old status line's "unknown"): say so, and still offer every control.
+  const out = s.ok ? [] : [{ type: "MaterialBanner", key: "statusUnknown", role: "warning", ...twin("statusUnknown") }];
   const conflict = st.sharedError ? { ...errorOf(st.sharedError) } : {};
   if (s.ownConfigured) {
     const stateKey = s.accountState === "held" ? "scrAccHeld" : s.accountState === "refused" ? "scrAccRefused" : "scrAccPending";
