@@ -69,7 +69,7 @@ test("manifest: signature is apiVersion 5, well-formed lowercase hex; below 5 it
   const old = validateManifest(JSON.stringify({ ...MANIFEST, apiVersion: 4, signature: "x" }));
   assert.equal(old.ok, true);
   assert.equal("signature" in old.manifest, false);
-  assert.equal(validateManifest(JSON.stringify({ ...MANIFEST, apiVersion: contract.maxApiVersion + 1 })).message, "Este plugin necesita una versión más nueva de Kino");
+  assert.equal(validateManifest(JSON.stringify({ ...MANIFEST, apiVersion: contract.maxApiVersion + 1 })).message, "This plugin needs a newer version of Kino");
 });
 
 test("validate: a signed plugin passes with the author's fingerprint and the Kino version note", async () => {
@@ -79,7 +79,7 @@ test("validate: a signed plugin passes with the author's fingerprint and the Kin
     assert.equal(r.ok, true, r.problems.join("\n"));
     assert.deepEqual(r.consent.map((c) => c.text), ["Firmado por su autor"]);
     assert.ok(r.notes.includes(`Clave del autor: ${fingerprint(key.raw)} (Kino la muestra en los detalles del plugin, no en la ventana de instalación)`));
-    assert.ok(r.notes.some((n) => /requiere Kino 0\.9\.45/.test(n)));
+    assert.ok(r.notes.some((n) => /needs Kino 0\.9\.45/.test(n)));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
