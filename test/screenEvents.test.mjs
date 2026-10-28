@@ -33,7 +33,7 @@ test("tabs: the TabBar's event and the help button pick the tab; anything else i
   assert.equal((await h.send("tab", { arg: "more" })).raw.state.tab, "more");
   assert.equal((await h.send("tab", { value: "../../etc" })).raw, null);
   const r = await h.render();
-  assert.equal(r.raw.appBar.bottom.value, "more");
+  assert.equal(r.raw.appBar.title.value, "more");
 });
 
 test("Kino's own settings items (auto-update, contribution, country) save as they change and tell the screen", async () => {

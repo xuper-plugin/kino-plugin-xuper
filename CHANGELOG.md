@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.2
+
+- The configuration screen's tabs sit in the same row as its refresh and help buttons (the tabs are the app bar's title), so the bar is one row tall.
+
 ## 2.3.1
 
 - The configuration screen no longer repeats its title: Kino's own bar above it already says «Configuración», so the screen's bar keeps only its tabs and its refresh and help buttons.

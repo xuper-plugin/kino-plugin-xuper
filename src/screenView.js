@@ -5,7 +5,7 @@ import { twin } from "./i18n.js";
 import { RESEND_WAIT_MS } from "./screenModel.js";
 
 /** The plugin's version, shown in the diagnostics (kept equal to kino-plugin.json by a test). */
-export const PLUGIN_VERSION = "2.3.1";
+export const PLUGIN_VERSION = "2.3.2";
 /** Every network press may take Kino's longest press budget: the old buttons' own bounds (25 s) fit inside it. */
 export const PRESS_MS = 30_000;
 export const TABS = ["account", "connection", "more"];
@@ -181,17 +181,18 @@ function mainPage(s, st, ctx) {
   return {
     type: "Scaffold",
     appBar: {
-      // No title of its own: Kino's title bar above already names the screen, so a second one only repeats it.
+      // The title slot holds the tabs, in the same row as the actions (any node may go there): Kino's title bar above already
+      // names the screen, so a text title would only repeat it.
       type: "AppBar",
-      actions: [
-        { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
-        { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } },
-      ],
-      bottom: { type: "TabBar", key: "tabs", value: tab, onChanged: "tab", tabs: [
+      title: { type: "TabBar", key: "tabs", value: tab, onChanged: "tab", tabs: [
         { value: "account", ...twin("scrTabAccount", "label") },
         { value: "connection", ...twin("scrTabConnection", "label") },
         { value: "more", ...twin("scrTabMore", "label") },
       ] },
+      actions: [
+        { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
+        { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } },
+      ],
     },
     body: { type: "SingleChildScrollView", key: tab + "Body", children: [
       { type: "Column", padding: { compact: 16, expanded: 24 }, gap: 12, children: [...banner(st.notice, "notice"), ...body] },

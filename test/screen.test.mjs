@@ -45,7 +45,7 @@ test("the main page: Kino's Scaffold, an app bar with refresh and help, three ta
     const h = screenHarness(accountWorld(), { device });
     const r = await h.render();
     assert.equal(r.raw.type, "Scaffold");
-    assert.deepEqual(r.raw.appBar.bottom.tabs.map((t) => t.value), TABS);
+    assert.deepEqual(r.raw.appBar.title.tabs.map((t) => t.value), TABS);
     assert.deepEqual(r.raw.appBar.actions.map((a) => a.icon), ["refresh", "help"]);
     h.state.tab = "more";
     const more = await h.render();

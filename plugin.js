@@ -5986,7 +5986,7 @@ function fingerprint(s) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.3.1";
+var PLUGIN_VERSION = "2.3.2";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
@@ -6213,17 +6213,18 @@ function mainPage(s, st, ctx) {
   return {
     type: "Scaffold",
     appBar: {
-      // No title of its own: Kino's title bar above already names the screen, so a second one only repeats it.
+      // The title slot holds the tabs, in the same row as the actions (any node may go there): Kino's title bar above already
+      // names the screen, so a text title would only repeat it.
       type: "AppBar",
-      actions: [
-        { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
-        { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } }
-      ],
-      bottom: { type: "TabBar", key: "tabs", value: tab, onChanged: "tab", tabs: [
+      title: { type: "TabBar", key: "tabs", value: tab, onChanged: "tab", tabs: [
         { value: "account", ...twin("scrTabAccount", "label") },
         { value: "connection", ...twin("scrTabConnection", "label") },
         { value: "more", ...twin("scrTabMore", "label") }
-      ] }
+      ] },
+      actions: [
+        { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
+        { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } }
+      ]
     },
     body: { type: "SingleChildScrollView", key: tab + "Body", children: [
       { type: "Column", padding: { compact: 16, expanded: 24 }, gap: 12, children: [...banner(st.notice, "notice"), ...body] }
