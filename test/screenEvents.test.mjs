@@ -33,7 +33,7 @@ test("tabs: the TabBar's event and the help button pick the tab; anything else i
   assert.equal((await h.send("tab", { arg: "more" })).raw.state.tab, "more");
   assert.equal((await h.send("tab", { value: "../../etc" })).raw, null);
   const r = await h.render();
-  assert.equal(r.raw.appBar.title.value, "more");
+  assert.equal(byKey(r.tree, "tabs").value, "more");
 });
 
 test("Kino's own settings items (auto-update, contribution, country) save as they change and tell the screen", async () => {
@@ -592,4 +592,12 @@ test("a portal that never answers: each flow ends inside the old bounds (25 s, w
     const told = r.raw.toast || (r.raw.state && (r.raw.state.signin || r.raw.state.reg));
     assert.ok(told, `${name} tells the person`);
   }
+});
+
+test("the settings bar's back button: pops to the browse screen when it was pushed from there, closes when opened on its own", async () => {
+  const own = screenHarness(accountWorld());
+  assert.deepEqual((await own.send("back")).raw, { close: true });
+  const pushed = screenHarness(accountWorld());
+  pushed.state.fromBrowse = true;
+  assert.deepEqual((await pushed.send("back")).raw, { route: { pop: true } });
 });

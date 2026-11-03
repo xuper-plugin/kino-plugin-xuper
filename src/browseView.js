@@ -32,7 +32,7 @@ const hero = (slides) => (slides.length === 1 ? slideNode(slides[0]) : {
   type: "PageView", key: "hero", autoPlayMs: 6_000, children: slides.map(slideNode),
 });
 
-const logo = () => ({
+export const logo = () => ({
   type: "Image", key: "logo", url: LOGO_DATA, aspect: LOGO_ASPECT, fit: "contain", h: 40, alt: "Xuper", altEn: "Xuper",
   fallback: { type: "Text", text: "Xuper", textEn: "Xuper", style: "h4" },
 });
@@ -40,7 +40,7 @@ const tabBar = (active) => ({ type: "TabBar", key: "tabs", divider: false, value
 
 /** A live channel as a round tile (the TV's way, as Kino's own En vivo): its logo in a circle and its name under it; a tap tunes it. */
 const roundChannel = (c, n) => ({
-  type: "Column", key: "ch-" + n, gap: 8, crossAxisAlignment: "center", onTap: { go: { play: { ref: c.ref, kind: "live", id: c.id, title: c.title } } },
+  type: "Column", key: "ch-" + n, w: 120, gap: 8, crossAxisAlignment: "center", onTap: { go: { play: { ref: c.ref, kind: "live", id: c.id, title: c.title } } },
   children: [
     { type: "CircleAvatar", key: "chl-" + n, radius: 44, ...(c.poster ? { image: c.poster } : { text: String(c.title).slice(0, 2).toUpperCase() }), labelText: c.title, labelTextEn: c.title },
     { type: "Text", text: c.title, textEn: c.title, style: "caption", maxLines: 1, textAlign: "center" },
@@ -73,13 +73,22 @@ const gridSkeleton = () => ({
  * The in-plugin search page (route "search"): the box with the words, then skeletons while the portal answers, then the results
  * as Kino's grid. `status`: "loading", "done" or "fail"; `items`: the cards (null until in).
  */
-export function searchView({ query, status, items, history = [] }) {
-  const body = [{
-    type: "Form", key: "searchForm", onSubmitted: "search", gap: 8, children: [
-      { type: "TextField", key: "q", kind: "text", value: query, ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
-      { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
-    ],
-  }];
+export function searchView({ query, status, items, history = [], device = "phone" }) {
+  const tv = device === "tv";
+  // On a TV the box and its button live in the bar (field on the left, button on the right) and the bar carries no title: the
+  // screen is known by what it does. Elsewhere the box sits at the top of the page under a "Buscar" title.
+  const searchForm = () => ({
+    type: "Form", key: "searchForm", onSubmitted: "search", gap: 8, children: tv
+      ? [{ type: "Row", key: "searchRow", gap: 16, crossAxisAlignment: "center", children: [
+        { type: "TextField", key: "q", kind: "text", value: query, ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true, weight: 1 },
+        { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
+      ] }]
+      : [
+        { type: "TextField", key: "q", kind: "text", value: query, ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
+        { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
+      ],
+  });
+  const body = tv ? [] : [searchForm()];
   if (status === "fail") {
     body.push({ type: "MaterialBanner", key: "searchFailed", role: "error", ...twin("brSearchFailed"), action: { ...twin("brRetry", "label"), onTap: "sretry" } });
   } else if (status === "done" && items) {
@@ -97,7 +106,7 @@ export function searchView({ query, status, items, history = [] }) {
     appBar: {
       type: "AppBar", mergeWithKinoBar: true, dense: true, divider: false,
       leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
-      ...twin("brSearchTitle", "title"),
+      ...(tv ? { title: searchForm() } : twin("brSearchTitle", "title")),
     },
     body: { type: "SingleChildScrollView", key: "search-page", children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
     ...(status === "loading" ? { every: { ms: 1_000, event: "stick" } } : {}),
@@ -110,12 +119,20 @@ export function searchView({ query, status, items, history = [] }) {
  */
 export function liveView({ tiles, cat, items, query = "", searching = false, device = "phone" }) {
   // The live search sits on top; its words replace the genre's channels until they are cleared.
-  const body = [{
-    type: "Form", key: "liveSearch", onSubmitted: "lsearch", gap: 8, children: [
-      { type: "TextField", key: "lq", kind: "text", value: query, ...twin("brLiveSearchHint", "labelText"), maxLength: 100 },
-      { type: "ElevatedButton", key: "lsearchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
-    ],
-  }];
+  const tv = device === "tv";
+  // On a TV the box and its button live in the bar (field left, button right), with no title; elsewhere on top of the page.
+  const liveForm = () => ({
+    type: "Form", key: "liveSearch", onSubmitted: "lsearch", gap: 8, children: tv
+      ? [{ type: "Row", key: "liveSearchRow", gap: 16, crossAxisAlignment: "center", children: [
+        { type: "TextField", key: "lq", kind: "text", value: query, ...twin("brLiveSearchHint", "labelText"), maxLength: 100, weight: 1 },
+        { type: "ElevatedButton", key: "lsearchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
+      ] }]
+      : [
+        { type: "TextField", key: "lq", kind: "text", value: query, ...twin("brLiveSearchHint", "labelText"), maxLength: 100 },
+        { type: "ElevatedButton", key: "lsearchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
+      ],
+  });
+  const body = tv ? [] : [liveForm()];
   if (tiles && tiles.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
   else if (items && items.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
   else if (items && device === "tv") body.push({ type: "Row", key: "channels", wrap: true, gap: 24, children: items.slice(0, 40).map(roundChannel) });
@@ -126,7 +143,7 @@ export function liveView({ tiles, cat, items, query = "", searching = false, dev
     appBar: {
       type: "AppBar", mergeWithKinoBar: true, dense: true, divider: false,
       leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
-      ...twin("brLive", "title"),
+      ...(tv ? { title: liveForm() } : twin("brLive", "title")),
     },
     body: { type: "Column", key: "livePage", children: [
       ...(tiles && tiles.length > 1 && query === "" ? [{ type: "TabBar", key: "genres", divider: false, value: cat, onChanged: "lcat", tabs: tiles.map((t) => ({ value: t.ref, label: t.title, labelEn: t.title })) }] : []),

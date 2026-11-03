@@ -59,6 +59,8 @@ export function makeEvents({ kino, clock, deps }) {
       return null;
     },
     dismiss() { return null; },
+    // The bar's back button: a page pushed from the browse screen pops back to it; opened on its own (from the settings page) it closes.
+    back({ state }) { return state.fromBrowse ? { route: { pop: true } } : { close: true }; },
 
     // ---- sign in: the old pre-save check (a real login), then the pair is written as Ajustes' Guardar would ----
     async "signin.submit"({ value }) {

@@ -153,7 +153,7 @@ test("the settings route still draws the settings screen", async () => {
   const h = screenHarness(world, { deps: () => ({ settings: world.settings, session: world.session, registration: world.registration, catalog: fakeCatalog(), recent }) });
   const r = await h.render();
   assert.equal(r.raw.type, "Scaffold");
-  assert.deepEqual(r.raw.appBar.title.tabs.map((t) => t.value), ["account", "connection", "more"]);
+  assert.deepEqual(byKey(r.tree, "tabs").tabs.map((t) => t.value), ["account", "connection", "more"]);
 });
 
 test("a play is noted: the same title twice moves nothing, the list is capped", () => {
@@ -295,4 +295,26 @@ test("on a TV the search is a button of the bar (no floating one) and the live c
   const page = await h.render();
   assert.deepEqual(page.dropped, []);
   assert.ok(allNodes(page.tree).filter((n) => n.type === "avatar").length >= 3);
+});
+
+test("on a TV the search box and its button live in the bar (field left, button right) and the bar has no title", async () => {
+  const { h } = harness({ device: "tv", catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  await h.send("openSearch");
+  const r = await h.render();
+  assert.deepEqual(r.dropped, []);
+  assert.equal(typeof r.raw.appBar.title, "object");
+  assert.ok(byKey(r.tree, "q") && byKey(r.tree, "searchGo"));
+  assert.equal(r.raw.body.children[0].children.some((n) => n.key === "searchForm"), false, "not repeated in the page");
+});
+
+test("on a TV the live page's search box also lives in the bar", async () => {
+  const { h } = harness({ device: "tv", catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  await h.send("go", { arg: "live" });
+  await h.send("ltick", { timer: true });
+  const r = await h.render();
+  assert.deepEqual(r.dropped, []);
+  assert.ok(byKey(r.tree, "lq") && byKey(r.tree, "lsearchGo"));
+  assert.equal(typeof r.raw.appBar.title, "object");
 });

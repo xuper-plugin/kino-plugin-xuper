@@ -3,6 +3,7 @@
 // password. Network work happens only in screenEvents.js, after the person's own press.
 import { twin } from "./i18n.js";
 import { RESEND_WAIT_MS } from "./screenModel.js";
+import { logo } from "./browseView.js";
 
 /** The plugin's version, shown in the diagnostics (kept equal to kino-plugin.json by a test). */
 export const PLUGIN_VERSION = "2.4.0";
@@ -178,24 +179,33 @@ function moreTab(s, ctx) {
 function mainPage(s, st, ctx) {
   const tab = TABS.includes(st.tab) ? st.tab : "account";
   const body = tab === "connection" ? connectionTab(s, st) : tab === "more" ? moreTab(s, ctx) : accountTab(s, st);
+  const tabsNode = { type: "TabBar", key: "tabs", divider: false, value: tab, onChanged: "tab", tabs: [
+    { value: "account", ...twin("scrTabAccount", "label") },
+    { value: "connection", ...twin("scrTabConnection", "label") },
+    { value: "more", ...twin("scrTabMore", "label") },
+  ] };
+  const tv = ctx.device === "tv";
   return {
     type: "Scaffold",
     appBar: {
-      // The title slot holds the tabs, in the same row as the actions (any node may go there): Kino's title bar above already
-      // names the screen, so a text title would only repeat it.
+      // The same one bar as the browse screen: back where Kino's close was, the plugin's logo where its name was (the tabs beside
+      // it on a TV, under it elsewhere), no line under the bar.
       type: "AppBar",
-      title: { type: "TabBar", key: "tabs", value: tab, onChanged: "tab", tabs: [
-        { value: "account", ...twin("scrTabAccount", "label") },
-        { value: "connection", ...twin("scrTabConnection", "label") },
-        { value: "more", ...twin("scrTabMore", "label") },
-      ] },
+      mergeWithKinoBar: true,
+      dense: true,
+      divider: false,
+      leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("scrBack", "labelText"), ...twin("scrBack", "tooltip"), onPressed: "back" },
+      title: tv ? { type: "Row", key: "titleRow", gap: 24, crossAxisAlignment: "center", children: [logo(), tabsNode] } : logo(),
       actions: [
         { type: "IconButton", key: "refreshStatus", icon: "refresh", ...twin("scrRefresh", "labelText"), ...twin("scrRefresh", "tooltip"), onPressed: "refresh" },
         { type: "IconButton", key: "helpButton", icon: "help", ...twin("scrHelp", "labelText"), ...twin("scrHelp", "tooltip"), onPressed: { event: "tab", arg: "more" } },
       ],
     },
-    body: { type: "SingleChildScrollView", key: tab + "Body", children: [
-      { type: "Column", padding: { compact: 16, expanded: 24 }, gap: 12, children: [...banner(st.notice, "notice"), ...body] },
+    body: { type: "Column", key: "page", children: [
+      ...(tv ? [] : [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabsNode] }]),
+      { type: "SingleChildScrollView", key: tab + "Body", flex: 1, children: [
+        { type: "Column", padding: { compact: 16, expanded: 24 }, gap: 12, children: [...banner(st.notice, "notice"), ...body] },
+      ] },
     ] },
     // A sign-in that has not happened yet (credentials that arrived by sync, a background login): re-read every 15 s, no
     // network, until it settles.

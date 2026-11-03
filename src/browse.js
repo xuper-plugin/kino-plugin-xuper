@@ -104,7 +104,7 @@ export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, cou
       const query = typeof st.sq === "string" ? st.sq : "";
       const items = found && found.q === query ? found.items : null;
       const status = query === "" ? "idle" : st.sstate === "fail" ? "fail" : items ? "done" : "loading";
-      return searchView({ query, status, items, history: query === "" ? readHistory() : [] });
+      return searchView({ query, status, items, history: query === "" ? readHistory() : [], device: ctx.device });
     }
     if (ctx.route && ctx.route.name === "live") {
       const cat = typeof st.lcat === "string" ? st.lcat : liveTilesList && liveTilesList[0] ? liveTilesList[0].ref : null;
@@ -203,7 +203,7 @@ export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, cou
     // The gear: the configuration (account, seeds, help) is its own page, one Back away.
     go({ arg }) {
       if (arg === "live") return { route: { push: "live" }, state: { lcat: null } };
-      return arg === "settings" ? { route: { push: "settings" } } : null;
+      return arg === "settings" ? { route: { push: "settings" }, state: { fromBrowse: true } } : null;
     },
     retry({ state, device }) {
       const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];
