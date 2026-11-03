@@ -123,7 +123,7 @@ export async function validateSettings(values) {
 const recent = makeRecentStore({ kino, clock });
 let screenInstance = null;
 const configScreen = () => (screenInstance ??= makeScreen({
-  kino, clock, deps: () => ({ settings: settings(), session: getDeps().session, registration: registration(), catalog: getDeps().catalog, recent }),
+  kino, clock, deps: () => ({ settings: settings(), session: getDeps().session, registration: registration(), catalog: getDeps().catalog, liveTiles: getDeps().liveTiles, countryRow: getDeps().countryRow, live: getDeps().live, recent }),
 }));
 export async function screen(ctx) {
   await null;

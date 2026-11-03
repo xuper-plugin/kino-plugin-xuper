@@ -81,15 +81,47 @@ export function searchView({ query, status, items, history = [] }) {
 }
 
 /**
+ * The live page (route "live"): Xuper's live channels by genre, a tab per genre (Kino's own live tiles), the channels of the
+ * picked one as Kino's grid; a tap tunes the player. `tiles`: null until known; `items`: the picked genre's channels, null until in.
+ */
+export function liveView({ tiles, cat, items, query = "", searching = false }) {
+  // The live search sits on top; its words replace the genre's channels until they are cleared.
+  const body = [{
+    type: "Form", key: "liveSearch", onSubmitted: "lsearch", gap: 8, children: [
+      { type: "TextField", key: "lq", kind: "text", value: query, ...twin("brLiveSearchHint", "labelText"), maxLength: 100 },
+      { type: "ElevatedButton", key: "lsearchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
+    ],
+  }];
+  if (tiles && tiles.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
+  else if (items && items.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
+  else if (items) body.push({ type: "titleGrid", key: "channels", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
+  else body.push(gridSkeleton());
+  return {
+    type: "Scaffold",
+    appBar: {
+      type: "AppBar", mergeWithKinoBar: true, dense: true,
+      leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
+      ...twin("brLive", "title"),
+    },
+    body: { type: "Column", key: "livePage", children: [
+      ...(tiles && tiles.length > 1 && query === "" ? [{ type: "TabBar", key: "genres", divider: false, value: cat, onChanged: "lcat", tabs: tiles.map((t) => ({ value: t.ref, label: t.title, labelEn: t.title })) }] : []),
+      { type: "SingleChildScrollView", key: "live-" + String(cat).replace(/[^A-Za-z0-9_-]/g, "_"), flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    ] },
+    ...(searching || (query === "" && (!tiles || !items)) ? { every: { ms: 1_000, event: "ltick" } } : {}),
+  };
+}
+
+/**
  * `data`: `{ slides, rails }` of the active tab, or null while it is not in. `recent`: the cards of the played titles.
  * `pending`: some tab is still being fetched (the timer polls only then). `failed`: the active tab could not load.
  */
-export function browseView({ tab, data, recent, pending, failed }) {
+export function browseView({ tab, data, recent, live = [], pending, failed }) {
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
   const body = [];
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent.length > 0) body.push(rail({ items: recent }, "recent", twin("brRecent", "title")));
+    if (live.length > 0) body.push(rail({ items: live }, "live", twin("brLive", "title")));
     for (const r of data.rails) body.push(rail(r, "rail-" + r.id));
     if (data.rails.length === 0) body.push({ type: "Text", ...twin("brEmpty", "text"), color: "muted" });
   } else if (failed) {
@@ -110,6 +142,7 @@ export function browseView({ tab, data, recent, pending, failed }) {
       title: "Xuper",
       titleEn: "Xuper",
       actions: [
+        { type: "IconButton", key: "liveButton", icon: "tv", ...twin("brLive", "labelText"), ...twin("brLive", "tooltip"), onPressed: { event: "go", arg: "live" } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } },
       ],
     },

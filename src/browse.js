@@ -10,12 +10,12 @@
 // The state holds only `tab`, `pending` and `failed` (a few bytes); the trees live here, in memory, rebuilt from the kept rows.
 import { isEnglish, isSpanish } from "./i18n.js";
 import { TAB_IDS, tabOf, recentOf, cardOf } from "./browseModel.js";
-import { browseView, searchView } from "./browseView.js";
+import { browseView, searchView, liveView } from "./browseView.js";
 import { trace, errCode } from "./trace.js";
 
 const TAB_KEY = "browseTab";
 
-export function makeBrowse({ kino, catalog, recent, clock }) {
+export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, countryRow = null, live = null }) {
   const memo = new Map(); // tab -> { data, whole: the root's rows were fetched whole in this sandbox }
   let recentCards = [];
   let seen = null; // the kept rows the memo was built from (identity): a different set means rebuild
@@ -70,6 +70,31 @@ export function makeBrowse({ kino, catalog, recent, clock }) {
     } catch (_) { /* the page just has no history */ }
   }
 
+  // Live: the home row (the person's country channels, else the first genre's) and the live page's genres and channels.
+  const CHANNELS_CAP = 60;
+  let liveRow = null; // null: not asked yet; []: asked, nothing
+  let liveTilesList = null;
+  let liveFound = null; // { q, items }: the last live search
+  const liveChannels = new Map(); // tile ref -> cards
+  const liveCards = (items) => (Array.isArray(items) ? items : []).filter((i) => i && typeof i.id === "string" && typeof i.ref === "string").slice(0, CHANNELS_CAP).map(cardOf);
+  async function loadLiveRow() {
+    let items = [];
+    try {
+      const row = countryRow ? await countryRow(clock.now() + 6_000) : null;
+      items = row && Array.isArray(row.items) ? row.items : [];
+      if (items.length === 0 && liveTiles) {
+        const tiles = await liveTiles.tiles();
+        if (tiles.length > 0) { const page = await liveTiles.browse(tiles[0].ref); items = page && page.items ? page.items : []; }
+      }
+    } catch (e) { trace(kino, "browse", "live_fail", { code: errCode(e) }); }
+    liveRow = liveCards(items).slice(0, 20);
+  }
+  async function loadLiveTiles() {
+    let tiles = [];
+    try { tiles = liveTiles ? await liveTiles.tiles() : []; } catch (_) { tiles = []; }
+    liveTilesList = tiles.filter((t) => t && typeof t.ref === "string" && typeof t.title === "string" && !t.adult).map((t) => ({ ref: t.ref, title: t.title }));
+  }
+
   // The last search: its words and the cards it found (memory only; the state holds the words and the status).
   let found = null;
 
@@ -81,11 +106,20 @@ export function makeBrowse({ kino, catalog, recent, clock }) {
       const status = query === "" ? "idle" : st.sstate === "fail" ? "fail" : items ? "done" : "loading";
       return searchView({ query, status, items, history: query === "" ? readHistory() : [] });
     }
+    if (ctx.route && ctx.route.name === "live") {
+      const cat = typeof st.lcat === "string" ? st.lcat : liveTilesList && liveTilesList[0] ? liveTilesList[0].ref : null;
+      const lq = typeof st.lq === "string" ? st.lq : "";
+      if (lq !== "") {
+        const done = liveFound && liveFound.q === lq;
+        return liveView({ tiles: liveTilesList, cat, items: done ? liveFound.items : null, query: lq, searching: !done });
+      }
+      return liveView({ tiles: liveTilesList, cat, items: cat && liveChannels.has(cat) ? liveChannels.get(cat) : null });
+    }
     const tab = TAB_IDS.includes(st.tab) ? st.tab : (tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0]);
     paint(tab);
     const m = memo.get(tab);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    return browseView({ tab, data: m ? m.data : null, recent: recentCards, pending, failed: !!(st.failed && st.failed[tab]) });
+    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]) });
   }
 
   async function load(tab) {
@@ -101,7 +135,8 @@ export function makeBrowse({ kino, catalog, recent, clock }) {
     open({ route, state, device }) {
       const tab = tabFromArgs(route) ?? (TAB_IDS.includes(state.tab) ? state.tab : stored() ?? TAB_IDS[0]);
       paint(tab);
-      return { state: { tab, pending: needed(tab, device), failed: null } };
+      const list = needed(tab, device);
+      return { state: { tab, pending: liveRow === null ? [...list.slice(0, 1), "live", ...list.slice(1)] : list, failed: null } };
     },
     tab({ value, arg, state, device }) {
       const tab = TAB_IDS.includes(value) ? value : TAB_IDS.includes(arg) ? arg : null;
@@ -138,8 +173,38 @@ export function makeBrowse({ kino, catalog, recent, clock }) {
     },
     sretry({ state }) { return typeof state.sq === "string" && state.sq !== "" ? { state: { sstate: "loading" } } : null; },
     back() { return { route: { pop: true }, state: { sq: null, sstate: null } }; },
+    // The live page's timer: the genres, then the picked genre's channels, one load per tick.
+    async ltick({ state }) {
+      const lq = typeof state.lq === "string" ? state.lq : "";
+      if (lq !== "") {
+        if (!(liveFound && liveFound.q === lq)) {
+          let out = null;
+          try { out = live ? await live.liveSearch({ q: lq }) : null; } catch (e) { trace(kino, "browse", "live_search_fail", { code: errCode(e) }); }
+          liveFound = { q: lq, items: liveCards(out && out.items) };
+        }
+        return { state: { lq } };
+      }
+      if (!liveTilesList) { await loadLiveTiles(); return { state: { lcat: typeof state.lcat === "string" ? state.lcat : null } }; }
+      const cat = typeof state.lcat === "string" ? state.lcat : liveTilesList[0] ? liveTilesList[0].ref : null;
+      if (cat === null) { liveChannels.set("", []); return { state: { lcat: null } }; }
+      if (!liveChannels.has(cat)) {
+        let page = null;
+        try { page = await liveTiles.browse(cat); } catch (e) { trace(kino, "browse", "live_page_fail", { code: errCode(e) }); }
+        liveChannels.set(cat, liveCards(page && page.items));
+      }
+      return { state: { lcat: cat } };
+    },
+    // The live page's search box: its words show the matching channels; empty words go back to the genres.
+    lsearch({ value }) {
+      const q = value && typeof value.lq === "string" ? value.lq.trim().slice(0, 100) : "";
+      return { state: { lq: q === "" ? null : q } };
+    },
+    lcat({ value }) { return typeof value === "string" && value !== "" ? { state: { lcat: value } } : null; },
     // The gear: the configuration (account, seeds, help) is its own page, one Back away.
-    go({ arg }) { return arg === "settings" ? { route: { push: "settings" } } : null; },
+    go({ arg }) {
+      if (arg === "live") return { route: { push: "live" }, state: { lcat: null } };
+      return arg === "settings" ? { route: { push: "settings" } } : null;
+    },
     retry({ state, device }) {
       const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];
       return { state: { failed: null, pending: [tab, ...needed(tab, device).filter((t) => t !== tab)] } };
@@ -149,6 +214,7 @@ export function makeBrowse({ kino, catalog, recent, clock }) {
       if (pending.length === 0) return null;
       const [next, ...rest] = pending;
       const failed = { ...(state.failed || {}) };
+      if (next === "live") { await loadLiveRow(); return { state: { pending: rest } }; }
       try {
         const ok = await load(next);
         if (!ok) failed[next] = true; else delete failed[next];

@@ -32,10 +32,22 @@ function fakeCatalog({ kept = [], failing = new Set() } = {}) {
   };
 }
 
+/** Live pieces: two genres of channels, a country row and a search over the channels. */
+function fakeLive({ empty = false } = {}) {
+  const ch = (n, g) => ({ id: `${g}-${n}`, ref: `chan${g}${n}`, title: `Canal ${g} ${n}`, kind: "live", poster: `https://img.test/c${g}${n}.png` });
+  const pages = { "xlive:deportes": [1, 2, 3].map((n) => ch(n, "d")), "xlive:noticias": [1, 2].map((n) => ch(n, "n")) };
+  return {
+    liveTiles: { tiles: async () => (empty ? [] : [{ id: "xlive:deportes", ref: "xlive:deportes", title: "Deportes" }, { id: "xlive:noticias", ref: "xlive:noticias", title: "Noticias" }]), browse: async (ref) => ({ items: pages[ref] || [] }) },
+    countryRow: async () => (empty ? null : { id: "country", title: "Canales en vivo", items: [ch(9, "c")] }),
+    live: { liveSearch: async ({ q }) => ({ items: q === "nada" ? [] : [ch(7, "s")] }) },
+  };
+}
+
 function harness({ device = "phone", lang = "es", catalog = fakeCatalog() } = {}) {
   const world = accountWorld();
   const recent = makeRecentStore({ kino: world.kino, clock: world.clock });
-  const h = screenHarness(world, { device, lang, start: "main", deps: () => ({ settings: world.settings, session: world.session, registration: world.registration, catalog, recent }) });
+  const liveDeps = fakeLive();
+  const h = screenHarness(world, { device, lang, start: "main", deps: () => ({ settings: world.settings, session: world.session, registration: world.registration, catalog, recent, ...liveDeps }) });
   return { h, catalog, recent, world };
 }
 
@@ -54,7 +66,7 @@ test("before anything is kept: skeletons shaped like the slider and the rails, a
 test("open on a phone queues the active tab first, then the others; the timer fills them one per tick", async () => {
   const { h, catalog } = harness();
   await h.send("open");
-  assert.deepEqual(h.state.pending, ["peliculas", "series", "infantil", "anime"]);
+  assert.deepEqual(h.state.pending, ["peliculas", "live", "series", "infantil", "anime"]);
   assert.ok((await h.render()).every, "a timer while something is pending");
   await h.send("tick", { timer: true });
   assert.deepEqual(catalog.state.fetched, ["peliculas"]);
@@ -65,7 +77,7 @@ test("open on a phone queues the active tab first, then the others; the timer fi
   const rails = allNodes(r.tree).filter((n) => n.type === "titleRail");
   assert.equal(rails.length, 2);
   assert.ok(rails.every((n) => n.items.length > 0));
-  for (let i = 0; i < 3; i++) await h.send("tick", { timer: true });
+  for (let i = 0; i < 4; i++) await h.send("tick", { timer: true });
   assert.deepEqual(catalog.state.fetched, ["peliculas", "series", "infantil", "anime"]);
   assert.equal(h.state.pending.length, 0);
   assert.equal((await h.render()).raw.every, undefined, "nothing pending: no timer");
@@ -74,12 +86,12 @@ test("open on a phone queues the active tab first, then the others; the timer fi
 test("on a TV only the tab in view is fetched; the others load when they are selected", async () => {
   const { h, catalog } = harness({ device: "tv" });
   await h.send("open");
-  assert.deepEqual(h.state.pending, ["peliculas"]);
+  assert.deepEqual(h.state.pending, ["peliculas", "live"]);
   await h.send("tick", { timer: true });
   assert.deepEqual(catalog.state.fetched, ["peliculas"]);
   await h.send("tab", { value: "series" });
   assert.equal(h.state.tab, "series");
-  assert.deepEqual(h.state.pending, ["series"]);
+  assert.deepEqual(h.state.pending, ["series", "live"]);
   const before = await h.render();
   assert.ok(types(before.tree).includes("skeleton"), "the new tab shows skeletons until it arrives");
   await h.send("tick", { timer: true });
@@ -219,4 +231,49 @@ test("the empty search page paints what earlier searches found (never an 18+ tit
   const loading = await h.render();
   assert.equal(byKey(loading.tree, "history"), null, "the real search replaces it");
   assert.ok(types(loading.tree).includes("skeleton"));
+});
+
+test("the home gets a live row once the timer has asked, and the live button opens the live page", async () => {
+  const { h } = harness({ catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  assert.equal(byKey((await h.render()).tree, "live"), null, "no row until it is asked");
+  await h.send("tick", { timer: true });
+  await h.send("tick", { timer: true });
+  const r = await h.render();
+  assert.deepEqual(r.dropped, []);
+  const row = byKey(r.tree, "live");
+  assert.equal(row.title, "En vivo");
+  assert.equal(row.items[0].kind, "live");
+  assert.equal(r.raw.appBar.actions[0].icon, "tv");
+  await h.send("go", { arg: "live" });
+  assert.equal(h.route(), "live");
+});
+
+test("the live page: genres as tabs, channels as a grid, a search over the channels, back returns", async () => {
+  const { h } = harness({ catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  await h.send("go", { arg: "live" });
+  const first = await h.render();
+  assert.deepEqual(first.dropped, []);
+  assert.ok(types(first.tree).includes("skeleton"));
+  await h.send("ltick", { timer: true });
+  await h.send("ltick", { timer: true });
+  const done = await h.render();
+  assert.deepEqual(done.dropped, []);
+  assert.equal(byKey(done.tree, "channels").items.length, 3);
+  assert.equal(byKey(done.tree, "genres").tabs.length, 2);
+  await h.send("lcat", { value: "xlive:noticias" });
+  await h.send("ltick", { timer: true });
+  assert.equal(byKey((await h.render()).tree, "channels").items.length, 2);
+  await h.send("lsearch", { value: { lq: " liga " } });
+  const searching = await h.render();
+  assert.deepEqual(searching.dropped, []);
+  assert.ok(types(searching.tree).includes("skeleton") && byKey(searching.tree, "genres") === null);
+  await h.send("ltick", { timer: true });
+  const found = await h.render();
+  assert.equal(byKey(found.tree, "channels").items[0].title, "Canal s 7");
+  await h.send("lsearch", { value: { lq: "" } });
+  assert.ok(byKey((await h.render()).tree, "genres"), "cleared words bring the genres back");
+  await h.send("back");
+  assert.equal(h.route(), "main");
 });

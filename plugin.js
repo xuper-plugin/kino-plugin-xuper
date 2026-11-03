@@ -624,6 +624,9 @@ var TEXTS = Object.freeze({
   brSearchHint: ["Buscar en Xuper", "Search Xuper"],
   brClose: ["Cerrar", "Close"],
   brSearchedBefore: ["Buscado recientemente", "Recently searched"],
+  brLive: ["En vivo", "Live"],
+  brLiveSearchHint: ["Buscar en los canales en vivo", "Search the live channels"],
+  brLiveEmpty: ["No hay canales en vivo por ahora.", "No live channels right now."],
   brSearchTitle: ["Buscar", "Search"],
   brBack: ["Atr\xE1s", "Back"],
   brNoResults: ["No encontramos nada con esas palabras.", "Nothing matched those words."],
@@ -5523,14 +5526,15 @@ function getDeps() {
   session = makeSession({ kino, portal, clock, shared: { email: SHARED_EMAIL, password: SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino, clock });
   const live2 = makeLiveCatalog({ kino, portal, session, clock });
-  const catalog = makeCatalog({ kino, portal, session, clock, tmdb, countryRow: makeCountryRow({ kino, live: live2 }) });
+  const countryRow = makeCountryRow({ kino, live: live2 });
+  const catalog = makeCatalog({ kino, portal, session, clock, tmdb, countryRow });
   const liveStream = makeLive({ kino, portal, session, clock, config });
   const resolve2 = makeResolve({ kino, portal, session, clock, config, portalChapters: catalog.portalChapters, live: liveStream });
   const section3 = makeSection({ kino, catalog, clock });
   const liveTiles = makeLiveTiles({ kino, live: live2, clock });
   const categories2 = makeCategories({ catalog, kino, liveTiles });
   const seedContrib = makeSeedContrib({ kino, portal, clock });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section3, categories: categories2, liveTiles, seedContrib };
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve: resolve2, live: live2, liveStream, section: section3, categories: categories2, liveTiles, countryRow, seedContrib };
   return deps;
 }
 async function guarded(body) {
@@ -6860,12 +6864,44 @@ function searchView({ query, status, items, history = [] }) {
     ...status === "loading" ? { every: { ms: 1e3, event: "stick" } } : {}
   };
 }
-function browseView({ tab, data, recent: recent2, pending, failed }) {
+function liveView({ tiles, cat, items, query = "", searching = false }) {
+  const body = [{
+    type: "Form",
+    key: "liveSearch",
+    onSubmitted: "lsearch",
+    gap: 8,
+    children: [
+      { type: "TextField", key: "lq", kind: "text", value: query, ...twin("brLiveSearchHint", "labelText"), maxLength: 100 },
+      { type: "ElevatedButton", key: "lsearchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true }
+    ]
+  }];
+  if (tiles && tiles.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
+  else if (items && items.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
+  else if (items) body.push({ type: "titleGrid", key: "channels", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
+  else body.push(gridSkeleton());
+  return {
+    type: "Scaffold",
+    appBar: {
+      type: "AppBar",
+      mergeWithKinoBar: true,
+      dense: true,
+      leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
+      ...twin("brLive", "title")
+    },
+    body: { type: "Column", key: "livePage", children: [
+      ...tiles && tiles.length > 1 && query === "" ? [{ type: "TabBar", key: "genres", divider: false, value: cat, onChanged: "lcat", tabs: tiles.map((t) => ({ value: t.ref, label: t.title, labelEn: t.title })) }] : [],
+      { type: "SingleChildScrollView", key: "live-" + String(cat).replace(/[^A-Za-z0-9_-]/g, "_"), flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
+    ] },
+    ...searching || query === "" && (!tiles || !items) ? { every: { ms: 1e3, event: "ltick" } } : {}
+  };
+}
+function browseView({ tab, data, recent: recent2, live: live2 = [], pending, failed }) {
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
   const body = [];
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent2.length > 0) body.push(rail({ items: recent2 }, "recent", twin("brRecent", "title")));
+    if (live2.length > 0) body.push(rail({ items: live2 }, "live", twin("brLive", "title")));
     for (const r of data.rails) body.push(rail(r, "rail-" + r.id));
     if (data.rails.length === 0) body.push({ type: "Text", ...twin("brEmpty", "text"), color: "muted" });
   } else if (failed) {
@@ -6891,6 +6927,7 @@ function browseView({ tab, data, recent: recent2, pending, failed }) {
       title: "Xuper",
       titleEn: "Xuper",
       actions: [
+        { type: "IconButton", key: "liveButton", icon: "tv", ...twin("brLive", "labelText"), ...twin("brLive", "tooltip"), onPressed: { event: "go", arg: "live" } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } }
       ]
     },
@@ -6906,7 +6943,7 @@ function browseView({ tab, data, recent: recent2, pending, failed }) {
 
 // src/browse.js
 var TAB_KEY = "browseTab";
-function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
+function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2, liveTiles = null, countryRow = null, live: live2 = null }) {
   const memo = /* @__PURE__ */ new Map();
   let recentCards = [];
   let seen = null;
@@ -6970,6 +7007,38 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
     } catch (_) {
     }
   }
+  const CHANNELS_CAP = 60;
+  let liveRow = null;
+  let liveTilesList = null;
+  let liveFound = null;
+  const liveChannels2 = /* @__PURE__ */ new Map();
+  const liveCards = (items) => (Array.isArray(items) ? items : []).filter((i) => i && typeof i.id === "string" && typeof i.ref === "string").slice(0, CHANNELS_CAP).map(cardOf);
+  async function loadLiveRow() {
+    let items = [];
+    try {
+      const row2 = countryRow ? await countryRow(clock2.now() + 6e3) : null;
+      items = row2 && Array.isArray(row2.items) ? row2.items : [];
+      if (items.length === 0 && liveTiles) {
+        const tiles = await liveTiles.tiles();
+        if (tiles.length > 0) {
+          const page = await liveTiles.browse(tiles[0].ref);
+          items = page && page.items ? page.items : [];
+        }
+      }
+    } catch (e) {
+      trace(kino2, "browse", "live_fail", { code: errCode(e) });
+    }
+    liveRow = liveCards(items).slice(0, 20);
+  }
+  async function loadLiveTiles() {
+    let tiles = [];
+    try {
+      tiles = liveTiles ? await liveTiles.tiles() : [];
+    } catch (_) {
+      tiles = [];
+    }
+    liveTilesList = tiles.filter((t) => t && typeof t.ref === "string" && typeof t.title === "string" && !t.adult).map((t) => ({ ref: t.ref, title: t.title }));
+  }
   let found = null;
   function view2(ctx) {
     const st = ctx.state && typeof ctx.state === "object" ? ctx.state : {};
@@ -6979,11 +7048,20 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
       const status = query === "" ? "idle" : st.sstate === "fail" ? "fail" : items ? "done" : "loading";
       return searchView({ query, status, items, history: query === "" ? readHistory() : [] });
     }
+    if (ctx.route && ctx.route.name === "live") {
+      const cat = typeof st.lcat === "string" ? st.lcat : liveTilesList && liveTilesList[0] ? liveTilesList[0].ref : null;
+      const lq = typeof st.lq === "string" ? st.lq : "";
+      if (lq !== "") {
+        const done = liveFound && liveFound.q === lq;
+        return liveView({ tiles: liveTilesList, cat, items: done ? liveFound.items : null, query: lq, searching: !done });
+      }
+      return liveView({ tiles: liveTilesList, cat, items: cat && liveChannels2.has(cat) ? liveChannels2.get(cat) : null });
+    }
     const tab = TAB_IDS.includes(st.tab) ? st.tab : tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0];
     paint(tab);
     const m = memo.get(tab);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    return browseView({ tab, data: m ? m.data : null, recent: recentCards, pending, failed: !!(st.failed && st.failed[tab]) });
+    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]) });
   }
   async function load(tab) {
     const rows = await catalog.rows("section", tab);
@@ -6997,7 +7075,8 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
     open({ route, state, device }) {
       const tab = tabFromArgs(route) ?? (TAB_IDS.includes(state.tab) ? state.tab : stored() ?? TAB_IDS[0]);
       paint(tab);
-      return { state: { tab, pending: needed(tab, device), failed: null } };
+      const list = needed(tab, device);
+      return { state: { tab, pending: liveRow === null ? [...list.slice(0, 1), "live", ...list.slice(1)] : list, failed: null } };
     },
     tab({ value, arg, state, device }) {
       const tab = TAB_IDS.includes(value) ? value : TAB_IDS.includes(arg) ? arg : null;
@@ -7040,8 +7119,52 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
     back() {
       return { route: { pop: true }, state: { sq: null, sstate: null } };
     },
+    // The live page's timer: the genres, then the picked genre's channels, one load per tick.
+    async ltick({ state }) {
+      const lq = typeof state.lq === "string" ? state.lq : "";
+      if (lq !== "") {
+        if (!(liveFound && liveFound.q === lq)) {
+          let out = null;
+          try {
+            out = live2 ? await live2.liveSearch({ q: lq }) : null;
+          } catch (e) {
+            trace(kino2, "browse", "live_search_fail", { code: errCode(e) });
+          }
+          liveFound = { q: lq, items: liveCards(out && out.items) };
+        }
+        return { state: { lq } };
+      }
+      if (!liveTilesList) {
+        await loadLiveTiles();
+        return { state: { lcat: typeof state.lcat === "string" ? state.lcat : null } };
+      }
+      const cat = typeof state.lcat === "string" ? state.lcat : liveTilesList[0] ? liveTilesList[0].ref : null;
+      if (cat === null) {
+        liveChannels2.set("", []);
+        return { state: { lcat: null } };
+      }
+      if (!liveChannels2.has(cat)) {
+        let page = null;
+        try {
+          page = await liveTiles.browse(cat);
+        } catch (e) {
+          trace(kino2, "browse", "live_page_fail", { code: errCode(e) });
+        }
+        liveChannels2.set(cat, liveCards(page && page.items));
+      }
+      return { state: { lcat: cat } };
+    },
+    // The live page's search box: its words show the matching channels; empty words go back to the genres.
+    lsearch({ value }) {
+      const q = value && typeof value.lq === "string" ? value.lq.trim().slice(0, 100) : "";
+      return { state: { lq: q === "" ? null : q } };
+    },
+    lcat({ value }) {
+      return typeof value === "string" && value !== "" ? { state: { lcat: value } } : null;
+    },
     // The gear: the configuration (account, seeds, help) is its own page, one Back away.
     go({ arg }) {
+      if (arg === "live") return { route: { push: "live" }, state: { lcat: null } };
       return arg === "settings" ? { route: { push: "settings" } } : null;
     },
     retry({ state, device }) {
@@ -7053,6 +7176,10 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
       if (pending.length === 0) return null;
       const [next, ...rest] = pending;
       const failed = { ...state.failed || {} };
+      if (next === "live") {
+        await loadLiveRow();
+        return { state: { pending: rest } };
+      }
       try {
         const ok = await load(next);
         if (!ok) failed[next] = true;
@@ -7072,7 +7199,7 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
 }
 
 // src/screen.js
-var BROWSE_ROUTES = ["main", "categories", "search"];
+var BROWSE_ROUTES = ["main", "categories", "search", "live"];
 function modernKit(kino2) {
   try {
     return !!(kino2 && kino2.screen && Array.isArray(kino2.screen.names) && kino2.screen.names.includes("steps"));
@@ -7083,7 +7210,7 @@ function modernKit(kino2) {
 function makeScreen({ kino: kino2, clock: clock2, deps: deps2 }) {
   const settingsEvent = makeEvents({ kino: kino2, clock: clock2, deps: deps2 });
   let browse2 = null;
-  const getBrowse = () => browse2 ?? (browse2 = makeBrowse({ kino: kino2, clock: clock2, catalog: deps2().catalog, recent: deps2().recent }));
+  const getBrowse = () => browse2 ?? (browse2 = makeBrowse({ kino: kino2, clock: clock2, catalog: deps2().catalog, liveTiles: deps2().liveTiles, countryRow: deps2().countryRow, live: deps2().live, recent: deps2().recent }));
   const isBrowse = (x) => x && x.route && BROWSE_ROUTES.includes(x.route.name);
   async function screen2(ctx) {
     const c = ctx && typeof ctx === "object" ? ctx : {};
@@ -7280,7 +7407,7 @@ var screenInstance = null;
 var configScreen = () => screenInstance ?? (screenInstance = makeScreen({
   kino,
   clock,
-  deps: () => ({ settings: settings(), session: getDeps().session, registration: registration(), catalog: getDeps().catalog, recent })
+  deps: () => ({ settings: settings(), session: getDeps().session, registration: registration(), catalog: getDeps().catalog, liveTiles: getDeps().liveTiles, countryRow: getDeps().countryRow, live: getDeps().live, recent })
 }));
 async function screen(ctx) {
   await null;

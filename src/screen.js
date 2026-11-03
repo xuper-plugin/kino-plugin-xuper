@@ -6,7 +6,7 @@ import { makeEvents } from "./screenEvents.js";
 import { makeBrowse } from "./browse.js";
 
 /** The routes of the browse screen: what the menu entry opens (`main`) and Kino's Categorías route. Every other route (`settings`, `signin`, `register`) is the configuration. */
-export const BROWSE_ROUTES = ["main", "categories"];
+export const BROWSE_ROUTES = ["main", "categories", "search", "live"];
 
 /**
  * True when this Kino's screen kit has what the screen needs (secret fields, `steps`, press budgets, `onSaved`: they came
@@ -20,7 +20,7 @@ export function modernKit(kino) {
 export function makeScreen({ kino, clock, deps }) {
   const settingsEvent = makeEvents({ kino, clock, deps });
   let browse = null;
-  const getBrowse = () => (browse ??= makeBrowse({ kino, clock, catalog: deps().catalog, recent: deps().recent }));
+  const getBrowse = () => (browse ??= makeBrowse({ kino, clock, catalog: deps().catalog, liveTiles: deps().liveTiles, countryRow: deps().countryRow, live: deps().live, recent: deps().recent }));
   const isBrowse = (x) => x && x.route && BROWSE_ROUTES.includes(x.route.name);
 
   /** The tree: a pure view of the state and of what is stored (no network). */

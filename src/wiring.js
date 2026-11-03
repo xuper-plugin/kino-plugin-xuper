@@ -33,7 +33,8 @@ export function getDeps() {
   session = makeSession({ kino, portal, clock, shared: { email: constants.SHARED_EMAIL, password: constants.SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino, clock });
   const live = makeLiveCatalog({ kino, portal, session, clock });
-  const catalog = makeCatalog({ kino, portal, session, clock, tmdb, countryRow: makeCountryRow({ kino, live }) });
+  const countryRow = makeCountryRow({ kino, live });
+  const catalog = makeCatalog({ kino, portal, session, clock, tmdb, countryRow });
   // A bare channel code resolves through liveStream; the rest stays VOD.
   const liveStream = makeLive({ kino, portal, session, clock, config });
   // resolve looks a series' chapter up in the catalog's cached chapter list (the one episodes fills).
@@ -43,7 +44,7 @@ export function getDeps() {
   const categories = makeCategories({ catalog, kino, liveTiles });
   // The fleet's seed contribution: mints its OWN anonymous device off `portal`, never the session.
   const seedContrib = makeSeedContrib({ kino, portal, clock });
-  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories, liveTiles, seedContrib };
+  deps = { clock, crypto, portal, session, tmdb, catalog, resolve, live, liveStream, section, categories, liveTiles, countryRow, seedContrib };
   return deps;
 }
 
