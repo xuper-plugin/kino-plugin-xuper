@@ -310,6 +310,20 @@ export const TEXTS = Object.freeze({
   scrDiagDevice: ["Aparato", "Device"],
   scrDiagNoPersonal: ["Sin datos personales: ni tu correo ni tus sesiones.", "No personal data: neither your email nor your sessions."],
   scrCopyDiag: ["Copiar diagnóstico", "Copy diagnostics"],
+  // The browse screen (route "categories", replacing Kino's Categorías for Xuper; src/browse*.js).
+  brTabPeliculas: ["Películas", "Movies"],
+  brTabSeries: ["Series", "Series"],
+  brTabInfantil: ["Infantil", "Kids"],
+  brTabAnime: ["Anime", "Anime"],
+  brWatch: ["Ver", "Watch"],
+  brInfo: ["Más información", "More info"],
+  brRecent: ["Continuar viendo", "Continue watching"],
+  brSearch: ["Buscar", "Search"],
+  brFailed: ["No se pudo cargar esta sección. Revisa tu conexión e inténtalo de nuevo.", "This section could not be loaded. Check your connection and try again."],
+  brSettings: ["Configuración", "Settings"],
+  brRetry: ["Reintentar", "Retry"],
+  brEmpty: ["Aún no hay nada aquí.", "Nothing here yet."],
+  brUpToDate: ["Al día", "Up to date"],
 });
 
 /** The text for `key` in Kino's language, `{name}`s filled from `vars` (and `{place}` always). */

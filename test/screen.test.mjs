@@ -90,7 +90,7 @@ test("the built plugin exports screen and screenEvent next to the old exports, a
   const { kino } = createKino(MANIFEST, { lang: "es-CO" });
   const { plugin } = await loadPlugin(join(ROOT, "plugin.js"), kino, { console: quiet });
   for (const f of ["screen", "screenEvent", "settingsStatus", "action", "validateSettings"]) assert.equal(typeof plugin[f], "function", f);
-  const tree = await plugin.screen({ state: { inputs: {}, ui: { hidden: {}, enabled: {}, open: {} } }, route: { name: "main", params: {} }, device: "phone", lang: "es" });
+  const tree = await plugin.screen({ state: { inputs: {}, ui: { hidden: {}, enabled: {}, open: {} } }, route: { name: "settings", params: {} }, device: "phone", lang: "es" });
   assert.equal(tree.type, "Scaffold");
   assert.equal(await plugin.screenEvent({ name: "nope", state: {} }), null);
 });
@@ -103,8 +103,8 @@ test("an older screen kit (no steps, secret fields or press budgets) gets Kino's
   assert.equal(modernKit({}), false);
   assert.equal(modernKit(null), false);
   const h = screenHarness({ ...w, kino });
-  for (const page of ["main", "signin", "register"]) {
-    if (page !== "main") h.push(page);
+  for (const page of ["settings", "signin", "register"]) {
+    if (page !== "settings") h.push(page);
     const r = await h.render();
     assert.deepEqual(r.dropped, []);
     assert.ok(allNodes(r.tree).some((n) => n.type === "settings"), "Kino's settings form");

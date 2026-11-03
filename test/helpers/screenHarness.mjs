@@ -24,13 +24,13 @@ export function allNodes(n, out = []) {
 }
 export const byKey = (tree, key) => allNodes(tree).find((n) => n.key === key) ?? null;
 
-export function screenHarness(world, { device = "phone", lang = "es", deps } = {}) {
+export function screenHarness(world, { device = "phone", lang = "es", deps, start = "settings" } = {}) {
   const ui = makeScreen({
     kino: world.kino, clock: world.clock,
     deps: deps ?? (() => ({ settings: world.settings, session: world.session, registration: world.registration })),
   });
   let state = { inputs: {}, ui: { hidden: {}, enabled: {}, open: {} } };
-  const routes = [{ name: "main", params: {} }];
+  const routes = [{ name: start, params: {} }];
   const seen = { trees: [], answers: [], toasts: [], configs: [] };
   const route = () => routes[routes.length - 1];
 

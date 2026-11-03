@@ -77,14 +77,14 @@ const ITEM_ID = /^[A-Za-z0-9._~-]{1,128}$/;
 const noIds = () => null;
 
 // One entry per series in every list (2.2.23): the portal's seasons are separate titles, and the person reads them as one.
-const oneEach = (items) => collapseSeasons(items, (i) => ({ title: i.title, series: isSeries(i.type) }));
+export const oneEach = (items) => collapseSeasons(items, (i) => ({ title: i.title, series: isSeries(i.type) }));
 
 /**
  * One classified item as the SDK's item shape; null when its id cannot be used. `idsOf(contentId)`: the ids
  * a detail read already stored (idsStore.js), or null. `english`: Kino's language (the "new" badge); `spanish`:
  * Kino runs in Spanish (the portal's English genre names are shown in Spanish, genreName).
  */
-function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = false) {
+export function projectItem(item, nowMs, idsOf = noIds, english = false, spanish = false) {
   if (!ITEM_ID.test(item.id)) return null;
   const out = {
     id: item.id,
@@ -548,5 +548,14 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   /** A lookup of the stored ids (idsStore.js) for the section's cards: `(contentId) => ids | null`. */
   const idsLookup = () => ids.lookup();
 
-  return { home, browse, rows, search, episodes, details, portalChapters, servedBy, idsLookup };
+  /**
+   * The kept rows, with no network and no waiting: what the snapshot or the roots fetched so far hold (null when nothing is
+   * kept). `whole` lists the roots whose rows keep every shown item. The browse screen paints from this at once.
+   */
+  const peek = () => {
+    const cur = getCurrent();
+    return cur ? { rows: cur.rows, roots: { ...cur.roots }, whole: [...cur.whole] } : null;
+  };
+
+  return { home, browse, rows, peek, search, episodes, details, portalChapters, servedBy, idsLookup };
 }

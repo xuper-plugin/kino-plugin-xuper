@@ -610,7 +610,21 @@ var TEXTS = Object.freeze({
   scrDiagKino: ["Versi\xF3n de Kino", "Kino version"],
   scrDiagDevice: ["Aparato", "Device"],
   scrDiagNoPersonal: ["Sin datos personales: ni tu correo ni tus sesiones.", "No personal data: neither your email nor your sessions."],
-  scrCopyDiag: ["Copiar diagn\xF3stico", "Copy diagnostics"]
+  scrCopyDiag: ["Copiar diagn\xF3stico", "Copy diagnostics"],
+  // The browse screen (route "categories", replacing Kino's Categorías for Xuper; src/browse*.js).
+  brTabPeliculas: ["Pel\xEDculas", "Movies"],
+  brTabSeries: ["Series", "Series"],
+  brTabInfantil: ["Infantil", "Kids"],
+  brTabAnime: ["Anime", "Anime"],
+  brWatch: ["Ver", "Watch"],
+  brInfo: ["M\xE1s informaci\xF3n", "More info"],
+  brRecent: ["Continuar viendo", "Continue watching"],
+  brSearch: ["Buscar", "Search"],
+  brFailed: ["No se pudo cargar esta secci\xF3n. Revisa tu conexi\xF3n e int\xE9ntalo de nuevo.", "This section could not be loaded. Check your connection and try again."],
+  brSettings: ["Configuraci\xF3n", "Settings"],
+  brRetry: ["Reintentar", "Retry"],
+  brEmpty: ["A\xFAn no hay nada aqu\xED.", "Nothing here yet."],
+  brUpToDate: ["Al d\xEDa", "Up to date"]
 });
 function say(kino2, key, vars = {}) {
   const pair = TEXTS[key];
@@ -1401,10 +1415,10 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
       }
     }
     const now = clock2.now();
-    const recent = (at, ms) => at !== null && now - at >= 0 && now - at < ms;
+    const recent2 = (at, ms) => at !== null && now - at >= 0 && now - at < ms;
     if (inflight === null) {
-      if (recent(lastPoolRefreshMs, POOL_REFRESH_COOLDOWN_MS)) return has();
-      if (!manual && recent(lastFailedRefreshMs, FAILED_REFRESH_COOLDOWN_MS)) return has();
+      if (recent2(lastPoolRefreshMs, POOL_REFRESH_COOLDOWN_MS)) return has();
+      if (!manual && recent2(lastFailedRefreshMs, FAILED_REFRESH_COOLDOWN_MS)) return has();
       const ms = Math.min(timeoutMs, Math.floor(timeLeft({ deadline })));
       if (ms < MIN_REQUEST_MS) return has();
       const promise = fetchSeeds(ms).then((stored) => {
@@ -3781,7 +3795,11 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     return out;
   };
   const idsLookup = () => ids.lookup();
-  return { home: home2, browse: browse2, rows, search: search2, episodes: episodes2, details: details2, portalChapters, servedBy: servedBy2, idsLookup };
+  const peek = () => {
+    const cur = getCurrent();
+    return cur ? { rows: cur.rows, roots: { ...cur.roots }, whole: [...cur.whole] } : null;
+  };
+  return { home: home2, browse: browse2, rows, peek, search: search2, episodes: episodes2, details: details2, portalChapters, servedBy: servedBy2, idsLookup };
 }
 
 // src/tmdb.js
@@ -5314,9 +5332,9 @@ function makeSection({ kino: kino2, catalog, clock: clock2 }) {
     const idsOf = typeof catalog.idsLookup === "function" ? catalog.idsLookup() : void 0;
     const english = isEnglish(kino2);
     const tabRows = rowsOfTab(rows, tab, clock2.now(), idsOf, english, isSpanish(kino2));
-    const hero = heroOf(tabRows);
+    const hero2 = heroOf(tabRows);
     const tabs = TABS.map((t) => ({ id: t.id, label: english ? TAB_LABELS_EN[t.id] : t.label }));
-    return { tabs, tab, ...hero ? { hero } : {}, rows: tabRows };
+    return { tabs, tab, ...hero2 ? { hero: hero2 } : {}, rows: tabRows };
   }
   return { section: section3 };
 }
@@ -5986,7 +6004,7 @@ function fingerprint(s) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.3.3";
+var PLUGIN_VERSION = "2.4.0";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
@@ -6372,7 +6390,7 @@ function classicPage() {
 function view({ s, state, route, modern, device, appVersion, lang, now }) {
   const st = state && typeof state === "object" ? state : {};
   if (!modern) return classicPage();
-  const name = route && typeof route.name === "string" ? route.name : "main";
+  const name = route && typeof route.name === "string" ? route.name : "settings";
   const ctx = { device, appVersion, lang, now };
   if (name === "signin") return signInPage(s, st);
   if (name === "register") return registerPage(s, st, ctx);
@@ -6674,7 +6692,263 @@ function makeEvents({ kino: kino2, clock: clock2, deps: deps2 }) {
   };
 }
 
+// src/browseModel.js
+var MAX_SLIDES = 6;
+var MAX_RAILS = 8;
+var MAX_RAIL_ITEMS = 20;
+var MAX_SLIDE_TEXT = 160;
+var HTTPS = /^https:\/\//;
+var TAB_IDS = TABS.map((t) => t.id);
+function cardOf(item) {
+  const out = { id: item.id, ref: item.ref, title: item.title, kind: item.kind };
+  if (item.poster && HTTPS.test(item.poster)) out.poster = item.poster;
+  if (item.badges) out.badges = item.badges;
+  if (item.rating !== void 0) out.rating = item.rating;
+  if (item.ids) out.ids = item.ids;
+  return out;
+}
+function slidesOf(rows) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const row2 of rows) {
+    for (const item of row2.items) {
+      if (out.length >= MAX_SLIDES) return out;
+      if (item.adult === true || seen.has(item.id) || !item.backdrop || !HTTPS.test(item.backdrop)) continue;
+      const text3 = typeof item.overview === "string" ? item.overview.trim() : "";
+      if (text3 === "") continue;
+      seen.add(item.id);
+      out.push({
+        id: item.id,
+        ref: item.ref,
+        kind: item.kind,
+        title: item.title,
+        image: item.backdrop,
+        text: text3.length <= MAX_SLIDE_TEXT ? text3 : `${text3.slice(0, MAX_SLIDE_TEXT - 1).trimEnd()}\u2026`
+      });
+    }
+  }
+  return out;
+}
+function railsOf(rows) {
+  return rows.slice(0, MAX_RAILS).map((r) => ({
+    id: r.id,
+    title: r.title,
+    ref: r.ref,
+    items: r.items.slice(0, MAX_RAIL_ITEMS).map(cardOf)
+  }));
+}
+function tabOf(rows, tab, nowMs, idsOf, english, spanish) {
+  const projected = projectRows(rows.filter((r) => rootOfRow(r.id) === tab), nowMs, idsOf, english, spanish);
+  if (projected.length === 0) return null;
+  return { slides: slidesOf(projected), rails: railsOf(projected) };
+}
+function recentOf(rows, ids, nowMs, idsOf, english, spanish) {
+  if (ids.length === 0) return [];
+  const byId = /* @__PURE__ */ new Map();
+  for (const r of rows) for (const item of oneEach(r.shown)) if (!byId.has(item.id)) byId.set(item.id, item);
+  const out = [];
+  for (const id of ids) {
+    const item = byId.get(id);
+    if (!item) continue;
+    const card = projectItem(item, nowMs, idsOf, english, spanish);
+    if (card) out.push(cardOf(card));
+  }
+  return out;
+}
+
+// src/browseView.js
+var TAB_KEYS = { peliculas: "brTabPeliculas", series: "brTabSeries", infantil: "brTabInfantil", anime: "brTabAnime" };
+var POLL_MS = 1500;
+var railSkeleton = (n) => ({
+  type: "Column",
+  key: "skel" + n,
+  gap: 8,
+  children: [
+    { type: "Skeleton", shape: "line", width: 120 },
+    { type: "Row", gap: 12, sizes: ["compact"], children: [1, 2, 3].map((i) => ({ type: "Skeleton", shape: "card", key: `sk${n}c${i}`, flex: 1 })) },
+    { type: "Row", gap: 12, sizes: ["medium", "expanded"], children: [1, 2, 3, 4, 5, 6].map((i) => ({ type: "Skeleton", shape: "card", key: `sk${n}w${i}`, flex: 1 })) }
+  ]
+});
+var heroSkeleton = () => ({ type: "Skeleton", key: "heroSkeleton", shape: "block", height: { compact: 200, expanded: 320 } });
+var slideNode = (s) => ({
+  type: "heroCard",
+  key: "slide-" + s.id,
+  title: s.title,
+  text: s.text,
+  image: s.image,
+  buttons: [
+    {
+      type: "ElevatedButton",
+      key: "watch-" + s.id,
+      ...twin("brWatch", "labelText"),
+      icon: "play",
+      onPressed: { go: { play: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } }
+    },
+    {
+      type: "TextButton",
+      key: "info-" + s.id,
+      ...twin("brInfo", "labelText"),
+      onPressed: { go: { title: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } }
+    }
+  ]
+});
+var hero = (slides) => slides.length === 1 ? slideNode(slides[0]) : {
+  type: "PageView",
+  key: "hero",
+  autoPlayMs: 6e3,
+  children: slides.map(slideNode)
+};
+var rail = (r, key, titleOverride) => ({
+  type: "titleRail",
+  key,
+  ...titleOverride || { title: r.title },
+  ...r.ref ? { ref: r.ref } : {},
+  items: r.items,
+  size: "medium"
+});
+function browseView({ tab, data, recent: recent2, pending, failed }) {
+  const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
+  const body = [];
+  if (data) {
+    if (data.slides.length > 0) body.push(hero(data.slides));
+    if (recent2.length > 0) body.push(rail({ items: recent2 }, "recent", twin("brRecent", "title")));
+    for (const r of data.rails) body.push(rail(r, "rail-" + r.id));
+    if (data.rails.length === 0) body.push({ type: "Text", ...twin("brEmpty", "text"), color: "muted" });
+  } else if (failed) {
+    body.push({
+      type: "MaterialBanner",
+      key: "loadFailed",
+      role: "error",
+      ...twin("brFailed"),
+      action: { ...twin("brRetry", "label"), onTap: "retry" }
+    });
+  } else {
+    body.push(heroSkeleton(), railSkeleton(1), railSkeleton(2), railSkeleton(3));
+  }
+  return {
+    type: "Scaffold",
+    appBar: {
+      type: "AppBar",
+      title: { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      actions: [
+        { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } }
+      ]
+    },
+    body: { type: "SingleChildScrollView", key: "browse-" + active, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
+  };
+}
+
+// src/browse.js
+var TAB_KEY = "browseTab";
+function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
+  const memo = /* @__PURE__ */ new Map();
+  let recentCards = [];
+  let seen = null;
+  const lang = () => ({ english: isEnglish(kino2), spanish: isSpanish(kino2) });
+  const stored = () => {
+    try {
+      const t = kino2.storage.get(TAB_KEY);
+      return TAB_IDS.includes(t) ? t : null;
+    } catch (_) {
+      return null;
+    }
+  };
+  const remember = (tab) => {
+    try {
+      kino2.storage.set(TAB_KEY, tab);
+    } catch (_) {
+    }
+  };
+  const idsOf = () => typeof catalog.idsLookup === "function" ? catalog.idsLookup() : void 0;
+  function paint(tab) {
+    const kept = catalog.peek();
+    if (!kept) return;
+    if (seen !== kept.rows) {
+      seen = kept.rows;
+      for (const [t, m] of memo) if (!m.whole) memo.delete(t);
+    }
+    if (!memo.has(tab)) {
+      const { english: english2, spanish: spanish2 } = lang();
+      const data = tabOf(kept.rows, tab, clock2.now(), idsOf(), english2, spanish2);
+      if (data) memo.set(tab, { data, whole: false });
+    }
+    const { english, spanish } = lang();
+    recentCards = recentOf(kept.rows, recent2.ids(), clock2.now(), idsOf(), english, spanish);
+  }
+  const tabFromArgs = (route) => {
+    const a = route && route.args && typeof route.args === "object" ? route.args : {};
+    return TAB_IDS.includes(a.tab) ? a.tab : null;
+  };
+  function needed(tab, device) {
+    const order = [tab, ...TAB_IDS.filter((t) => t !== tab)];
+    return order.filter((t, i) => (i === 0 || device !== "tv") && !(memo.get(t) && memo.get(t).whole));
+  }
+  function view2(ctx) {
+    const st = ctx.state && typeof ctx.state === "object" ? ctx.state : {};
+    const tab = TAB_IDS.includes(st.tab) ? st.tab : tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0];
+    paint(tab);
+    const m = memo.get(tab);
+    const pending = Array.isArray(st.pending) && st.pending.length > 0;
+    return browseView({ tab, data: m ? m.data : null, recent: recentCards, pending, failed: !!(st.failed && st.failed[tab]) });
+  }
+  async function load(tab) {
+    const rows = await catalog.rows("section", tab);
+    const { english, spanish } = lang();
+    const data = tabOf(rows, tab, clock2.now(), idsOf(), english, spanish);
+    if (data) memo.set(tab, { data, whole: true });
+    seen = null;
+    return data !== null;
+  }
+  const events = {
+    open({ route, state, device }) {
+      const tab = tabFromArgs(route) ?? (TAB_IDS.includes(state.tab) ? state.tab : stored() ?? TAB_IDS[0]);
+      paint(tab);
+      return { state: { tab, pending: needed(tab, device), failed: null } };
+    },
+    tab({ value, arg, state, device }) {
+      const tab = TAB_IDS.includes(value) ? value : TAB_IDS.includes(arg) ? arg : null;
+      if (!tab) return null;
+      remember(tab);
+      paint(tab);
+      const failed = { ...state.failed || {} };
+      delete failed[tab];
+      const pending = [tab, ...Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : []];
+      return { state: { tab, pending: memo.get(tab) && memo.get(tab).whole ? pending.slice(1) : pending, failed } };
+    },
+    // The gear: the configuration (account, seeds, help) is its own page, one Back away.
+    go({ arg }) {
+      return arg === "settings" ? { route: { push: "settings" } } : null;
+    },
+    retry({ state, device }) {
+      const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];
+      return { state: { failed: null, pending: [tab, ...needed(tab, device).filter((t) => t !== tab)] } };
+    },
+    async tick({ state }) {
+      const pending = Array.isArray(state.pending) ? state.pending : [];
+      if (pending.length === 0) return null;
+      const [next, ...rest] = pending;
+      const failed = { ...state.failed || {} };
+      try {
+        const ok = await load(next);
+        if (!ok) failed[next] = true;
+        else delete failed[next];
+      } catch (e) {
+        trace(kino2, "browse", "tab_fail", { code: errCode(e) });
+        failed[next] = true;
+      }
+      return { state: { pending: rest, failed } };
+    }
+  };
+  async function event(ev) {
+    const handler = Object.hasOwn(events, ev.name) ? events[ev.name] : null;
+    return handler ? await handler({ ...ev, state: ev.state || {} }) ?? null : null;
+  }
+  return { view: view2, event };
+}
+
 // src/screen.js
+var BROWSE_ROUTES = ["main", "categories"];
 function modernKit(kino2) {
   try {
     return !!(kino2 && kino2.screen && Array.isArray(kino2.screen.names) && kino2.screen.names.includes("steps"));
@@ -6683,9 +6957,13 @@ function modernKit(kino2) {
   }
 }
 function makeScreen({ kino: kino2, clock: clock2, deps: deps2 }) {
-  const screenEvent2 = makeEvents({ kino: kino2, clock: clock2, deps: deps2 });
+  const settingsEvent = makeEvents({ kino: kino2, clock: clock2, deps: deps2 });
+  let browse2 = null;
+  const getBrowse = () => browse2 ?? (browse2 = makeBrowse({ kino: kino2, clock: clock2, catalog: deps2().catalog, recent: deps2().recent }));
+  const isBrowse = (x) => x && x.route && BROWSE_ROUTES.includes(x.route.name);
   async function screen2(ctx) {
     const c = ctx && typeof ctx === "object" ? ctx : {};
+    if (isBrowse(c)) return getBrowse().view(c);
     const modern = modernKit(kino2);
     const s = modern ? snapshot({ kino: kino2, ...deps2() }) : null;
     let appVersion = "";
@@ -6705,7 +6983,45 @@ function makeScreen({ kino: kino2, clock: clock2, deps: deps2 }) {
       now: clock2.now()
     });
   }
+  async function screenEvent2(ev) {
+    if (!isBrowse(ev)) return settingsEvent(ev);
+    try {
+      return await getBrowse().event(ev);
+    } catch (_) {
+      return null;
+    }
+  }
   return { screen: screen2, screenEvent: screenEvent2 };
+}
+
+// src/recentStore.js
+var KEY4 = "recent:v1";
+var MAX_RECENT = 12;
+function makeRecentStore({ kino: kino2, clock: clock2 }) {
+  function read() {
+    try {
+      const raw = kino2.storage.get(KEY4);
+      if (raw === null || raw === void 0) return [];
+      const o = JSON.parse(raw);
+      if (!isObject(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
+      return o.e.filter((x) => isObject(x) && typeof x.id === "string" && x.id !== "" && Number.isFinite(x.at)).slice(0, MAX_RECENT);
+    } catch (_) {
+      return [];
+    }
+  }
+  function note(ref) {
+    try {
+      const magis = decode(ref);
+      if (!magis) return;
+      const entries = read();
+      if (entries[0] && entries[0].id === magis.contentId) return;
+      const next = [{ id: magis.contentId, at: clock2.now() }, ...entries.filter((e) => e.id !== magis.contentId)].slice(0, MAX_RECENT);
+      kino2.storage.set(KEY4, JSON.stringify({ v: 1, e: next }));
+    } catch (_) {
+    }
+  }
+  const ids = () => read().map((e) => e.id);
+  return { note, ids };
 }
 
 // src/plugin.js
@@ -6761,7 +7077,9 @@ async function details(ref) {
 }
 async function resolve(ref, options) {
   await null;
-  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" }, servedBy);
+  const out = await traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" }, servedBy);
+  if (!isChannelRef(ref)) recent.note(ref);
+  return out;
 }
 async function sign(request) {
   await null;
@@ -6833,11 +7151,12 @@ async function validateSettings(values) {
     throw kino.error("unavailable", "Xuper no est\xE1 disponible ahora");
   }
 }
+var recent = makeRecentStore({ kino, clock });
 var screenInstance = null;
 var configScreen = () => screenInstance ?? (screenInstance = makeScreen({
   kino,
   clock,
-  deps: () => ({ settings: settings(), session: getDeps().session, registration: registration() })
+  deps: () => ({ settings: settings(), session: getDeps().session, registration: registration(), catalog: getDeps().catalog, recent })
 }));
 async function screen(ctx) {
   await null;

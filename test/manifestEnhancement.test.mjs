@@ -41,12 +41,13 @@ test("the enhanced list is the base list (same keys, order, types, Spanish texts
   assert.ok(country.options.every((o) => typeof o.labelEn === "string" && o.labelEn !== ""));
 });
 
-test("the block adds only the screen, opened from the plugin's settings page, the old form still shown beside it", () => {
+test("the block adds only the screen: the menu entry and the settings page open it, and it hides Kino's form (the gear inside has the settings)", () => {
   assert.deepEqual(Object.keys(BLOCK).sort(), ["capabilities", "screen", "settings"]);
   assert.deepEqual(BLOCK.capabilities, ["screen"]);
-  assert.deepEqual(BLOCK.screen.opensFrom, ["settings"]);
+  assert.deepEqual(BLOCK.screen.opensFrom, ["menu", "settings"]);
   assert.equal(BLOCK.screen.settingsIn, "screen");
-  assert.equal(BLOCK.screen.menuOpens, undefined, "the menu keeps opening the section");
+  assert.equal(BLOCK.screen.menuOpens, "screen", "the menu entry opens the browse screen");
+  assert.equal(BLOCK.screen.replaces, undefined, "Xuper's tiles live in Kino's genre sections: nothing to replace");
   assert.ok(BLOCK.screen.label.length <= 20 && BLOCK.screen.labelEn.length <= 20);
   assert.ok(BLOCK.screen.settingsButton.label.length <= 40 && BLOCK.screen.settingsButton.labelEn.length <= 40);
   assert.equal(M.capabilities.includes("screen"), false, "never a base capability: an older Kino would refuse it");

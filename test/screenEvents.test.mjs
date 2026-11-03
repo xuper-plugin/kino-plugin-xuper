@@ -81,7 +81,7 @@ test("sign in: the old pre-save check logs in for real, then the pair is written
   assert.equal(r.raw.toast.text, "Sesión iniciada");
   assert.deepEqual(w.paths(), ["v8/login"]);
   assert.equal(w.stored().acct, w.session.accountKey(EMAIL, PW), "the token is the account's");
-  assert.equal(h.route(), "main");
+  assert.equal(h.route(), "settings");
   const t = await h.render();
   assert.equal(byKey(t.tree, "accountTile").title, maskEmail(EMAIL));
   assert.equal(byKey(t.tree, "accountTile").subtitle, "Conectado");
@@ -116,7 +116,7 @@ test("sign in while the portal is down: told as it is, and the person may save w
   assert.equal(empty.raw.toast.text, "Escribe el correo y la contraseña, y vuelve a tocar el botón.");
   const saved = await h.send("signin.saveUnchecked", { inputs: { signinEmail: EMAIL, signinPw: PW } });
   assert.deepEqual(saved.raw.config, { email: EMAIL, password: PW });
-  assert.equal(h.route(), "main");
+  assert.equal(h.route(), "settings");
   assert.equal(h.state.inputs.signinPw, undefined, "the secret text is gone after the call");
   await h.render();
   assertNoSecrets(h.seen.trees);
@@ -375,7 +375,7 @@ test("create an account: Kino's steps, the code sent to what was typed, confirme
   t = await h.render();
   assert.equal(byKey(t.tree, "regDone").role, "success");
   await h.send("reg.finish");
-  assert.equal(h.route(), "main");
+  assert.equal(h.route(), "settings");
   assert.equal(byKey((await h.render()).tree, "accountTile").subtitle, "Conectado");
   assertNoSecrets([...h.seen.trees, ...h.seen.toasts]);
 });
@@ -524,8 +524,8 @@ test("hostile inputs: odd values, arguments and states never crash a call and ne
   }
   const saved = { ...h.state };
   h.state = { ...saved, reg: "garbage", signin: 7, tab: { x: 1 }, sharedError: 5, notice: [1], seedsBanner: "z" };
-  for (const page of ["main", "signin", "register"]) {
-    if (page !== "main") h.push(page);
+  for (const page of ["settings", "signin", "register"]) {
+    if (page !== "settings") h.push(page);
     assert.deepEqual((await h.render()).dropped, [], page);
   }
   assert.equal(w.requests.length, 0);
@@ -578,13 +578,13 @@ test("a portal that never answers: each flow ends inside the old bounds (25 s, w
   const cases = [
     ["reg.send", { value: { regEmailInput: EMAIL } }, "register"],
     ["signin.submit", { value: { signinEmail: EMAIL, signinPw: PW } }, "signin"],
-    ["account.retry", {}, "main"],
-    ["account.logout", {}, "main"],
+    ["account.retry", {}, "settings"],
+    ["account.logout", {}, "settings"],
   ];
   for (const [name, args, page] of cases) {
     const w = accountWorld({ routes, saved: { email: EMAIL, password: PW } });
     const h = screenHarness(w);
-    if (page !== "main") h.push(page);
+    if (page !== "settings") h.push(page);
     const t0 = w.clock.now();
     const r = await h.send(name, args);
     assert.ok(w.clock.now() - t0 <= 25_000, `${name}: ${w.clock.now() - t0} ms`);

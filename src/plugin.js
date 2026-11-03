@@ -4,6 +4,7 @@ import { makeMigrate } from "./migrate.js";
 import { makeSettings } from "./settings.js";
 import { makeRegistration } from "./registration.js";
 import { makeScreen } from "./screen.js";
+import { makeRecentStore } from "./recentStore.js";
 import { isKinoError } from "./util.js";
 import { isChannelRef } from "./refs.js";
 import { isLiveTileRef } from "./liveTiles.js";
@@ -46,7 +47,9 @@ export async function details(ref) { await null; return traced(kino, clock, "det
 // `options` (the retry reason) drives a live channel's reopen; VOD ignores it.
 export async function resolve(ref, options) {
   await null;
-  return traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" }, servedBy);
+  const out = await traced(kino, clock, "resolve", () => guarded(({ resolve: resolveRef }) => resolveRef.resolve(ref, options)), { kind: isChannelRef(ref) ? "live" : "vod" }, servedBy);
+  if (!isChannelRef(ref)) recent.note(ref);
+  return out;
 }
 // Signing lane: pure, never builds the other deps (no storage, no network); a broken context is an `unavailable`.
 // A sign that works writes NO kino.log line: in a fresh lane runtime Kino redacts a log line by opening every
@@ -116,9 +119,11 @@ export async function validateSettings(values) {
 
 // The configuration screen (apiVersion 14, only through the manifest's enhancements: an older Kino never calls these). It
 // is a thin layer over the very instances above: the same settings, session and registration as the old form.
+// The titles played, for the browse screen's "Continuar viendo" row (resolve notes each play).
+const recent = makeRecentStore({ kino, clock });
 let screenInstance = null;
 const configScreen = () => (screenInstance ??= makeScreen({
-  kino, clock, deps: () => ({ settings: settings(), session: getDeps().session, registration: registration() }),
+  kino, clock, deps: () => ({ settings: settings(), session: getDeps().session, registration: registration(), catalog: getDeps().catalog, recent }),
 }));
 export async function screen(ctx) {
   await null;
