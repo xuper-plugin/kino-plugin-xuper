@@ -111,15 +111,15 @@ export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, cou
       const lq = typeof st.lq === "string" ? st.lq : "";
       if (lq !== "") {
         const done = liveFound && liveFound.q === lq;
-        return liveView({ tiles: liveTilesList, cat, items: done ? liveFound.items : null, query: lq, searching: !done });
+        return liveView({ tiles: liveTilesList, cat, items: done ? liveFound.items : null, query: lq, searching: !done, device: ctx.device });
       }
-      return liveView({ tiles: liveTilesList, cat, items: cat && liveChannels.has(cat) ? liveChannels.get(cat) : null });
+      return liveView({ tiles: liveTilesList, cat, items: cat && liveChannels.has(cat) ? liveChannels.get(cat) : null, device: ctx.device });
     }
     const tab = TAB_IDS.includes(st.tab) ? st.tab : (tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0]);
     paint(tab);
     const m = memo.get(tab);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]) });
+    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]), device: ctx.device });
   }
 
   async function load(tab) {

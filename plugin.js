@@ -4469,9 +4469,9 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
       if (genre === null) return;
       const known = genreLogos();
       if (Object.hasOwn(known, genre)) return;
-      const logo = items.find((c) => usableLogo(c.logo))?.logo;
-      if (!logo) return;
-      logos = { ...known, [genre]: logo };
+      const logo2 = items.find((c) => usableLogo(c.logo))?.logo;
+      if (!logo2) return;
+      logos = { ...known, [genre]: logo2 };
       kino2.storage.set(LOGOS_KEY, JSON.stringify(logos), { ttlMs: LOGOS_TTL_MS });
     } catch (_) {
     }
@@ -4545,8 +4545,8 @@ function makeLiveCatalog({ kino: kino2, portal, session, clock: clock2 }) {
       const n = intOrNull(c.channelNumber);
       const item = { id: channel.id, title: title2, ref: channel.ref, categoryId, number: n !== null && n >= 1 && n <= 9999 ? n : 0 };
       if (adult) item.adult = true;
-      const logo = logoOf(c);
-      if (logo) item.logo = logo;
+      const logo2 = logoOf(c);
+      if (logo2) item.logo = logo2;
       items.push(item);
     }
     return items;
@@ -6815,6 +6815,38 @@ var hero = (slides) => slides.length === 1 ? slideNode(slides[0]) : {
   autoPlayMs: 6e3,
   children: slides.map(slideNode)
 };
+var logo = () => ({
+  type: "Image",
+  key: "logo",
+  url: LOGO_DATA,
+  aspect: LOGO_ASPECT,
+  fit: "contain",
+  h: 40,
+  alt: "Xuper",
+  altEn: "Xuper",
+  fallback: { type: "Text", text: "Xuper", textEn: "Xuper", style: "h4" }
+});
+var tabBar = (active) => ({ type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) });
+var roundChannel = (c, n) => ({
+  type: "Column",
+  key: "ch-" + n,
+  gap: 8,
+  crossAxisAlignment: "center",
+  onTap: { go: { play: { ref: c.ref, kind: "live", id: c.id, title: c.title } } },
+  children: [
+    { type: "CircleAvatar", key: "chl-" + n, radius: 56, ...c.poster ? { image: c.poster } : { text: String(c.title).slice(0, 2).toUpperCase() }, labelText: c.title, labelTextEn: c.title },
+    { type: "Text", text: c.title, textEn: c.title, style: "caption", maxLines: 1, textAlign: "center" }
+  ]
+});
+var roundRail = (items, titleOverride) => ({
+  type: "Column",
+  key: "live",
+  gap: 8,
+  children: [
+    { type: "Text", ...titleOverride, style: "h4" },
+    { type: "SingleChildScrollView", key: "liveScroll", direction: "horizontal", children: [{ type: "Row", gap: 24, children: items.slice(0, 20).map(roundChannel) }] }
+  ]
+});
 var rail = (r, key, titleOverride) => ({
   type: "titleRail",
   key,
@@ -6869,7 +6901,7 @@ function searchView({ query, status, items, history = [] }) {
     ...status === "loading" ? { every: { ms: 1e3, event: "stick" } } : {}
   };
 }
-function liveView({ tiles, cat, items, query = "", searching = false }) {
+function liveView({ tiles, cat, items, query = "", searching = false, device = "phone" }) {
   const body = [{
     type: "Form",
     key: "liveSearch",
@@ -6882,6 +6914,7 @@ function liveView({ tiles, cat, items, query = "", searching = false }) {
   }];
   if (tiles && tiles.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
   else if (items && items.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
+  else if (items && device === "tv") body.push({ type: "Row", key: "channels", wrap: true, gap: 24, children: items.slice(0, 40).map(roundChannel) });
   else if (items) body.push({ type: "titleGrid", key: "channels", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
   else body.push(gridSkeleton());
   return {
@@ -6901,13 +6934,14 @@ function liveView({ tiles, cat, items, query = "", searching = false }) {
     ...searching || query === "" && (!tiles || !items) ? { every: { ms: 1e3, event: "ltick" } } : {}
   };
 }
-function browseView({ tab, data, recent: recent2, live: live2 = [], pending, failed }) {
+function browseView({ tab, data, recent: recent2, live: live2 = [], pending, failed, device = "phone" }) {
+  const tv = device === "tv";
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
   const body = [];
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent2.length > 0) body.push(rail({ items: recent2 }, "recent", twin("brRecent", "title")));
-    if (live2.length > 0) body.push(rail({ items: live2 }, "live", twin("brLive", "title")));
+    if (live2.length > 0) body.push(tv ? roundRail(live2, twin("brLive", "text")) : rail({ items: live2 }, "live", twin("brLive", "title")));
     for (const r of data.rails) body.push(rail(r, "rail-" + r.id));
     if (data.rails.length === 0) body.push({ type: "Text", ...twin("brEmpty", "text"), color: "muted" });
   } else if (failed) {
@@ -6932,26 +6966,19 @@ function browseView({ tab, data, recent: recent2, live: live2 = [], pending, fai
       dense: true,
       leading: { type: "IconButton", key: "close", icon: "close", ...twin("brClose", "labelText"), ...twin("brClose", "tooltip"), onPressed: { go: { close: true } } },
       // The plugin's logo where its name was; the name itself when the logo cannot be drawn (an older Kino, a refused picture).
-      title: {
-        type: "Image",
-        key: "logo",
-        url: LOGO_DATA,
-        aspect: LOGO_ASPECT,
-        fit: "contain",
-        h: 40,
-        alt: "Xuper",
-        altEn: "Xuper",
-        fallback: { type: "Text", text: "Xuper", textEn: "Xuper", style: "h4" }
-      },
+      title: tv ? { type: "Row", key: "titleRow", gap: 24, crossAxisAlignment: "center", children: [logo(), tabBar(active)] } : logo(),
       actions: [
+        // On a TV the search is a button of the bar (a floating one is hard to reach with a remote); elsewhere it floats.
+        ...tv ? [{ type: "IconButton", key: "searchButton", icon: "search", ...twin("brSearch", "labelText"), ...twin("brSearch", "tooltip"), onPressed: "openSearch" }] : [],
         { type: "IconButton", key: "liveButton", icon: "tv", ...twin("brLive", "labelText"), ...twin("brLive", "tooltip"), onPressed: { event: "go", arg: "live" } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } }
       ]
     },
     // The tabs stay pinned under the bar; only the rows scroll.
-    floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: "openSearch" },
+    ...tv ? {} : { floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: "openSearch" } },
     body: { type: "Column", key: "page", children: [
-      { type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      // The tabs line up with the bar's buttons and the cards below (a wide window and the TV pad their content by 24).
+      ...tv ? [] : [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(active)] }],
       { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
     ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
@@ -7070,15 +7097,15 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2, live
       const lq = typeof st.lq === "string" ? st.lq : "";
       if (lq !== "") {
         const done = liveFound && liveFound.q === lq;
-        return liveView({ tiles: liveTilesList, cat, items: done ? liveFound.items : null, query: lq, searching: !done });
+        return liveView({ tiles: liveTilesList, cat, items: done ? liveFound.items : null, query: lq, searching: !done, device: ctx.device });
       }
-      return liveView({ tiles: liveTilesList, cat, items: cat && liveChannels2.has(cat) ? liveChannels2.get(cat) : null });
+      return liveView({ tiles: liveTilesList, cat, items: cat && liveChannels2.has(cat) ? liveChannels2.get(cat) : null, device: ctx.device });
     }
     const tab = TAB_IDS.includes(st.tab) ? st.tab : tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0];
     paint(tab);
     const m = memo.get(tab);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]) });
+    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]), device: ctx.device });
   }
   async function load(tab) {
     const rows = await catalog.rows("section", tab);

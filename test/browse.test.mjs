@@ -143,7 +143,7 @@ test("in English; every tree draws with nothing dropped, on the phone and on the
     await h.send("tick", { timer: true });
     const r = await h.render();
     assert.deepEqual(r.dropped, [], device);
-    assert.equal(r.raw.body.children[0].tabs[0].labelEn, "Movies");
+    assert.equal(byKey(r.tree, "tabs").tabs[0].label, "Movies");
   }
 });
 
@@ -276,4 +276,23 @@ test("the live page: genres as tabs, channels as a grid, a search over the chann
   assert.ok(byKey((await h.render()).tree, "genres"), "cleared words bring the genres back");
   await h.send("back");
   assert.equal(h.route(), "main");
+});
+
+test("on a TV the search is a button of the bar (no floating one) and the live channels are round tiles", async () => {
+  const { h } = harness({ device: "tv", catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  await h.send("tick", { timer: true });
+  await h.send("tick", { timer: true });
+  const r = await h.render();
+  assert.deepEqual(r.dropped, []);
+  assert.equal(r.raw.floatingActionButton, undefined);
+  assert.ok(r.raw.appBar.actions.some((a) => a.key === "searchButton" && a.icon === "search"));
+  assert.ok(byKey(r.tree, "liveScroll"), "a sideways row of round channels");
+  assert.ok(allNodes(r.tree).filter((n) => n.type === "avatar").length >= 1);
+  await h.send("go", { arg: "live" });
+  await h.send("ltick", { timer: true });
+  await h.send("ltick", { timer: true });
+  const page = await h.render();
+  assert.deepEqual(page.dropped, []);
+  assert.ok(allNodes(page.tree).filter((n) => n.type === "avatar").length >= 3);
 });

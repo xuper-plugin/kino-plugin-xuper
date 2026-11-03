@@ -32,6 +32,29 @@ const hero = (slides) => (slides.length === 1 ? slideNode(slides[0]) : {
   type: "PageView", key: "hero", autoPlayMs: 6_000, children: slides.map(slideNode),
 });
 
+const logo = () => ({
+  type: "Image", key: "logo", url: LOGO_DATA, aspect: LOGO_ASPECT, fit: "contain", h: 40, alt: "Xuper", altEn: "Xuper",
+  fallback: { type: "Text", text: "Xuper", textEn: "Xuper", style: "h4" },
+});
+const tabBar = (active) => ({ type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) });
+
+/** A live channel as a round tile (the TV's way, as Kino's own En vivo): its logo in a circle and its name under it; a tap tunes it. */
+const roundChannel = (c, n) => ({
+  type: "Column", key: "ch-" + n, gap: 8, crossAxisAlignment: "center", onTap: { go: { play: { ref: c.ref, kind: "live", id: c.id, title: c.title } } },
+  children: [
+    { type: "CircleAvatar", key: "chl-" + n, radius: 56, ...(c.poster ? { image: c.poster } : { text: String(c.title).slice(0, 2).toUpperCase() }), labelText: c.title, labelTextEn: c.title },
+    { type: "Text", text: c.title, textEn: c.title, style: "caption", maxLines: 1, textAlign: "center" },
+  ],
+});
+
+/** The live row as a sideways row of round tiles (a TV). */
+const roundRail = (items, titleOverride) => ({
+  type: "Column", key: "live", gap: 8, children: [
+    { type: "Text", ...titleOverride, style: "h4" },
+    { type: "SingleChildScrollView", key: "liveScroll", direction: "horizontal", children: [{ type: "Row", gap: 24, children: items.slice(0, 20).map(roundChannel) }] },
+  ],
+});
+
 const rail = (r, key, titleOverride) => ({
   type: "titleRail", key, ...(titleOverride || { title: r.title }), ...(r.ref ? { ref: r.ref } : {}), items: r.items, size: "medium",
 });
@@ -85,7 +108,7 @@ export function searchView({ query, status, items, history = [] }) {
  * The live page (route "live"): Xuper's live channels by genre, a tab per genre (Kino's own live tiles), the channels of the
  * picked one as Kino's grid; a tap tunes the player. `tiles`: null until known; `items`: the picked genre's channels, null until in.
  */
-export function liveView({ tiles, cat, items, query = "", searching = false }) {
+export function liveView({ tiles, cat, items, query = "", searching = false, device = "phone" }) {
   // The live search sits on top; its words replace the genre's channels until they are cleared.
   const body = [{
     type: "Form", key: "liveSearch", onSubmitted: "lsearch", gap: 8, children: [
@@ -95,6 +118,7 @@ export function liveView({ tiles, cat, items, query = "", searching = false }) {
   }];
   if (tiles && tiles.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
   else if (items && items.length === 0) body.push({ type: "Text", ...twin("brLiveEmpty", "text"), color: "muted" });
+  else if (items && device === "tv") body.push({ type: "Row", key: "channels", wrap: true, gap: 24, children: items.slice(0, 40).map(roundChannel) });
   else if (items) body.push({ type: "titleGrid", key: "channels", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
   else body.push(gridSkeleton());
   return {
@@ -116,13 +140,14 @@ export function liveView({ tiles, cat, items, query = "", searching = false }) {
  * `data`: `{ slides, rails }` of the active tab, or null while it is not in. `recent`: the cards of the played titles.
  * `pending`: some tab is still being fetched (the timer polls only then). `failed`: the active tab could not load.
  */
-export function browseView({ tab, data, recent, live = [], pending, failed }) {
+export function browseView({ tab, data, recent, live = [], pending, failed, device = "phone" }) {
+  const tv = device === "tv";
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
   const body = [];
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent.length > 0) body.push(rail({ items: recent }, "recent", twin("brRecent", "title")));
-    if (live.length > 0) body.push(rail({ items: live }, "live", twin("brLive", "title")));
+    if (live.length > 0) body.push(tv ? roundRail(live, twin("brLive", "text")) : rail({ items: live }, "live", twin("brLive", "title")));
     for (const r of data.rails) body.push(rail(r, "rail-" + r.id));
     if (data.rails.length === 0) body.push({ type: "Text", ...twin("brEmpty", "text"), color: "muted" });
   } else if (failed) {
@@ -142,19 +167,22 @@ export function browseView({ tab, data, recent, live = [], pending, failed }) {
       dense: true,
       leading: { type: "IconButton", key: "close", icon: "close", ...twin("brClose", "labelText"), ...twin("brClose", "tooltip"), onPressed: { go: { close: true } } },
       // The plugin's logo where its name was; the name itself when the logo cannot be drawn (an older Kino, a refused picture).
-      title: {
-        type: "Image", key: "logo", url: LOGO_DATA, aspect: LOGO_ASPECT, fit: "contain", h: 40, alt: "Xuper", altEn: "Xuper",
-        fallback: { type: "Text", text: "Xuper", textEn: "Xuper", style: "h4" },
-      },
+      title: tv
+        // On a TV the tabs sit in the bar beside the logo (one row, one D-pad strip); elsewhere they are pinned under it.
+        ? { type: "Row", key: "titleRow", gap: 24, crossAxisAlignment: "center", children: [logo(), tabBar(active)] }
+        : logo(),
       actions: [
+        // On a TV the search is a button of the bar (a floating one is hard to reach with a remote); elsewhere it floats.
+        ...(tv ? [{ type: "IconButton", key: "searchButton", icon: "search", ...twin("brSearch", "labelText"), ...twin("brSearch", "tooltip"), onPressed: "openSearch" }] : []),
         { type: "IconButton", key: "liveButton", icon: "tv", ...twin("brLive", "labelText"), ...twin("brLive", "tooltip"), onPressed: { event: "go", arg: "live" } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } },
       ],
     },
     // The tabs stay pinned under the bar; only the rows scroll.
-    floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: "openSearch" },
+    ...(tv ? {} : { floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: "openSearch" } }),
     body: { type: "Column", key: "page", children: [
-      { type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      // The tabs line up with the bar's buttons and the cards below (a wide window and the TV pad their content by 24).
+      ...(tv ? [] : [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(active)] }]),
       { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
     ] },
     ...(pending ? { every: { ms: POLL_MS, event: "tick" } } : {}),
