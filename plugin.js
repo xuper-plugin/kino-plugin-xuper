@@ -6790,6 +6790,7 @@ var heroSkeleton = () => ({ type: "Skeleton", key: "heroSkeleton", shape: "block
 var slideNode = (s) => ({
   type: "heroCard",
   key: "slide-" + s.id,
+  h: { compact: 200, expanded: 240 },
   title: s.title,
   text: s.text,
   image: s.image,
@@ -6834,7 +6835,7 @@ var roundChannel = (c, n) => ({
   crossAxisAlignment: "center",
   onTap: { go: { play: { ref: c.ref, kind: "live", id: c.id, title: c.title } } },
   children: [
-    { type: "CircleAvatar", key: "chl-" + n, radius: 56, ...c.poster ? { image: c.poster } : { text: String(c.title).slice(0, 2).toUpperCase() }, labelText: c.title, labelTextEn: c.title },
+    { type: "CircleAvatar", key: "chl-" + n, radius: 44, ...c.poster ? { image: c.poster } : { text: String(c.title).slice(0, 2).toUpperCase() }, labelText: c.title, labelTextEn: c.title },
     { type: "Text", text: c.title, textEn: c.title, style: "caption", maxLines: 1, textAlign: "center" }
   ]
 });

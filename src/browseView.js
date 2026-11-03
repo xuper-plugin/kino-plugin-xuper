@@ -19,7 +19,7 @@ const railSkeleton = (n) => ({
 const heroSkeleton = () => ({ type: "Skeleton", key: "heroSkeleton", shape: "block", height: { compact: 200, expanded: 320 } });
 
 const slideNode = (s) => ({
-  type: "heroCard", key: "slide-" + s.id, title: s.title, text: s.text, image: s.image,
+  type: "heroCard", key: "slide-" + s.id, h: { compact: 200, expanded: 240 }, title: s.title, text: s.text, image: s.image,
   buttons: [
     { type: "ElevatedButton", key: "watch-" + s.id, ...twin("brWatch", "labelText"), icon: "play",
       onPressed: { go: { play: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } } },
@@ -42,7 +42,7 @@ const tabBar = (active) => ({ type: "TabBar", key: "tabs", divider: false, value
 const roundChannel = (c, n) => ({
   type: "Column", key: "ch-" + n, gap: 8, crossAxisAlignment: "center", onTap: { go: { play: { ref: c.ref, kind: "live", id: c.id, title: c.title } } },
   children: [
-    { type: "CircleAvatar", key: "chl-" + n, radius: 56, ...(c.poster ? { image: c.poster } : { text: String(c.title).slice(0, 2).toUpperCase() }), labelText: c.title, labelTextEn: c.title },
+    { type: "CircleAvatar", key: "chl-" + n, radius: 44, ...(c.poster ? { image: c.poster } : { text: String(c.title).slice(0, 2).toUpperCase() }), labelText: c.title, labelTextEn: c.title },
     { type: "Text", text: c.title, textEn: c.title, style: "caption", maxLines: 1, textAlign: "center" },
   ],
 });
