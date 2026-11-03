@@ -6811,17 +6811,19 @@ var rail = (r, key, titleOverride) => ({
 });
 function browseView({ tab, data, recent: recent2, pending, failed }) {
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
-  const body = [{
+  const body = [];
+  const searchBox = {
     type: "Form",
     key: "searchBox",
     hidden: true,
     onSubmitted: "search",
     gap: 8,
+    padding: 12,
     children: [
       { type: "TextField", key: "q", kind: "text", ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
       { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true }
     ]
-  }];
+  };
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent2.length > 0) body.push(rail({ items: recent2 }, "recent", twin("brRecent", "title")));
@@ -6850,13 +6852,14 @@ function browseView({ tab, data, recent: recent2, pending, failed }) {
       title: "Xuper",
       titleEn: "Xuper",
       actions: [
-        { type: "IconButton", key: "searchToggle", icon: "search", ...twin("brSearch", "labelText"), ...twin("brSearch", "tooltip"), onPressed: { ui: [{ toggle: "searchBox" }] } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } }
       ]
     },
     // The tabs stay pinned under the bar; only the rows scroll.
+    floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: { ui: [{ toggle: "searchBox" }] } },
     body: { type: "Column", key: "page", children: [
       { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      searchBox,
       { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
     ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}

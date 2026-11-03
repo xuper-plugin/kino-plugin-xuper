@@ -158,7 +158,7 @@ test("the search icon opens a box under the bar; submitting it sends Kino's sear
   await h.send("open");
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
-  assert.equal(r.raw.appBar.actions[0].icon, "search");
+  assert.equal(r.raw.floatingActionButton.icon, "search");
   assert.equal(byKey(r.tree, "searchBox").hidden, true);
   const a = await h.send("search", { value: { q: "  dune  " } });
   assert.deepEqual(a.raw, { go: { search: { q: "dune" } } });
