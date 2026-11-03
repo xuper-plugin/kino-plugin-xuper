@@ -73,7 +73,8 @@ test("open on a phone queues the active tab first, then the others; the timer fi
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
   assert.ok(types(r.tree).includes("pageView"), "the featured slider");
-  assert.equal(byKey(r.tree, "hero").autoPlayMs, 6000);
+  assert.equal(allNodes(r.tree).find((n) => n.type === "pageView").autoPlayMs, 6000);
+  assert.match(allNodes(r.tree).find((n) => n.type === "pageView").key, /^hero\d+$/, "the slider's key carries its slide count");
   const rails = allNodes(r.tree).filter((n) => n.type === "titleRail");
   assert.equal(rails.length, 2);
   assert.ok(rails.every((n) => n.items.length > 0));
@@ -335,7 +336,7 @@ test("TMDB ids and title logos: asked through kino.meta after a tab loads, the c
   assert.ok(calls.length > 0);
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
-  const hero = byKey(r.tree, "hero");
+  const hero = allNodes(r.tree).find((n) => n.type === "pageView");
   assert.ok(allNodes(hero).some((n) => n.type === "heroCard" && /image\.tmdb\.org/.test(String(n.logo))), "a slide carries its logo");
   assert.equal(allNodes(r.tree).filter((n) => n.type === "titleRail")[0].items[0].tmdb, 4242);
 });

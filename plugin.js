@@ -6136,7 +6136,7 @@ var slideNode = (s) => ({
 });
 var hero = (slides) => slides.length === 1 ? slideNode(slides[0]) : {
   type: "PageView",
-  key: "hero",
+  key: "hero" + slides.length,
   autoPlayMs: 6e3,
   children: slides.map(slideNode)
 };
