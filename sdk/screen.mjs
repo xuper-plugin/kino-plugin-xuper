@@ -1462,13 +1462,16 @@ class Reader {
         const centerTitle = this.flag(o, type, "centerTitle");
         const dense = this.flag(o, type, "dense");
         const merge = this.appBarMerge(o);
+        // `divider: false` takes away the hairline at the bar's lower edge (default true).
+        const dv = o.divider;
+        const divider = dv === undefined || dv === null ? true : typeof dv === "boolean" ? dv : (this.log(`screen: appBar divider ${typeof dv} is not true or false, ignored`), true);
         let background = null;
         if (present(o, "backgroundColor")) {
           if (typeof o.backgroundColor === "string" && S.colorRoles.includes(o.backgroundColor)) background = o.backgroundColor;
           else this.log(`screen: appBar backgroundColor ${fmt(o.backgroundColor)} is not a color role${colorHint(o.backgroundColor)}, the default used`);
         }
         return (k) => {
-          if (!k) return { title, leading: null, actions: [], bottom: null, centerTitle, background, titleNode: null, mergeWithKinoBar: false };
+          if (!k) return { title, leading: null, actions: [], bottom: null, centerTitle, background, titleNode: null, mergeWithKinoBar: false, divider };
           const leading = this.barButton(opt(o, "leading"), "leading", depth);
           const actions = [];
           const raw = opt(o, "actions");
@@ -1500,7 +1503,7 @@ class Reader {
             }
           }
           if (merge && leading === null) this.log(`screen: appBar ${APP_BAR_MERGE} needs a leading IconButton, ignored`);
-          return { title, leading, actions, bottom, centerTitle, background, titleNode, mergeWithKinoBar: merge && leading !== null };
+          return { title, leading, actions, bottom, centerTitle, background, titleNode, mergeWithKinoBar: merge && leading !== null, divider };
         };
       }
       case "navigationBar": {

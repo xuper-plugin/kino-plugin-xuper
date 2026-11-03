@@ -336,6 +336,7 @@ export const PROPS = {
     ["bottom", "a `TabBar`", "none", "under the row"],
     ["centerTitle", "boolean", "`false`", "the title centred"],
     ["dense", "boolean", "`false`", "additive, no new apiVersion: on a phone the bar has 4 dp above and below its row instead of 16 (a TV and a player panel keep theirs); also the one bar of `mergeWithKinoBar`"],
+    ["divider", "boolean", "`true`", "additive, no new apiVersion: `false` takes away the hairline at the bar's lower edge"],
     ["backgroundColor", "a colour role", "Kino's surface", "its text and icons in the role's readable colour"],
     ["mergeWithKinoBar", "boolean", "`false`", `apiVersion ${S.scaffold.backApiVersion}, the root Scaffold's only: with a \`leading\`, Kino draws one bar, your \`leading\` in Close's place and your \`title\` in your plugin's name's`],
   ],

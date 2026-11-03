@@ -72,7 +72,7 @@ export function searchView({ query, status, items, history = [] }) {
   return {
     type: "Scaffold",
     appBar: {
-      type: "AppBar", mergeWithKinoBar: true, dense: true,
+      type: "AppBar", mergeWithKinoBar: true, dense: true, divider: false,
       leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
       ...twin("brSearchTitle", "title"),
     },
@@ -100,7 +100,7 @@ export function liveView({ tiles, cat, items, query = "", searching = false }) {
   return {
     type: "Scaffold",
     appBar: {
-      type: "AppBar", mergeWithKinoBar: true, dense: true,
+      type: "AppBar", mergeWithKinoBar: true, dense: true, divider: false,
       leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
       ...twin("brLive", "title"),
     },
@@ -135,6 +135,7 @@ export function browseView({ tab, data, recent, live = [], pending, failed }) {
     type: "Scaffold",
     appBar: {
       type: "AppBar",
+      divider: false,
       // One bar instead of two (Kino 0.9.81+; an older Kino draws its own bar above and this one under it, as before):
       // the close button where Kino's was, the name where the plugin's was, search and settings at the end.
       mergeWithKinoBar: true,
