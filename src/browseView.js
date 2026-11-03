@@ -2,6 +2,7 @@
 // skeletons shaped like what will replace them, so nothing jumps when the rows arrive. Every text is in both languages.
 import { twin } from "./i18n.js";
 import { TAB_IDS } from "./browseModel.js";
+import { LOGO_DATA, LOGO_ASPECT } from "./logo.js";
 
 const TAB_KEYS = { peliculas: "brTabPeliculas", series: "brTabSeries", infantil: "brTabInfantil", anime: "brTabAnime" };
 const POLL_MS = 1_500;
@@ -139,8 +140,11 @@ export function browseView({ tab, data, recent, live = [], pending, failed }) {
       mergeWithKinoBar: true,
       dense: true,
       leading: { type: "IconButton", key: "close", icon: "close", ...twin("brClose", "labelText"), ...twin("brClose", "tooltip"), onPressed: { go: { close: true } } },
-      title: "Xuper",
-      titleEn: "Xuper",
+      // The plugin's logo where its name was; the name itself when the logo cannot be drawn (an older Kino, a refused picture).
+      title: {
+        type: "Image", key: "logo", url: LOGO_DATA, aspect: LOGO_ASPECT, fit: "contain", h: 32, alt: "Xuper", altEn: "Xuper",
+        fallback: { type: "Text", text: "Xuper", textEn: "Xuper", style: "h4" },
+      },
       actions: [
         { type: "IconButton", key: "liveButton", icon: "tv", ...twin("brLive", "labelText"), ...twin("brLive", "tooltip"), onPressed: { event: "go", arg: "live" } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } },

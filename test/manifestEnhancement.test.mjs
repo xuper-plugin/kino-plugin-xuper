@@ -58,7 +58,7 @@ test("the manifest stays under 16 KB and Kino merges the block without dropping 
   const merged = validateManifest(TEXT);
   assert.equal(merged.ok, true, merged.message);
   assert.deepEqual(merged.manifest.enhancementsDropped, []);
-  assert.deepEqual(merged.manifest.enhancementsApplied, [14]);
+  assert.deepEqual(merged.manifest.enhancementsApplied, [14, 19]);
   assert.ok(merged.manifest.capabilities.includes("screen"));
   assert.equal(merged.manifest.apiVersion, 8);
   assert.equal(settingsApiVersion(merged.manifest), 14);

@@ -4,6 +4,7 @@
 
 - On a Kino that reads screens (the manifest's `enhancements."14"`), the Xuper entry in the menu opens Xuper's own browse screen (`screen.menuOpens: "screen"`; the settings page's button opens it too, and its gear opens the configuration): a featured slider (up to 6 titles with their picture and synopsis, turning every 6 s), the tabs Películas, Series, Infantil and Anime, and Kino's rails with «Ver más». An older Kino keeps the section it always had.
 - It paints at once from the rows the plugin keeps and shows skeletons shaped like the slider and the rails while a tab is not in yet. A timer then fetches one tab per tick, the one in view first; every tab is stored the moment it arrives, so a slow root never holds the others back. On a TV only the tab in view is fetched (the others load when selected).
+- The search is a page of the plugin (floating button): skeletons while the portal answers, then a grid; the empty page paints what earlier searches found. Live: a row on the home (the person's country channels, else the first genre's) and a live page behind the button next to the settings gear (a tab per genre, a search over the channels). The bar is one bar (`mergeWithKinoBar`, so the manifest carries an empty `enhancements."19"`) with the plugin's logo where its name was; the tabs have no divider (`divider: false`).
 - «Continuar viendo»: the titles played through Xuper, newest first (only their id is kept, `recent:v1`; a play is noted by `resolve`).
 
 ## 2.3.3
