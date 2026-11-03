@@ -142,7 +142,7 @@ export function browseView({ tab, data, recent, live = [], pending, failed }) {
       leading: { type: "IconButton", key: "close", icon: "close", ...twin("brClose", "labelText"), ...twin("brClose", "tooltip"), onPressed: { go: { close: true } } },
       // The plugin's logo where its name was; the name itself when the logo cannot be drawn (an older Kino, a refused picture).
       title: {
-        type: "Image", key: "logo", url: LOGO_DATA, aspect: LOGO_ASPECT, fit: "contain", h: 32, alt: "Xuper", altEn: "Xuper",
+        type: "Image", key: "logo", url: LOGO_DATA, aspect: LOGO_ASPECT, fit: "contain", h: 40, alt: "Xuper", altEn: "Xuper",
         fallback: { type: "Text", text: "Xuper", textEn: "Xuper", style: "h4" },
       },
       actions: [
