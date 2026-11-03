@@ -623,6 +623,11 @@ var TEXTS = Object.freeze({
   brFailed: ["No se pudo cargar esta secci\xF3n. Revisa tu conexi\xF3n e int\xE9ntalo de nuevo.", "This section could not be loaded. Check your connection and try again."],
   brSearchHint: ["Buscar en Xuper", "Search Xuper"],
   brClose: ["Cerrar", "Close"],
+  brSearchedBefore: ["Buscado recientemente", "Recently searched"],
+  brSearchTitle: ["Buscar", "Search"],
+  brBack: ["Atr\xE1s", "Back"],
+  brNoResults: ["No encontramos nada con esas palabras.", "Nothing matched those words."],
+  brSearchFailed: ["No se pudo buscar. Revisa tu conexi\xF3n e int\xE9ntalo de nuevo.", "The search failed. Check your connection and try again."],
   brSettings: ["Configuraci\xF3n", "Settings"],
   brRetry: ["Reintentar", "Retry"],
   brEmpty: ["A\xFAn no hay nada aqu\xED.", "Nothing here yet."],
@@ -6706,6 +6711,7 @@ function cardOf(item) {
   if (item.poster && HTTPS.test(item.poster)) out.poster = item.poster;
   if (item.backdrop && HTTPS.test(item.backdrop)) out.backdrop = item.backdrop;
   if (item.badges) out.badges = item.badges;
+  if (item.adult === true) out.adult = true;
   if (item.rating !== void 0) out.rating = item.rating;
   if (item.ids) out.ids = item.ids;
   return out;
@@ -6809,21 +6815,54 @@ var rail = (r, key, titleOverride) => ({
   items: r.items,
   size: "medium"
 });
+var SEARCH_CAP = 60;
+var gridSkeleton = () => ({
+  type: "Column",
+  key: "gridSkeleton",
+  gap: 12,
+  children: [
+    ...[1, 2].map((r) => ({ type: "Row", gap: 12, sizes: ["compact"], key: `gc${r}`, children: [1, 2, 3].map((i) => ({ type: "Skeleton", shape: "card", key: `gc${r}-${i}`, flex: 1 })) })),
+    ...[1, 2].map((r) => ({ type: "Row", gap: 12, sizes: ["medium", "expanded"], key: `gw${r}`, children: [1, 2, 3, 4, 5, 6].map((i) => ({ type: "Skeleton", shape: "card", key: `gw${r}-${i}`, flex: 1 })) }))
+  ]
+});
+function searchView({ query, status, items, history = [] }) {
+  const body = [{
+    type: "Form",
+    key: "searchForm",
+    onSubmitted: "search",
+    gap: 8,
+    children: [
+      { type: "TextField", key: "q", kind: "text", value: query, ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
+      { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true }
+    ]
+  }];
+  if (status === "fail") {
+    body.push({ type: "MaterialBanner", key: "searchFailed", role: "error", ...twin("brSearchFailed"), action: { ...twin("brRetry", "label"), onTap: "sretry" } });
+  } else if (status === "done" && items) {
+    if (items.length === 0) body.push({ type: "Text", ...twin("brNoResults", "text"), color: "muted" });
+    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
+  } else if (status !== "idle") {
+    body.push(gridSkeleton());
+  } else if (history.length > 0) {
+    body.push({ type: "Text", ...twin("brSearchedBefore", "text"), style: "h4" });
+    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP) });
+  }
+  return {
+    type: "Scaffold",
+    appBar: {
+      type: "AppBar",
+      mergeWithKinoBar: true,
+      dense: true,
+      leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
+      ...twin("brSearchTitle", "title")
+    },
+    body: { type: "SingleChildScrollView", key: "search-page", children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    ...status === "loading" ? { every: { ms: 1e3, event: "stick" } } : {}
+  };
+}
 function browseView({ tab, data, recent: recent2, pending, failed }) {
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
   const body = [];
-  const searchBox = {
-    type: "Form",
-    key: "searchBox",
-    hidden: true,
-    onSubmitted: "search",
-    gap: 8,
-    padding: 12,
-    children: [
-      { type: "TextField", key: "q", kind: "text", ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
-      { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true }
-    ]
-  };
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent2.length > 0) body.push(rail({ items: recent2 }, "recent", twin("brRecent", "title")));
@@ -6856,10 +6895,9 @@ function browseView({ tab, data, recent: recent2, pending, failed }) {
       ]
     },
     // The tabs stay pinned under the bar; only the rows scroll.
-    floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: { ui: [{ toggle: "searchBox" }] } },
+    floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: "openSearch" },
     body: { type: "Column", key: "page", children: [
-      { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
-      searchBox,
+      { type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
       { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
     ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
@@ -6911,8 +6949,36 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
     const order = [tab, ...TAB_IDS.filter((t) => t !== tab)];
     return order.filter((t, i) => (i === 0 || device !== "tv") && !(memo.get(t) && memo.get(t).whole));
   }
+  const HIST_KEY = "searchHist:v1";
+  const HIST_MAX = 24;
+  const slim2 = (c) => ({ id: c.id, ref: c.ref, title: c.title, kind: c.kind, ...c.poster ? { poster: c.poster } : {} });
+  function readHistory() {
+    try {
+      const raw = kino2.storage.get(HIST_KEY);
+      const o = raw ? JSON.parse(raw) : null;
+      return o && o.v === 1 && Array.isArray(o.e) ? o.e.filter((c) => c && typeof c.id === "string" && typeof c.ref === "string" && typeof c.title === "string").slice(0, HIST_MAX) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  function rememberFound(cards) {
+    try {
+      const fresh = cards.filter((c) => c.adult !== true).slice(0, 12).map(slim2);
+      const ids = new Set(fresh.map((c) => c.id));
+      const next = [...fresh, ...readHistory().filter((c) => !ids.has(c.id))].slice(0, HIST_MAX);
+      kino2.storage.set(HIST_KEY, JSON.stringify({ v: 1, e: next }));
+    } catch (_) {
+    }
+  }
+  let found = null;
   function view2(ctx) {
     const st = ctx.state && typeof ctx.state === "object" ? ctx.state : {};
+    if (ctx.route && ctx.route.name === "search") {
+      const query = typeof st.sq === "string" ? st.sq : "";
+      const items = found && found.q === query ? found.items : null;
+      const status = query === "" ? "idle" : st.sstate === "fail" ? "fail" : items ? "done" : "loading";
+      return searchView({ query, status, items, history: query === "" ? readHistory() : [] });
+    }
     const tab = TAB_IDS.includes(st.tab) ? st.tab : tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0];
     paint(tab);
     const m = memo.get(tab);
@@ -6943,10 +7009,36 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
       const pending = [tab, ...Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : []];
       return { state: { tab, pending: memo.get(tab) && memo.get(tab).whole ? pending.slice(1) : pending, failed } };
     },
-    // The search box's submit: Kino's own search with the words filled in and only Xuper as the source.
-    search({ value }) {
+    // The floating button: straight to the search page, empty and ready for the words.
+    openSearch() {
+      return { route: { push: "search" }, state: { sq: "", sstate: null } };
+    },
+    // The search page's submit: the search page opens in this very plugin (skeletons first, results as they come).
+    search({ value, route }) {
       const q = value && typeof value.q === "string" ? value.q.trim().slice(0, 100) : "";
-      return q === "" ? null : { go: { search: { q } } };
+      if (q === "") return null;
+      const state = { sq: q, sstate: "loading" };
+      return route && route.name === "search" ? { state } : { route: { push: "search" }, state };
+    },
+    // The search page's timer: one portal search per press, then no timer.
+    async stick({ state }) {
+      const q = typeof state.sq === "string" ? state.sq : "";
+      if (q === "" || state.sstate !== "loading") return null;
+      try {
+        const out = await catalog.search({ q });
+        found = { q, items: (Array.isArray(out) ? out : []).slice(0, 60).map(cardOf) };
+        rememberFound(found.items);
+        return { state: { sstate: "done" } };
+      } catch (e) {
+        trace(kino2, "browse", "search_fail", { code: errCode(e) });
+        return { state: { sstate: "fail" } };
+      }
+    },
+    sretry({ state }) {
+      return typeof state.sq === "string" && state.sq !== "" ? { state: { sstate: "loading" } } : null;
+    },
+    back() {
+      return { route: { pop: true }, state: { sq: null, sstate: null } };
     },
     // The gear: the configuration (account, seeds, help) is its own page, one Back away.
     go({ arg }) {
@@ -6980,7 +7072,7 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
 }
 
 // src/screen.js
-var BROWSE_ROUTES = ["main", "categories"];
+var BROWSE_ROUTES = ["main", "categories", "search"];
 function modernKit(kino2) {
   try {
     return !!(kino2 && kino2.screen && Array.isArray(kino2.screen.names) && kino2.screen.names.includes("steps"));

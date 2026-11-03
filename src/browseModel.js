@@ -19,6 +19,7 @@ export function cardOf(item) {
   // The backdrop too: a person who chose cards (not posters) in Kino's Ajustes sees them in these rails.
   if (item.backdrop && HTTPS.test(item.backdrop)) out.backdrop = item.backdrop;
   if (item.badges) out.badges = item.badges;
+  if (item.adult === true) out.adult = true; // only a search can bring one: Kino shows it while the 18+ code is unlocked
   if (item.rating !== undefined) out.rating = item.rating;
   if (item.ids) out.ids = item.ids;
   return out;

@@ -35,6 +35,51 @@ const rail = (r, key, titleOverride) => ({
   type: "titleRail", key, ...(titleOverride || { title: r.title }), ...(r.ref ? { ref: r.ref } : {}), items: r.items, size: "medium",
 });
 
+const SEARCH_CAP = 60;
+
+/** The skeleton of a results grid: two rows of poster cards (three across on a phone, six on a wide window). */
+const gridSkeleton = () => ({
+  type: "Column", key: "gridSkeleton", gap: 12, children: [
+    ...[1, 2].map((r) => ({ type: "Row", gap: 12, sizes: ["compact"], key: `gc${r}`, children: [1, 2, 3].map((i) => ({ type: "Skeleton", shape: "card", key: `gc${r}-${i}`, flex: 1 })) })),
+    ...[1, 2].map((r) => ({ type: "Row", gap: 12, sizes: ["medium", "expanded"], key: `gw${r}`, children: [1, 2, 3, 4, 5, 6].map((i) => ({ type: "Skeleton", shape: "card", key: `gw${r}-${i}`, flex: 1 })) })),
+  ],
+});
+
+/**
+ * The in-plugin search page (route "search"): the box with the words, then skeletons while the portal answers, then the results
+ * as Kino's grid. `status`: "loading", "done" or "fail"; `items`: the cards (null until in).
+ */
+export function searchView({ query, status, items, history = [] }) {
+  const body = [{
+    type: "Form", key: "searchForm", onSubmitted: "search", gap: 8, children: [
+      { type: "TextField", key: "q", kind: "text", value: query, ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
+      { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
+    ],
+  }];
+  if (status === "fail") {
+    body.push({ type: "MaterialBanner", key: "searchFailed", role: "error", ...twin("brSearchFailed"), action: { ...twin("brRetry", "label"), onTap: "sretry" } });
+  } else if (status === "done" && items) {
+    if (items.length === 0) body.push({ type: "Text", ...twin("brNoResults", "text"), color: "muted" });
+    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
+  } else if (status !== "idle") {
+    body.push(gridSkeleton());
+  } else if (history.length > 0) {
+    // Nothing typed yet: what was found before, painted at once; a real search replaces it.
+    body.push({ type: "Text", ...twin("brSearchedBefore", "text"), style: "h4" });
+    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP) });
+  }
+  return {
+    type: "Scaffold",
+    appBar: {
+      type: "AppBar", mergeWithKinoBar: true, dense: true,
+      leading: { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" },
+      ...twin("brSearchTitle", "title"),
+    },
+    body: { type: "SingleChildScrollView", key: "search-page", children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    ...(status === "loading" ? { every: { ms: 1_000, event: "stick" } } : {}),
+  };
+}
+
 /**
  * `data`: `{ slides, rails }` of the active tab, or null while it is not in. `recent`: the cards of the played titles.
  * `pending`: some tab is still being fetched (the timer polls only then). `failed`: the active tab could not load.
@@ -42,13 +87,6 @@ const rail = (r, key, titleOverride) => ({
 export function browseView({ tab, data, recent, pending, failed }) {
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
   const body = [];
-  // The floating search button opens this box, pinned under the tabs (a local toggle, no plugin call); it sends Kino's own search narrowed to Xuper.
-  const searchBox = {
-    type: "Form", key: "searchBox", hidden: true, onSubmitted: "search", gap: 8, padding: 12, children: [
-      { type: "TextField", key: "q", kind: "text", ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
-      { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
-    ],
-  };
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent.length > 0) body.push(rail({ items: recent }, "recent", twin("brRecent", "title")));
@@ -76,10 +114,9 @@ export function browseView({ tab, data, recent, pending, failed }) {
       ],
     },
     // The tabs stay pinned under the bar; only the rows scroll.
-    floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: { ui: [{ toggle: "searchBox" }] } },
+    floatingActionButton: { type: "FloatingActionButton", key: "searchFab", icon: "search", ...twin("brSearch", "tooltip"), onPressed: "openSearch" },
     body: { type: "Column", key: "page", children: [
-      { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
-      searchBox,
+      { type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
       { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
     ] },
     ...(pending ? { every: { ms: POLL_MS, event: "tick" } } : {}),

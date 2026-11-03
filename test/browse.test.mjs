@@ -28,6 +28,7 @@ function fakeCatalog({ kept = [], failing = new Set() } = {}) {
       return state.rows;
     },
     idsLookup: () => () => null,
+    search: async ({ q }) => { state.searched = (state.searched || []).concat(q); if (state.searchFails) throw new Error("portal"); return q === "nada" ? [] : [item("peliculas", 1), item("series", 2, { adult: true })].map((i) => ({ id: i.id, ref: "magis1:movie:0:" + i.id, title: i.title, kind: "movie", poster: i.poster, adult: i.adult })); },
   };
 }
 
@@ -153,14 +154,69 @@ test("a play is noted: the same title twice moves nothing, the list is capped", 
   assert.equal(recent.ids()[0], "t19");
 });
 
-test("the search icon opens a box under the bar; submitting it sends Kino's search narrowed to Xuper", async () => {
-  const { h } = harness({ catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+test("the floating button opens the search page in the plugin; submitting words shows skeletons, then the results as a grid", async () => {
+  const { h, catalog } = harness({ catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
   await h.send("open");
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
   assert.equal(r.raw.floatingActionButton.icon, "search");
-  assert.equal(byKey(r.tree, "searchBox").hidden, true);
-  const a = await h.send("search", { value: { q: "  dune  " } });
-  assert.deepEqual(a.raw, { go: { search: { q: "dune" } } });
+  assert.equal(byKey(r.tree, "searchBox"), null, "no search box on the browse page");
+  await h.send("openSearch");
+  assert.equal(h.route(), "search");
+  const idle = await h.render();
+  assert.deepEqual(idle.dropped, []);
+  assert.ok(byKey(idle.tree, "q") && !types(idle.tree).includes("skeleton"), "the box alone, nothing loading");
   assert.equal((await h.send("search", { value: { q: "   " } })).raw, null);
+  await h.send("search", { value: { q: "  dune  " } });
+  const loading = await h.render();
+  assert.deepEqual(loading.dropped, []);
+  assert.ok(types(loading.tree).includes("skeleton") && !types(loading.tree).includes("titleGrid"));
+  assert.ok(loading.every, "a timer runs the search");
+  await h.send("stick", { timer: true });
+  assert.deepEqual(catalog.state.searched, ["dune"]);
+  const done = await h.render();
+  assert.deepEqual(done.dropped, []);
+  assert.equal((done.every || []).length, 0);
+  const grid = byKey(done.tree, "results");
+  assert.equal(grid.items.length, 2);
+  assert.equal(grid.items[1].adult, true, "Kino hides it unless the 18+ code is unlocked");
+  assert.equal(byKey(done.tree, "q").value, "dune");
+});
+
+test("a search that finds nothing says so; one that fails offers a retry; back returns to the browse", async () => {
+  const { h, catalog } = harness({ catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  await h.send("search", { value: { q: "nada" } });
+  await h.send("stick", { timer: true });
+  assert.ok(allNodes((await h.render()).tree).some((n) => n.type === "text" && /Nada|nada|encontramos/.test(String(n.text))));
+  catalog.state.searchFails = true;
+  await h.send("search", { value: { q: "otra" } });
+  await h.send("stick", { timer: true });
+  assert.ok(byKey((await h.render()).tree, "searchFailed"));
+  catalog.state.searchFails = false;
+  await h.send("sretry");
+  await h.send("stick", { timer: true });
+  assert.ok(byKey((await h.render()).tree, "results"));
+  await h.send("back");
+  assert.equal(h.route(), "main");
+});
+
+test("the empty search page paints what earlier searches found (never an 18+ title); a new search replaces it", async () => {
+  const { h } = harness({ catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  await h.send("openSearch");
+  assert.equal(byKey((await h.render()).tree, "history"), null, "nothing yet, nothing painted");
+  await h.send("search", { value: { q: "dune" } });
+  await h.send("stick", { timer: true });
+  await h.send("back");
+  await h.send("openSearch");
+  const again = await h.render();
+  assert.deepEqual(again.dropped, []);
+  const hist = byKey(again.tree, "history");
+  assert.equal(hist.items.length, 1, "the adult one was not kept");
+  assert.ok(!types(again.tree).includes("skeleton"));
+  await h.send("search", { value: { q: "otra" } });
+  const loading = await h.render();
+  assert.equal(byKey(loading.tree, "history"), null, "the real search replaces it");
+  assert.ok(types(loading.tree).includes("skeleton"));
 });
