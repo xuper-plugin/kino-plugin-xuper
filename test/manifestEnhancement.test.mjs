@@ -18,7 +18,7 @@ test("the plugin keeps apiVersion 8 and its base settings list is 2.2.33's, byte
   assert.equal(M.apiVersion, 8);
   assert.equal(createHash("sha256").update(JSON.stringify(M.settings)).digest("hex"), BASE_SETTINGS_SHA);
   assert.equal(M.settings.length, 20);
-  assert.deepEqual(Object.keys(M.enhancements), ["14"]);
+  assert.deepEqual(Object.keys(M.enhancements), ["14", "19"]);
 });
 
 test("the enhanced list is the base list (same keys, order, types, Spanish texts, defaults, options) plus English only", () => {

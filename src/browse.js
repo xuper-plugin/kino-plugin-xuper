@@ -84,6 +84,11 @@ export function makeBrowse({ kino, catalog, recent, clock }) {
       const pending = [tab, ...(Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : [])];
       return { state: { tab, pending: memo.get(tab) && memo.get(tab).whole ? pending.slice(1) : pending, failed } };
     },
+    // The search box's submit: Kino's own search with the words filled in and only Xuper as the source.
+    search({ value }) {
+      const q = value && typeof value.q === "string" ? value.q.trim().slice(0, 100) : "";
+      return q === "" ? null : { go: { search: { q } } };
+    },
     // The gear: the configuration (account, seeds, help) is its own page, one Back away.
     go({ arg }) { return arg === "settings" ? { route: { push: "settings" } } : null; },
     retry({ state, device }) {

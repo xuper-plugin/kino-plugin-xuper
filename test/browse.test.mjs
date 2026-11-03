@@ -46,7 +46,7 @@ test("before anything is kept: skeletons shaped like the slider and the rails, a
   assert.deepEqual(r.dropped, []);
   assert.ok(types(r.tree).includes("skeleton"));
   assert.ok(!types(r.tree).includes("pageView") && !types(r.tree).includes("titleRail"));
-  assert.deepEqual(r.raw.appBar.title.tabs.map((t) => t.value), ["peliculas", "series", "infantil", "anime"]);
+  assert.deepEqual(byKey(r.tree, "tabs").tabs.map((t) => t.value), ["peliculas", "series", "infantil", "anime"]);
   assert.equal(r.raw.every, undefined);
 });
 
@@ -60,7 +60,7 @@ test("open on a phone queues the active tab first, then the others; the timer fi
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
   assert.ok(types(r.tree).includes("pageView"), "the featured slider");
-  assert.equal(r.raw.body.children[0].children[0].autoPlayMs, 6000);
+  assert.equal(byKey(r.tree, "hero").autoPlayMs, 6000);
   const rails = allNodes(r.tree).filter((n) => n.type === "titleRail");
   assert.equal(rails.length, 2);
   assert.ok(rails.every((n) => n.items.length > 0));
@@ -130,7 +130,7 @@ test("in English; every tree draws with nothing dropped, on the phone and on the
     await h.send("tick", { timer: true });
     const r = await h.render();
     assert.deepEqual(r.dropped, [], device);
-    assert.equal(r.raw.appBar.title.tabs[0].labelEn, "Movies");
+    assert.equal(r.raw.body.children[0].tabs[0].labelEn, "Movies");
   }
 });
 
@@ -151,4 +151,16 @@ test("a play is noted: the same title twice moves nothing, the list is capped", 
   recent.note("not a ref");
   assert.equal(recent.ids().length, 12);
   assert.equal(recent.ids()[0], "t19");
+});
+
+test("the search icon opens a box under the bar; submitting it sends Kino's search narrowed to Xuper", async () => {
+  const { h } = harness({ catalog: fakeCatalog({ kept: rowsOf("peliculas") }) });
+  await h.send("open");
+  const r = await h.render();
+  assert.deepEqual(r.dropped, []);
+  assert.equal(r.raw.appBar.actions[0].icon, "search");
+  assert.equal(byKey(r.tree, "searchBox").hidden, true);
+  const a = await h.send("search", { value: { q: "  dune  " } });
+  assert.deepEqual(a.raw, { go: { search: { q: "dune" } } });
+  assert.equal((await h.send("search", { value: { q: "   " } })).raw, null);
 });

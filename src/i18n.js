@@ -320,6 +320,8 @@ export const TEXTS = Object.freeze({
   brRecent: ["Continuar viendo", "Continue watching"],
   brSearch: ["Buscar", "Search"],
   brFailed: ["No se pudo cargar esta sección. Revisa tu conexión e inténtalo de nuevo.", "This section could not be loaded. Check your connection and try again."],
+  brSearchHint: ["Buscar en Xuper", "Search Xuper"],
+  brClose: ["Cerrar", "Close"],
   brSettings: ["Configuración", "Settings"],
   brRetry: ["Reintentar", "Retry"],
   brEmpty: ["Aún no hay nada aquí.", "Nothing here yet."],

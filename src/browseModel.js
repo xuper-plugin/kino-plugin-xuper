@@ -16,6 +16,8 @@ export const TAB_IDS = TABS.map((t) => t.id);
 export function cardOf(item) {
   const out = { id: item.id, ref: item.ref, title: item.title, kind: item.kind };
   if (item.poster && HTTPS.test(item.poster)) out.poster = item.poster;
+  // The backdrop too: a person who chose cards (not posters) in Kino's Ajustes sees them in these rails.
+  if (item.backdrop && HTTPS.test(item.backdrop)) out.backdrop = item.backdrop;
   if (item.badges) out.badges = item.badges;
   if (item.rating !== undefined) out.rating = item.rating;
   if (item.ids) out.ids = item.ids;

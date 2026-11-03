@@ -621,6 +621,8 @@ var TEXTS = Object.freeze({
   brRecent: ["Continuar viendo", "Continue watching"],
   brSearch: ["Buscar", "Search"],
   brFailed: ["No se pudo cargar esta secci\xF3n. Revisa tu conexi\xF3n e int\xE9ntalo de nuevo.", "This section could not be loaded. Check your connection and try again."],
+  brSearchHint: ["Buscar en Xuper", "Search Xuper"],
+  brClose: ["Cerrar", "Close"],
   brSettings: ["Configuraci\xF3n", "Settings"],
   brRetry: ["Reintentar", "Retry"],
   brEmpty: ["A\xFAn no hay nada aqu\xED.", "Nothing here yet."],
@@ -6702,6 +6704,7 @@ var TAB_IDS = TABS.map((t) => t.id);
 function cardOf(item) {
   const out = { id: item.id, ref: item.ref, title: item.title, kind: item.kind };
   if (item.poster && HTTPS.test(item.poster)) out.poster = item.poster;
+  if (item.backdrop && HTTPS.test(item.backdrop)) out.backdrop = item.backdrop;
   if (item.badges) out.badges = item.badges;
   if (item.rating !== void 0) out.rating = item.rating;
   if (item.ids) out.ids = item.ids;
@@ -6808,7 +6811,17 @@ var rail = (r, key, titleOverride) => ({
 });
 function browseView({ tab, data, recent: recent2, pending, failed }) {
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
-  const body = [];
+  const body = [{
+    type: "Form",
+    key: "searchBox",
+    hidden: true,
+    onSubmitted: "search",
+    gap: 8,
+    children: [
+      { type: "TextField", key: "q", kind: "text", ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
+      { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true }
+    ]
+  }];
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent2.length > 0) body.push(rail({ items: recent2 }, "recent", twin("brRecent", "title")));
@@ -6829,12 +6842,23 @@ function browseView({ tab, data, recent: recent2, pending, failed }) {
     type: "Scaffold",
     appBar: {
       type: "AppBar",
-      title: { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      // One bar instead of two (Kino 0.9.81+; an older Kino draws its own bar above and this one under it, as before):
+      // the close button where Kino's was, the name where the plugin's was, search and settings at the end.
+      mergeWithKinoBar: true,
+      dense: true,
+      leading: { type: "IconButton", key: "close", icon: "close", ...twin("brClose", "labelText"), ...twin("brClose", "tooltip"), onPressed: { go: { close: true } } },
+      title: "Xuper",
+      titleEn: "Xuper",
       actions: [
+        { type: "IconButton", key: "searchToggle", icon: "search", ...twin("brSearch", "labelText"), ...twin("brSearch", "tooltip"), onPressed: { ui: [{ toggle: "searchBox" }] } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } }
       ]
     },
-    body: { type: "SingleChildScrollView", key: "browse-" + active, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    // The tabs stay pinned under the bar; only the rows scroll.
+    body: { type: "Column", key: "page", children: [
+      { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
+    ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
   };
 }
@@ -6915,6 +6939,11 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2 }) {
       delete failed[tab];
       const pending = [tab, ...Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : []];
       return { state: { tab, pending: memo.get(tab) && memo.get(tab).whole ? pending.slice(1) : pending, failed } };
+    },
+    // The search box's submit: Kino's own search with the words filled in and only Xuper as the source.
+    search({ value }) {
+      const q = value && typeof value.q === "string" ? value.q.trim().slice(0, 100) : "";
+      return q === "" ? null : { go: { search: { q } } };
     },
     // The gear: the configuration (account, seeds, help) is its own page, one Back away.
     go({ arg }) {

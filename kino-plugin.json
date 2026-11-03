@@ -201,6 +201,7 @@
         {"key":"home","label":"Inicio","type":"section","hint":"Una fila con los canales en vivo de tu país al final de Inicio.","labelEn":"Home","hintEn":"A row with your country's live channels at the end of Home."},
         {"key":"homeCountry","label":"Canales en vivo de tu país","type":"select","default":"none","options":[{"value":"none","label":"Ninguno","labelEn":"None"},{"value":"BO","label":"Bolivia","labelEn":"Bolivia"},{"value":"CL","label":"Chile","labelEn":"Chile"},{"value":"CO","label":"Colombia","labelEn":"Colombia"},{"value":"CR","label":"Costa Rica","labelEn":"Costa Rica"},{"value":"EC","label":"Ecuador","labelEn":"Ecuador"},{"value":"SV","label":"El Salvador","labelEn":"El Salvador"},{"value":"ES","label":"España","labelEn":"Spain"},{"value":"US","label":"Estados Unidos","labelEn":"United States"},{"value":"GT-NI-BZ","label":"Guatemala, Nicaragua o Belice","labelEn":"Guatemala, Nicaragua or Belize"},{"value":"HN","label":"Honduras","labelEn":"Honduras"},{"value":"MX","label":"México","labelEn":"Mexico"},{"value":"PA","label":"Panamá","labelEn":"Panama"},{"value":"PY","label":"Paraguay","labelEn":"Paraguay"},{"value":"PE","label":"Perú","labelEn":"Peru"},{"value":"PR","label":"Puerto Rico","labelEn":"Puerto Rico"},{"value":"DO","label":"República Dominicana","labelEn":"Dominican Republic"},{"value":"UY","label":"Uruguay","labelEn":"Uruguay"},{"value":"VE","label":"Venezuela","labelEn":"Venezuela"}],"labelEn":"Live channels from your country"}
       ]
-    }
+    },
+    "19": { "capabilities": ["screen"] }
   }
 }

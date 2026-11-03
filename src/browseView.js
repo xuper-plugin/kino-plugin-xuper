@@ -41,7 +41,13 @@ const rail = (r, key, titleOverride) => ({
  */
 export function browseView({ tab, data, recent, pending, failed }) {
   const active = TAB_IDS.includes(tab) ? tab : TAB_IDS[0];
-  const body = [];
+  // The search box opens under the bar (a local toggle, no plugin call) and sends Kino's own search narrowed to Xuper.
+  const body = [{
+    type: "Form", key: "searchBox", hidden: true, onSubmitted: "search", gap: 8, children: [
+      { type: "TextField", key: "q", kind: "text", ...twin("brSearchHint", "labelText"), maxLength: 100, autofocus: true },
+      { type: "ElevatedButton", key: "searchGo", ...twin("brSearch", "labelText"), icon: "search", submit: true },
+    ],
+  }];
   if (data) {
     if (data.slides.length > 0) body.push(hero(data.slides));
     if (recent.length > 0) body.push(rail({ items: recent }, "recent", twin("brRecent", "title")));
@@ -57,12 +63,23 @@ export function browseView({ tab, data, recent, pending, failed }) {
     type: "Scaffold",
     appBar: {
       type: "AppBar",
-      title: { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      // One bar instead of two (Kino 0.9.81+; an older Kino draws its own bar above and this one under it, as before):
+      // the close button where Kino's was, the name where the plugin's was, search and settings at the end.
+      mergeWithKinoBar: true,
+      dense: true,
+      leading: { type: "IconButton", key: "close", icon: "close", ...twin("brClose", "labelText"), ...twin("brClose", "tooltip"), onPressed: { go: { close: true } } },
+      title: "Xuper",
+      titleEn: "Xuper",
       actions: [
+        { type: "IconButton", key: "searchToggle", icon: "search", ...twin("brSearch", "labelText"), ...twin("brSearch", "tooltip"), onPressed: { ui: [{ toggle: "searchBox" }] } },
         { type: "IconButton", key: "settings", icon: "settings", ...twin("brSettings", "labelText"), ...twin("brSettings", "tooltip"), onPressed: { event: "go", arg: "settings" } },
       ],
     },
-    body: { type: "SingleChildScrollView", key: "browse-" + active, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    // The tabs stay pinned under the bar; only the rows scroll.
+    body: { type: "Column", key: "page", children: [
+      { type: "TabBar", key: "tabs", value: active, onChanged: "tab", tabs: TAB_IDS.map((id) => ({ value: id, ...twin(TAB_KEYS[id], "label") })) },
+      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    ] },
     ...(pending ? { every: { ms: POLL_MS, event: "tick" } } : {}),
   };
 }
