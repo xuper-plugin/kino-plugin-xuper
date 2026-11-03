@@ -12,10 +12,17 @@ import { isEnglish, isSpanish } from "./i18n.js";
 import { TAB_IDS, tabOf, recentOf, cardOf } from "./browseModel.js";
 import { browseView, searchView, liveView } from "./browseView.js";
 import { trace, errCode } from "./trace.js";
+import { makeMetaCache } from "./metaCache.js";
 
 const TAB_KEY = "browseTab";
 
 export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, countryRow = null, live = null }) {
+  const meta = makeMetaCache({ kino, clock });
+  /** [data] with what the meta cache knows: the cards' TMDB ids and the slides' title logos. */
+  const enrich = (data) => (data ? {
+    slides: data.slides.map((s) => { const k = meta.known(s.id); return k.logo ? { ...s, logo: k.logo } : s; }),
+    rails: data.rails.map((r) => ({ ...r, items: meta.dress(r.items) })),
+  } : data);
   const memo = new Map(); // tab -> { data, whole: the root's rows were fetched whole in this sandbox }
   let recentCards = [];
   let seen = null; // the kept rows the memo was built from (identity): a different set means rebuild
@@ -119,7 +126,7 @@ export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, cou
     paint(tab);
     const m = memo.get(tab);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]), device: ctx.device });
+    return browseView({ tab, data: m ? enrich(m.data) : null, recent: meta.dress(recentCards), live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]), device: ctx.device });
   }
 
   async function load(tab) {
@@ -214,10 +221,17 @@ export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, cou
       if (pending.length === 0) return null;
       const [next, ...rest] = pending;
       const failed = { ...(state.failed || {}) };
+      // The TMDB ids and title logos of a tab's first titles (slides first), a few lookups per tick; it asks again until all are known.
+      if (typeof next === "string" && next.startsWith("meta:")) {
+        const m = memo.get(next.slice(5));
+        if (m) await meta.fill([...m.data.slides.map((s) => ({ id: s.id, title: s.title, kind: s.kind })), ...m.data.rails.flatMap((r) => r.items.slice(0, 6).map((c) => ({ id: c.id, title: c.title, kind: c.kind })))], 12_000);
+        return { state: { pending: rest } };
+      }
       if (next === "live") { await loadLiveRow(); return { state: { pending: rest } }; }
       try {
         const ok = await load(next);
         if (!ok) failed[next] = true; else delete failed[next];
+        if (ok && meta.usable()) rest.unshift("meta:" + next);
       } catch (e) {
         trace(kino, "browse", "tab_fail", { code: errCode(e) });
         failed[next] = true;

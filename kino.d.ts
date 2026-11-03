@@ -1503,7 +1503,7 @@ type KinoScreenNode =
   | (KinoScreenInput & KinoScreenFieldRules & { type: "Chips"; options: KinoScreenOption[]; multiple?: boolean; value?: string | string[]; minLength?: number; maxLength?: number })
   | (KinoScreenInput & KinoScreenFieldRules & { type: "Switch" | "Checkbox"; value?: boolean })
   | (KinoScreenInput & { type: "Slider"; min?: number; max?: number; step?: number; value?: number })
-  | (KinoScreenBase & { type: "TabBar"; tabs: KinoScreenOption[]; value?: string; onChanged?: KinoScreenAction })
+  | (KinoScreenBase & { type: "TabBar"; tabs: KinoScreenOption[]; value?: string; onChanged?: KinoScreenAction; /** additive, no new apiVersion: `false` takes away the line under the tabs (default `true`) */ divider?: boolean })
   | (KinoScreenBase & { type: "emptyState" | "errorState"; title: string; titleEn?: string; text?: string; textEn?: string; icon?: KinoIconName })
   // Kino's own components: data only, drawn with Home's cards and rows. Items are what `home` rows return (KinoItem),
   // read by the same rules (a series needs the episodes capability; posters and backdrops https only, else Kino's
@@ -1672,8 +1672,11 @@ type KinoScreenNode =
  * `dense` (additive, no new apiVersion): on a phone the bar has 4 dp above and below its row instead of 16 (56 dp in all); a TV
  * and a player panel ignore it. **Recommended for every screen of a plugin: `mergeWithKinoBar: true` + `dense: true`**, one compact
  * bar instead of two; both are plain booleans, so choose by window with `ctx.device` / `ctx.size` when you need to.
+ * `divider` (additive, no new apiVersion): `false` takes away the hairline at the bar's lower edge (default `true`). A logo instead
+ * of the name: with `mergeWithKinoBar`, an `Image` as the `title` (a `data:image/png;base64,…` address, `fit: "contain"`, `h: 32`
+ * or 40, and a `Text` as its `fallback`), painted on the bar's own colour.
  */
-type KinoScreenAppBar = KinoScreenBase & { type: "AppBar"; title?: string | KinoScreenNode; titleEn?: string; leading?: KinoScreenNode; actions?: KinoScreenNode[]; bottom?: KinoScreenNode; centerTitle?: boolean; dense?: boolean; backgroundColor?: KinoScreenColorRole; mergeWithKinoBar?: boolean };
+type KinoScreenAppBar = KinoScreenBase & { type: "AppBar"; title?: string | KinoScreenNode; titleEn?: string; leading?: KinoScreenNode; actions?: KinoScreenNode[]; bottom?: KinoScreenNode; centerTitle?: boolean; dense?: boolean; divider?: boolean; backgroundColor?: KinoScreenColorRole; mergeWithKinoBar?: boolean };
 /** Task 17 item G: a Scaffold's bottom bar of 2..5 items; `onChanged`'s `value` is the item's key (keep it in your state). */
 type KinoScreenNavigationBar = KinoScreenBase & { type: "NavigationBar"; items: { key: string; icon: KinoIconName; label: string; labelEn?: string; badge?: KinoScreenBadge }[]; value?: string; selectedIndex?: number; onChanged?: KinoScreenAction };
 

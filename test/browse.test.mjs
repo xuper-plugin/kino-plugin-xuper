@@ -318,3 +318,24 @@ test("on a TV the live page's search box also lives in the bar", async () => {
   assert.ok(byKey(r.tree, "lq") && byKey(r.tree, "lsearchGo"));
   assert.equal(typeof r.raw.appBar.title, "object");
 });
+
+test("TMDB ids and title logos: asked through kino.meta after a tab loads, the cards then carry the id and the slide its logo", async () => {
+  const calls = [];
+  const world = accountWorld();
+  const kino = Object.assign(Object.create(Object.getPrototypeOf(world.kino)), world.kino);
+  const meta = async (q) => { calls.push(q.title); return { ids: { tmdb: 4242 }, logo: `https://image.tmdb.org/t/p/w500/${calls.length}.png` }; };
+  meta.byTitle = true;
+  const catalog = fakeCatalog({ kept: [] });
+  const recent = makeRecentStore({ kino: world.kino, clock: world.clock });
+  const h = screenHarness({ ...world, kino: { ...world.kino, meta } }, { device: "phone", start: "main", deps: () => ({ settings: world.settings, session: world.session, registration: world.registration, catalog, recent, ...fakeLive() }) });
+  await h.send("open");
+  await h.send("tick", { timer: true });
+  assert.equal(h.state.pending[0], "meta:peliculas");
+  await h.send("tick", { timer: true });
+  assert.ok(calls.length > 0);
+  const r = await h.render();
+  assert.deepEqual(r.dropped, []);
+  const hero = byKey(r.tree, "hero");
+  assert.ok(allNodes(hero).some((n) => n.type === "heroCard" && /image\.tmdb\.org/.test(String(n.logo))), "a slide carries its logo");
+  assert.equal(allNodes(r.tree).filter((n) => n.type === "titleRail")[0].items[0].tmdb, 4242);
+});

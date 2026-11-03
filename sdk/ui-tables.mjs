@@ -220,7 +220,9 @@ export const PROPS = {
     ["title", "string", "required", "`titleEn` the English one"],
     ["text", "string", "none", "`textEn`"],
     ["image", "https URL", "none", "a public https picture"],
+    ["logo", "https URL", "none", "additive, no new apiVersion: a title's logo (a public https picture) drawn where the title's text is, when it loads; the text still names it for a screen reader and shows when the logo cannot"],
     ["buttons", "button nodes", "none", `at most ${L.maxHeroButtons}`],
+    ["h", "a size of the scale", "Kino's (240 dp, 320 on a TV)", "additive, no new apiVersion: the banner's height; a per-size map works (`{ compact: 200, expanded: 240 }`)"],
   ],
   popup: [
     ["key", "string", "required", "what `{ open: key }` and `{ close: key }` name"],
@@ -335,7 +337,7 @@ export const PROPS = {
     ["actions", "`IconButton[]`", "none", `at most ${S.scaffold.maxAppBarActions}, each with a \`labelText\`; a \`badge\` allowed`],
     ["bottom", "a `TabBar`", "none", "under the row"],
     ["centerTitle", "boolean", "`false`", "the title centred"],
-    ["dense", "boolean", "`false`", "additive, no new apiVersion: on a phone the bar has 4 dp above and below its row instead of 16 (a TV and a player panel keep theirs); also the one bar of `mergeWithKinoBar`"],
+    ["dense", "boolean", "`false`", "additive, no new apiVersion: on a phone the bar has 4 dp above and below its row instead of 16, on a TV 8 dp instead of 24 (a player panel keeps its own); also the one bar of `mergeWithKinoBar`"],
     ["divider", "boolean", "`true`", "additive, no new apiVersion: `false` takes away the hairline at the bar's lower edge"],
     ["backgroundColor", "a colour role", "Kino's surface", "its text and icons in the role's readable colour"],
     ["mergeWithKinoBar", "boolean", "`false`", `apiVersion ${S.scaffold.backApiVersion}, the root Scaffold's only: with a \`leading\`, Kino draws one bar, your \`leading\` in Close's place and your \`title\` in your plugin's name's`],

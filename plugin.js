@@ -6102,6 +6102,7 @@ var slideNode = (s) => ({
   type: "heroCard",
   key: "slide-" + s.id,
   h: { compact: 200, expanded: 240 },
+  ...s.logo ? { logo: s.logo } : {},
   title: s.title,
   text: s.text,
   image: s.image,
@@ -7010,9 +7011,84 @@ function makeEvents({ kino: kino2, clock: clock2, deps: deps2 }) {
   };
 }
 
+// src/metaCache.js
+var KEY4 = "meta1";
+var MAX = 120;
+var CALL_MS = 8e3;
+var HTTPS2 = /^https:\/\//;
+function makeMetaCache({ kino: kino2, clock: clock2 = { now: () => Date.now() } }) {
+  const usable = () => {
+    try {
+      return typeof kino2.meta === "function" && kino2.meta.byTitle === true;
+    } catch (_) {
+      return false;
+    }
+  };
+  let book = null;
+  function read() {
+    if (book) return book;
+    try {
+      const o = JSON.parse(kino2.storage.get(KEY4) || "null");
+      book = o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    } catch (_) {
+      book = {};
+    }
+    return book;
+  }
+  function write() {
+    try {
+      const ids = Object.keys(book);
+      if (ids.length > MAX) for (const id of ids.slice(0, ids.length - MAX)) delete book[id];
+      kino2.storage.set(KEY4, JSON.stringify(book));
+    } catch (_) {
+    }
+  }
+  function known(id) {
+    const e = read()[id];
+    if (!e) return {};
+    return { ...e.t > 0 ? { tmdb: e.t } : {}, ...e.l && HTTPS2.test(e.l) ? { logo: e.l } : {} };
+  }
+  function dress(cards) {
+    return cards.map((c) => {
+      const k = known(c.id);
+      return k.tmdb && !(c.ids && c.ids.tmdb) ? { ...c, ids: { ...c.ids || {}, tmdb: k.tmdb } } : c;
+    });
+  }
+  async function fill(cards, budgetMs) {
+    if (!usable()) return 0;
+    const b = read();
+    const end = clock2.now() + budgetMs;
+    let asked = 0;
+    for (const c of cards) {
+      if (clock2.now() + CALL_MS > end) break;
+      if (!c || typeof c.id !== "string" || Object.hasOwn(b, c.id) || c.ids && c.ids.tmdb && c.noLogo) continue;
+      const year = c.year !== void 0 ? { year: c.year } : {};
+      try {
+        const a = await kino2.meta({ type: c.kind === "series" ? "series" : "movie", title: c.title, ...year });
+        b[c.id] = { t: a && a.ids && Number.isInteger(a.ids.tmdb) ? a.ids.tmdb : 0, l: a && typeof a.logo === "string" ? a.logo : "" };
+      } catch (e) {
+        if (e && e.code === "rate_limited") break;
+        continue;
+      }
+      asked++;
+    }
+    if (asked > 0) write();
+    return asked;
+  }
+  return { known, dress, fill, usable };
+}
+
 // src/browse.js
 var TAB_KEY = "browseTab";
 function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2, liveTiles = null, countryRow = null, live: live2 = null }) {
+  const meta = makeMetaCache({ kino: kino2, clock: clock2 });
+  const enrich = (data) => data ? {
+    slides: data.slides.map((s) => {
+      const k = meta.known(s.id);
+      return k.logo ? { ...s, logo: k.logo } : s;
+    }),
+    rails: data.rails.map((r) => ({ ...r, items: meta.dress(r.items) }))
+  } : data;
   const memo = /* @__PURE__ */ new Map();
   let recentCards = [];
   let seen = null;
@@ -7130,7 +7206,7 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2, live
     paint(tab);
     const m = memo.get(tab);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    return browseView({ tab, data: m ? m.data : null, recent: recentCards, live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]), device: ctx.device });
+    return browseView({ tab, data: m ? enrich(m.data) : null, recent: meta.dress(recentCards), live: liveRow || [], pending, failed: !!(st.failed && st.failed[tab]), device: ctx.device });
   }
   async function load(tab) {
     const rows = await catalog.rows("section", tab);
@@ -7245,6 +7321,11 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2, live
       if (pending.length === 0) return null;
       const [next, ...rest] = pending;
       const failed = { ...state.failed || {} };
+      if (typeof next === "string" && next.startsWith("meta:")) {
+        const m = memo.get(next.slice(5));
+        if (m) await meta.fill([...m.data.slides.map((s) => ({ id: s.id, title: s.title, kind: s.kind })), ...m.data.rails.flatMap((r) => r.items.slice(0, 6).map((c) => ({ id: c.id, title: c.title, kind: c.kind })))], 12e3);
+        return { state: { pending: rest } };
+      }
       if (next === "live") {
         await loadLiveRow();
         return { state: { pending: rest } };
@@ -7253,6 +7334,7 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2, live
         const ok = await load(next);
         if (!ok) failed[next] = true;
         else delete failed[next];
+        if (ok && meta.usable()) rest.unshift("meta:" + next);
       } catch (e) {
         trace(kino2, "browse", "tab_fail", { code: errCode(e) });
         failed[next] = true;
@@ -7315,12 +7397,12 @@ function makeScreen({ kino: kino2, clock: clock2, deps: deps2 }) {
 }
 
 // src/recentStore.js
-var KEY4 = "recent:v1";
+var KEY5 = "recent:v1";
 var MAX_RECENT = 12;
 function makeRecentStore({ kino: kino2, clock: clock2 }) {
   function read() {
     try {
-      const raw = kino2.storage.get(KEY4);
+      const raw = kino2.storage.get(KEY5);
       if (raw === null || raw === void 0) return [];
       const o = JSON.parse(raw);
       if (!isObject(o) || o.v !== 1 || !Array.isArray(o.e)) return [];
@@ -7336,7 +7418,7 @@ function makeRecentStore({ kino: kino2, clock: clock2 }) {
       const entries = read();
       if (entries[0] && entries[0].id === magis.contentId) return;
       const next = [{ id: magis.contentId, at: clock2.now() }, ...entries.filter((e) => e.id !== magis.contentId)].slice(0, MAX_RECENT);
-      kino2.storage.set(KEY4, JSON.stringify({ v: 1, e: next }));
+      kino2.storage.set(KEY5, JSON.stringify({ v: 1, e: next }));
     } catch (_) {
     }
   }

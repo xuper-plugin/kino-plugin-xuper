@@ -1175,7 +1175,14 @@ class Reader {
           image = httpsImage({ url: typeof i === "string" ? i : "" }, []) || null;
           if (image === null) this.log("screen: heroCard image is not https on a public host, dropped");
         }
-        return (k) => ({ title, text, image, buttons: k ? this.heroButtons(o, depth) : [] });
+        // Additive: a title's logo (a public https picture) drawn where the title's text is, when it loads.
+        let logo = null;
+        const lg = opt(o, "logo");
+        if (!absent(lg)) {
+          logo = httpsImage({ url: typeof lg === "string" ? lg : "" }, []) || null;
+          if (logo === null) this.log("screen: heroCard logo is not https on a public host, dropped");
+        }
+        return (k) => ({ title, text, image, logo, buttons: k ? this.heroButtons(o, depth) : [] });
       }
       case POPUP: {
         const kind = opt(o, "kind");
