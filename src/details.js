@@ -20,11 +20,24 @@ export function makeDetails({ kino, tmdb = null, portalChapters, clock = null, i
     if (!tmdb || typeof tmdb.movieByTitle !== "function" || typeof title !== "string" || title.trim() === "") return null;
     let found = null;
     try { found = await tmdb.movieByTitle(title, bounds(), year); } catch (_) { found = null; }
-    const ok = found && Number.isInteger(found.tmdbId) && found.tmdbId > 0;
-    trace(kino, "details", "tmdb", { match: ok ? 1 : 0 });
-    if (!ok) return null;
-    if (ids) ids.remember(contentId, "", found.tmdbId);
-    return { ids: { tmdb: found.tmdbId } };
+    let tmdbId = found && Number.isInteger(found.tmdbId) && found.tmdbId > 0 ? found.tmdbId : 0;
+    trace(kino, "details", "tmdb", { match: tmdbId > 0 ? 1 : 0 });
+    // No CLEAR match here (two films with one name, a remake): Kino's own matcher (kino.meta, which knows the year and what is
+    // popular) names the title; the page gets its TMDB id from it.
+    if (tmdbId === 0) tmdbId = await viaMeta(title, year);
+    if (tmdbId === 0) return null;
+    if (ids) ids.remember(contentId, "", tmdbId);
+    return { ids: { tmdb: tmdbId } };
+  }
+
+  async function viaMeta(title, year) {
+    try {
+      if (typeof kino.meta !== "function" || kino.meta.byTitle !== true) return 0;
+      const a = await kino.meta({ type: "movie", title: title.trim(), ...(year ? { year } : {}) });
+      const id = a && a.ids ? a.ids.tmdb : 0;
+      trace(kino, "details", "meta", { match: Number.isInteger(id) && id > 0 ? 1 : 0 });
+      return Number.isInteger(id) && id > 0 ? id : 0;
+    } catch (_) { return 0; }
   }
 
   return async function details(ref) {

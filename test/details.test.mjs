@@ -136,3 +136,20 @@ test("an unreadable ref, a portal that fails, a blank title or no TMDB client an
   assert.equal(await deps({ raw: { imdb: "", title: "X" }, noTmdb: true }).details(movieRef), null);
   assert.equal(await deps({ raw: null }).details(movieRef), null);
 });
+
+test("when TMDB's own search finds no CLEAR film, Kino's matcher names it (two films called The Running Man)", async () => {
+  const asked = [];
+  const meta = async (q) => { asked.push(q); return { ids: { tmdb: 868759 } }; };
+  meta.byTitle = true;
+  const kino = { meta, log() {} };
+  const tmdb = { movieByTitle: async () => null };
+  const titles = { titleOf: () => ({ title: "The Running Man", year: "" }) };
+  const remembered = [];
+  const d = makeDetails({ kino, tmdb, portalChapters: async () => null, titles, ids: { remember: (...a) => remembered.push(a) } });
+  assert.deepEqual(await d(encode({ contentId: "m1" })), { ids: { tmdb: 868759 } });
+  assert.deepEqual(asked, [{ type: "movie", title: "The Running Man" }]);
+  assert.deepEqual(remembered, [["m1", "", 868759]]);
+  // No kino.meta (an older Kino): the old answer, no id.
+  const old = makeDetails({ kino: { log() {} }, tmdb, portalChapters: async () => null, titles });
+  assert.equal(await old(encode({ contentId: "m1" })), null);
+});

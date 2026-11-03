@@ -3170,11 +3170,23 @@ function makeDetails({ kino: kino2, tmdb = null, portalChapters, clock: clock2 =
     } catch (_) {
       found = null;
     }
-    const ok = found && Number.isInteger(found.tmdbId) && found.tmdbId > 0;
-    trace(kino2, "details", "tmdb", { match: ok ? 1 : 0 });
-    if (!ok) return null;
-    if (ids) ids.remember(contentId, "", found.tmdbId);
-    return { ids: { tmdb: found.tmdbId } };
+    let tmdbId = found && Number.isInteger(found.tmdbId) && found.tmdbId > 0 ? found.tmdbId : 0;
+    trace(kino2, "details", "tmdb", { match: tmdbId > 0 ? 1 : 0 });
+    if (tmdbId === 0) tmdbId = await viaMeta(title2, year);
+    if (tmdbId === 0) return null;
+    if (ids) ids.remember(contentId, "", tmdbId);
+    return { ids: { tmdb: tmdbId } };
+  }
+  async function viaMeta(title2, year) {
+    try {
+      if (typeof kino2.meta !== "function" || kino2.meta.byTitle !== true) return 0;
+      const a = await kino2.meta({ type: "movie", title: title2.trim(), ...year ? { year } : {} });
+      const id = a && a.ids ? a.ids.tmdb : 0;
+      trace(kino2, "details", "meta", { match: Number.isInteger(id) && id > 0 ? 1 : 0 });
+      return Number.isInteger(id) && id > 0 ? id : 0;
+    } catch (_) {
+      return 0;
+    }
   }
   return async function details2(ref) {
     let r;
