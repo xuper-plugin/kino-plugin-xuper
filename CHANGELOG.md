@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.3
+
+- The title page's banner is a slider of the title's pictures (TMDB backdrops) when there is more than one.
+- The cast circles show the actors' photos (Kino's answer carries only their names; the photos come from TMDB's credits).
+- The episodes' pictures have rounded corners.
+- Inicio's slider also goes edge to edge, right under the bar.
+
 ## 2.5.2
 
 - The title page's banner goes edge to edge (to the sides and right under the bar) instead of sitting inside the page's margin.

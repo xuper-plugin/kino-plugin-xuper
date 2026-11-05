@@ -184,6 +184,8 @@ export function browseView({ tab, data, recent, live = [], pending, failed, devi
   } else {
     body.push(heroSkeleton(), railSkeleton(1), railSkeleton(2), railSkeleton(3));
   }
+  const isBanner = (n) => !!n && (n.type === "heroCard" || n.key === "heroSkeleton" || (n.type === "PageView" && String(n.key).startsWith("hero")));
+  const banner = body.length > 0 && isBanner(body[0]) ? body.shift() : null; // the main picture goes edge to edge, right under the bar
   return {
     type: "Scaffold",
     appBar: {
@@ -211,7 +213,7 @@ export function browseView({ tab, data, recent, live = [], pending, failed, devi
     body: { type: "Column", key: "page", children: [
       // The tabs line up with the bar's buttons and the cards below (a wide window and the TV pad their content by 24).
       ...(tv ? [] : [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(active)] }]),
-      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [...(banner ? [banner] : []), { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
     ] },
     ...(pending ? { every: { ms: POLL_MS, event: "tick" } } : {}),
   };

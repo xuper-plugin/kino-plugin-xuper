@@ -6121,6 +6121,13 @@ var num = (v) => {
 };
 var https = (v) => typeof v === "string" && HTTPS2.test(v) && v.length <= 2048 ? v : void 0;
 var opensPage = (card) => !!card && (card.kind === "movie" || card.kind === "series") && typeof card.ref === "string" && card.ref.length < 600 && typeof card.id === "string";
+function backdropsOf(images, first) {
+  const base = "https://image.tmdb.org/t/p/w780";
+  const list = (images && images.backdrops || []).filter((b) => b && typeof b.file_path === "string" && b.file_path.startsWith("/") && b.width >= 1e3).sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0)).map((b) => base + b.file_path);
+  const out = [];
+  for (const u of [first, ...list]) if (u && !out.some((x) => x.slice(x.lastIndexOf("/")) === u.slice(u.lastIndexOf("/")))) out.push(u);
+  return out.slice(0, 6);
+}
 function openArgs(card) {
   const year = card.year ? num(card.year) : 0;
   return { open: card.ref, i: card.id, t: String(card.title || "").slice(0, 100), k: card.kind, ...year ? { y: year } : {} };
@@ -6180,6 +6187,19 @@ async function loadDetail(args) {
     cast: (meta.cast || []).slice(0, MAX_CAST),
     episodes: []
   };
+  const tmdbId = meta.ids && Number.isInteger(meta.ids.tmdb) ? meta.ids.tmdb : 0;
+  if (tmdbId && typeof kino.tmdb === "function") {
+    try {
+      const credits = await kino.tmdb(`/${kind === "movie" ? "movie" : "tv"}/${tmdbId}/credits`, { language: "es-MX" });
+      const cast = (credits && credits.cast || []).filter((c) => c && c.name).slice(0, MAX_CAST).map((c) => ({ name: String(c.name), character: String(c.character || ""), photo: typeof c.profile_path === "string" && c.profile_path.startsWith("/") ? "https://image.tmdb.org/t/p/w185" + c.profile_path : void 0 }));
+      if (cast.length) d.cast = cast;
+    } catch (_) {
+    }
+    try {
+      d.images = backdropsOf(await kino.tmdb(`/${kind === "movie" ? "movie" : "tv"}/${tmdbId}/images`, { include_image_language: "null,es,en" }), d.backdrop);
+    } catch (_) {
+    }
+  }
   if (kind === "series") {
     d.episodes = (Array.isArray(meta.episodes) ? meta.episodes : []).filter((e) => num(e.season) >= 1 && num(e.number) >= 1).slice(0, 600).map((e) => ({ s: num(e.season), n: num(e.number), title: String(e.title || "").slice(0, 120), overview: String(e.overview || "").slice(0, 110), still: https(e.still), air: /^\d{4}-\d{2}-\d{2}/.test(String(e.airDate || "")) ? String(e.airDate).slice(0, 10) : "" }));
   }
@@ -6208,7 +6228,7 @@ function episodeRow(d, r, ep) {
     onTap: episodeGo(d, r),
     canRequestFocus: true,
     children: [
-      { type: "Image", key: `epi-${ep.s}-${ep.n}`, width: 120, aspect: "16:9", fit: "cover", ...ep.still ? { url: ep.still } : {}, fallback: { type: "Skeleton", shape: "block", height: 64 } },
+      { type: "Image", key: `epi-${ep.s}-${ep.n}`, width: 120, aspect: "16:9", fit: "cover", radius: "medium", ...ep.still ? { url: ep.still } : {}, fallback: { type: "Skeleton", shape: "block", height: 64 } },
       { type: "Column", flex: 1, gap: 4, children: [
         { type: "Text", bold: true, maxLines: 2, ...heading },
         ...facts ? [{ type: "Text", style: "caption", color: "muted", text: facts.es, textEn: facts.en }] : [],
@@ -6255,17 +6275,19 @@ function detailView({ r, entry, season, logo: logo2, back }) {
       { type: "TextButton", key: "dmore", ...twin("dMore", "labelText"), onPressed: toKino }
     ];
     const lead = d.tagline || (d.overview.length <= LEAD_MAX ? d.overview : d.overview.slice(0, LEAD_MAX - 1).trimEnd() + "\u2026");
-    hero2 = {
+    const images = (d.images && d.images.length ? d.images : [d.backdrop || ""]).slice(0, 6);
+    const slide = (image, i) => ({
       type: "heroCard",
-      key: "dhero",
+      key: i ? "dhero-" + i : "dhero",
       h: { compact: 240, expanded: 320 },
       title: d.title,
       titleEn: d.title,
       ...lead ? same(lead) : {},
-      ...d.backdrop ? { image: d.backdrop } : {},
+      ...image ? { image } : {},
       ...d.logo ? { logo: d.logo } : {},
-      buttons
-    };
+      buttons: i ? buttons.map((b) => ({ ...b, key: b.key + "-" + i, autofocus: false })) : buttons
+    });
+    hero2 = images.length > 1 ? { type: "PageView", key: "hero" + images.length, autoPlayMs: 6e3, children: images.map(slide) } : slide(images[0], 0);
     const rating = d.ratings.find((x) => x.source === "imdb") || d.ratings.find((x) => x.source === "tmdb");
     const facts = [];
     if (rating) facts.push("\u2605 " + rating.value);
@@ -6495,6 +6517,8 @@ function browseView({ tab, data, recent: recent2, live: live2 = [], pending, fai
   } else {
     body.push(heroSkeleton2(), railSkeleton2(1), railSkeleton2(2), railSkeleton2(3));
   }
+  const isBanner = (n) => !!n && (n.type === "heroCard" || n.key === "heroSkeleton" || n.type === "PageView" && String(n.key).startsWith("hero"));
+  const banner2 = body.length > 0 && isBanner(body[0]) ? body.shift() : null;
   return {
     type: "Scaffold",
     appBar: {
@@ -6519,7 +6543,7 @@ function browseView({ tab, data, recent: recent2, live: live2 = [], pending, fai
     body: { type: "Column", key: "page", children: [
       // The tabs line up with the bar's buttons and the cards below (a wide window and the TV pad their content by 24).
       ...tv ? [] : [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(active)] }],
-      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
+      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [...banner2 ? [banner2] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
     ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
   };
@@ -6530,7 +6554,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.5.2";
+var PLUGIN_VERSION = "2.5.3";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
