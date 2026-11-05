@@ -334,6 +334,18 @@ export const TEXTS = Object.freeze({
   brRetry: ["Reintentar", "Retry"],
   brEmpty: ["Aún no hay nada aquí.", "Nothing here yet."],
   brUpToDate: ["Al día", "Up to date"],
+  // The title page of the browse screen (src/detailView.js).
+  dEpisodeN: ["Episodio {n}", "Episode {n}"],
+  dSeasonN: ["Temporada {n}", "Season {n}"],
+  dSeasonsN: ["{n} temporadas", "{n} seasons"],
+  dSeriesGo: ["Ver episodios", "Watch episodes"],
+  dMore: ["Más opciones", "More options"],
+  dCreators: ["Creación: {v}", "Created by: {v}"],
+  dDirector: ["Dirección: {v}", "Directed by: {v}"],
+  dCast: ["Reparto", "Cast"],
+  dEpisodes: ["Episodios", "Episodes"],
+  dFailed: ["No se pudo cargar la ficha de este título. Revisa tu conexión e inténtalo de nuevo.", "This title's page could not be loaded. Check your connection and try again."],
+  dSeeInKino: ["Ver en Kino", "Open in Kino"],
 });
 
 /** The text for `key` in Kino's language, `{name}`s filled from `vars` (and `{place}` always). */

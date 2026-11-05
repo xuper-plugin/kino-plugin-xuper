@@ -6,7 +6,7 @@ import { makeEvents } from "./screenEvents.js";
 import { makeBrowse } from "./browse.js";
 
 /** The routes of the browse screen: what the menu entry opens (`main`) and Kino's Categorías route. Every other route (`settings`, `signin`, `register`) is the configuration. */
-export const BROWSE_ROUTES = ["main", "categories", "search", "live"];
+export const BROWSE_ROUTES = ["main", "categories", "search", "live", "detail"];
 
 /**
  * True when this Kino's screen kit has what the screen needs (secret fields, `steps`, press budgets, `onSaved`: they came

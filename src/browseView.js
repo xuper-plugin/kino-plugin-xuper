@@ -3,6 +3,7 @@
 import { twin } from "./i18n.js";
 import { TAB_IDS } from "./browseModel.js";
 import { LOGO_DATA, LOGO_ASPECT } from "./logo.js";
+import { detailView, withOpen } from "./detailView.js";
 
 const TAB_KEYS = { peliculas: "brTabPeliculas", series: "brTabSeries", infantil: "brTabInfantil", anime: "brTabAnime" };
 const POLL_MS = 1_500;
@@ -24,7 +25,9 @@ const slideNode = (s) => ({
     { type: "ElevatedButton", key: "watch-" + s.id, ...twin("brWatch", "labelText"), icon: "play",
       onPressed: { go: { play: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } } },
     { type: "TextButton", key: "info-" + s.id, ...twin("brInfo", "labelText"),
-      onPressed: { go: { title: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } } },
+      onPressed: s.kind === "movie" || s.kind === "series"
+        ? { go: { screen: { args: { open: s.ref, t: String(s.title).slice(0, 100), k: s.kind, y: s.year ? Number(s.year) || 0 : 0, i: s.id } } } }
+        : { go: { title: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } } },
   ],
 });
 
@@ -58,7 +61,7 @@ const roundRail = (items, titleOverride) => ({
 });
 
 const rail = (r, key, titleOverride) => ({
-  type: "titleRail", key, ...(titleOverride || { title: r.title }), ...(r.ref ? { ref: r.ref } : {}), items: r.items, size: "medium",
+  type: "titleRail", key, ...(titleOverride || { title: r.title }), ...(r.ref ? { ref: r.ref } : {}), items: r.items.map(withOpen), size: "medium",
 });
 
 const SEARCH_CAP = 60;
@@ -95,13 +98,13 @@ export function searchView({ query, status, items, history = [], device = "phone
     body.push({ type: "MaterialBanner", key: "searchFailed", role: "error", ...twin("brSearchFailed"), action: { ...twin("brRetry", "label"), onTap: "sretry" } });
   } else if (status === "done" && items) {
     if (items.length === 0) body.push({ type: "Text", ...twin("brNoResults", "text"), color: "muted" });
-    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
+    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP).map(withOpen) });
   } else if (status !== "idle") {
     body.push(gridSkeleton());
   } else if (history.length > 0) {
     // Nothing typed yet: what was found before, painted at once; a real search replaces it.
     body.push({ type: "Text", ...twin("brSearchedBefore", "text"), style: "h4" });
-    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP) });
+    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP).map(withOpen) });
   }
   return {
     type: "Scaffold",
@@ -206,4 +209,10 @@ export function browseView({ tab, data, recent, live = [], pending, failed, devi
     ] },
     ...(pending ? { every: { ms: POLL_MS, event: "tick" } } : {}),
   };
+}
+
+/** The title page (route "detail"): the same one bar, with Back where Close was. */
+export function detailPage({ r, entry, season }) {
+  const back = { type: "IconButton", key: "back", icon: "arrow_back", ...twin("brBack", "labelText"), ...twin("brBack", "tooltip"), onPressed: "back" };
+  return detailView({ r, entry, season, logo: logo(), back });
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.0
+
+- The browse screen has its own title page: a card, a slide or a result opens a banner with the title's logo, its facts, synopsis, cast and the seasons with every episode and its still. Back returns to the list. Kino's own page stays one press away ("Más opciones" on a movie, "Ver episodios" on a series, and an episode), where the player's sources, favourites, lists and downloads live. A title Kino cannot match by its name shows a retry and "Ver en Kino".
+
 ## 2.4.0
 
 - On a Kino that reads screens (the manifest's `enhancements."14"`), the Xuper entry in the menu opens Xuper's own browse screen (`screen.menuOpens: "screen"`; the settings page's button opens it too, and its gear opens the configuration): a featured slider (up to 6 titles with their picture and synopsis, turning every 6 s), the tabs Películas, Series, Infantil and Anime, and Kino's rails with «Ver más». An older Kino keeps the section it always had.
