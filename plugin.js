@@ -6238,8 +6238,10 @@ function detailView({ r, entry, season, logo: logo2, back }) {
   const d = entry && entry.d;
   const appBar = { type: "AppBar", mergeWithKinoBar: true, dense: true, divider: false, leading: back, title: logo2 };
   const body = [];
+  let hero2 = null;
   if (!entry) {
-    body.push(heroSkeleton(), railSkeleton());
+    hero2 = heroSkeleton();
+    body.push(railSkeleton());
   } else if (!d) {
     body.push({ type: "MaterialBanner", key: "detailFailed", role: "error", ...twin("dFailed"), action: { ...twin("brRetry", "label"), onTap: "dretry" } });
     body.push({ type: "ElevatedButton", key: "dkino", icon: "play", ...twin("dSeeInKino", "labelText"), onPressed: { go: { title: { ref: r.ref, kind: r.kind, id: r.id, title: r.title } } } });
@@ -6253,7 +6255,7 @@ function detailView({ r, entry, season, logo: logo2, back }) {
       { type: "TextButton", key: "dmore", ...twin("dMore", "labelText"), onPressed: toKino }
     ];
     const lead = d.tagline || (d.overview.length <= LEAD_MAX ? d.overview : d.overview.slice(0, LEAD_MAX - 1).trimEnd() + "\u2026");
-    body.push({
+    hero2 = {
       type: "heroCard",
       key: "dhero",
       h: { compact: 240, expanded: 320 },
@@ -6263,7 +6265,7 @@ function detailView({ r, entry, season, logo: logo2, back }) {
       ...d.backdrop ? { image: d.backdrop } : {},
       ...d.logo ? { logo: d.logo } : {},
       buttons
-    });
+    };
     const rating = d.ratings.find((x) => x.source === "imdb") || d.ratings.find((x) => x.source === "tmdb");
     const facts = [];
     if (rating) facts.push("\u2605 " + rating.value);
@@ -6289,7 +6291,7 @@ function detailView({ r, entry, season, logo: logo2, back }) {
   return {
     type: "Scaffold",
     appBar,
-    body: { type: "SingleChildScrollView", key: "detail-page", children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    body: { type: "SingleChildScrollView", key: "detail-page", children: [...hero2 ? [hero2] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
     ...!entry ? { every: { ms: 1e3, event: "dtick" } } : {}
   };
 }
@@ -6528,7 +6530,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.5.1";
+var PLUGIN_VERSION = "2.5.2";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.2
+
+- The title page's banner goes edge to edge (to the sides and right under the bar) instead of sitting inside the page's margin.
+
 ## 2.5.1
 
 - Fix: a card of the list opens the new title page on every Kino that reads screens. The rows and the search grid are now drawn card by card, each with its own tap, instead of Kino's row component (whose items cannot open a page of the plugin's own); each row keeps its "Ver más".

@@ -140,8 +140,10 @@ export function detailView({ r, entry, season, logo, back }) {
   const d = entry && entry.d;
   const appBar = { type: "AppBar", mergeWithKinoBar: true, dense: true, divider: false, leading: back, title: logo };
   const body = [];
+  let hero = null; // the banner goes edge to edge: outside the padded column
   if (!entry) {
-    body.push(heroSkeleton(), railSkeleton());
+    hero = heroSkeleton();
+    body.push(railSkeleton());
   } else if (!d) {
     body.push({ type: "MaterialBanner", key: "detailFailed", role: "error", ...twin("dFailed"), action: { ...twin("brRetry", "label"), onTap: "dretry" } });
     body.push({ type: "ElevatedButton", key: "dkino", icon: "play", ...twin("dSeeInKino", "labelText"), onPressed: { go: { title: { ref: r.ref, kind: r.kind, id: r.id, title: r.title } } } });
@@ -157,7 +159,7 @@ export function detailView({ r, entry, season, logo, back }) {
         { type: "TextButton", key: "dmore", ...twin("dMore", "labelText"), onPressed: toKino },
       ];
     const lead = d.tagline || (d.overview.length <= LEAD_MAX ? d.overview : d.overview.slice(0, LEAD_MAX - 1).trimEnd() + "…");
-    body.push({
+    hero = ({
       type: "heroCard", key: "dhero", h: { compact: 240, expanded: 320 }, title: d.title, titleEn: d.title, ...(lead ? same(lead) : {}),
       ...(d.backdrop ? { image: d.backdrop } : {}), ...(d.logo ? { logo: d.logo } : {}), buttons,
     });
@@ -187,7 +189,7 @@ export function detailView({ r, entry, season, logo, back }) {
   }
   return {
     type: "Scaffold", appBar,
-    body: { type: "SingleChildScrollView", key: "detail-page", children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    body: { type: "SingleChildScrollView", key: "detail-page", children: [...(hero ? [hero] : []), { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
     ...(!entry ? { every: { ms: 1000, event: "dtick" } } : {}),
   };
 }
