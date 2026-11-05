@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.1
+
+- Fix: a card of the list opens the new title page on every Kino that reads screens. The rows and the search grid are now drawn card by card, each with its own tap, instead of Kino's row component (whose items cannot open a page of the plugin's own); each row keeps its "Ver más".
+
 ## 2.5.0
 
 - The browse screen has its own title page: a card, a slide or a result opens a banner with the title's logo, its facts, synopsis, cast and the seasons with every episode and its still. Back returns to the list. Kino's own page stays one press away ("Más opciones" on a movie, "Ver episodios" on a series, and an episode), where the player's sources, favourites, lists and downloads live. A title Kino cannot match by its name shows a retry and "Ver en Kino".

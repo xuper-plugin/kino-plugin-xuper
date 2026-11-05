@@ -11,7 +11,7 @@
 import { isEnglish, isSpanish } from "./i18n.js";
 import { TAB_IDS, tabOf, recentOf, cardOf } from "./browseModel.js";
 import { browseView, searchView, liveView, detailPage } from "./browseView.js";
-import { loadDetail } from "./detailView.js";
+import { loadDetail, pushOf } from "./detailView.js";
 import { trace, errCode } from "./trace.js";
 import { makeMetaCache } from "./metaCache.js";
 
@@ -160,6 +160,11 @@ export function makeBrowse({ kino, catalog, recent, clock, liveTiles = null, cou
         out.state.season = null;
       }
       return out;
+    },
+    // A card of the list was tapped: its page goes over the list.
+    openTitle({ arg }) {
+      const route = pushOf(arg);
+      return route ? { route, state: { season: null } } : null;
     },
     // The page's timer: loads the title once, then no timer.
     async dtick({ route }) {

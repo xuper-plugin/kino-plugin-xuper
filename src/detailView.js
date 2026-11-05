@@ -15,10 +15,33 @@ const same = (text) => ({ text, textEn: text });
 const num = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
 const https = (v) => (typeof v === "string" && HTTPS.test(v) && v.length <= 2048 ? v : undefined);
 
-/** A card with the `open` that starts the screen again on its page. A live channel and anything that is not a movie or a series keep Kino's page. */
-export const withOpen = (card) => (card && (card.kind === "movie" || card.kind === "series") && typeof card.ref === "string" && card.ref.length < 600 && typeof card.id === "string"
-  ? { ...card, open: { screen: { args: { open: card.ref, t: String(card.title || "").slice(0, 100), k: card.kind, y: card.year ? Number(card.year) || 0 : 0, i: card.id } } } }
-  : card);
+const opensPage = (card) => !!card && (card.kind === "movie" || card.kind === "series") && typeof card.ref === "string" && card.ref.length < 600 && typeof card.id === "string";
+
+/** What the page needs of a card: its ref and id (Kino's page and the play go carry them back), its name, kind and year. */
+export function openArgs(card) {
+  const year = card.year ? num(card.year) : 0;
+  return { open: card.ref, i: card.id, t: String(card.title || "").slice(0, 100), k: card.kind, ...(year ? { y: year } : {}) };
+}
+
+/** One poster card; a movie or a series opens its page through the screen's own `openTitle` event (the card's tap), anything else keeps Kino's page. */
+export const cardNode = (card, size, scope) => ({
+  type: "titleCard", key: `${scope}-${card.id}`, size, item: card,
+  ...(opensPage(card) ? { onTap: { event: "openTitle", arg: JSON.stringify(openArgs(card)) } } : {}),
+});
+
+/** A horizontal row of poster cards under [key]. */
+export const cardRow = (items, key, size) => ({ type: "SingleChildScrollView", key: key + "-s", direction: "horizontal", children: [{ type: "Row", key: key + "-r", gap: 12, children: items.map((c) => cardNode(c, size, key)) }] });
+
+/** A grid of poster cards. */
+export const cardGrid = (items, key) => ({ type: "GridView", key, columns: { compact: 3, expanded: 6 }, children: items.map((c) => cardNode(c, "medium", key)) });
+
+/** The route push an `openTitle` event's arg asks for, or null. */
+export function pushOf(arg) {
+  let a = null;
+  try { a = JSON.parse(String(arg)); } catch (_) { a = null; }
+  if (!a || typeof a.open !== "string" || typeof a.i !== "string" || (a.k !== "movie" && a.k !== "series")) return null;
+  return { push: "detail", params: { open: a.open, i: a.i, t: typeof a.t === "string" ? a.t.slice(0, 100) : "", k: a.k, y: Number(a.y) || 0 } };
+}
 
 const hoursOf = (min) => {
   const m = num(min);

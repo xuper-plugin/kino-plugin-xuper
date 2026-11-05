@@ -4,6 +4,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { accountWorld } from "./helpers/accountWorld.mjs";
 import { screenHarness, allNodes, byKey } from "./helpers/screenHarness.mjs";
+
+/** A row of the list: a column of its heading and its poster cards (the plugin draws them itself so a card's tap can open its own page). */
+const railsOf = (tree) => allNodes(tree).filter((n) => n.type === "col" && typeof n.key === "string" && (n.key === "recent" || n.key === "live" || n.key.startsWith("rail-")) && allNodes(n).some((c) => c.type === "titleCard"));
+const cardsOf = (node) => allNodes(node).filter((n) => n.type === "titleCard");
 import { makeRecentStore } from "../src/recentStore.js";
 import { encode } from "../src/refs.js";
 
@@ -58,7 +62,7 @@ test("before anything is kept: skeletons shaped like the slider and the rails, a
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
   assert.ok(types(r.tree).includes("skeleton"));
-  assert.ok(!types(r.tree).includes("pageView") && !types(r.tree).includes("titleRail"));
+  assert.ok(!types(r.tree).includes("pageView") && railsOf(r.tree).length === 0);
   assert.deepEqual(byKey(r.tree, "tabs").tabs.map((t) => t.value), ["peliculas", "series", "infantil", "anime"]);
   assert.equal(r.raw.every, undefined);
 });
@@ -75,9 +79,9 @@ test("open on a phone queues the active tab first, then the others; the timer fi
   assert.ok(types(r.tree).includes("pageView"), "the featured slider");
   assert.equal(allNodes(r.tree).find((n) => n.type === "pageView").autoPlayMs, 6000);
   assert.match(allNodes(r.tree).find((n) => n.type === "pageView").key, /^hero\d+$/, "the slider's key carries its slide count");
-  const rails = allNodes(r.tree).filter((n) => n.type === "titleRail");
+  const rails = railsOf(r.tree);
   assert.equal(rails.length, 2);
-  assert.ok(rails.every((n) => n.items.length > 0));
+  assert.ok(rails.every((n) => cardsOf(n).length > 0));
   for (let i = 0; i < 4; i++) await h.send("tick", { timer: true });
   assert.deepEqual(catalog.state.fetched, ["peliculas", "series", "infantil", "anime"]);
   assert.equal(h.state.pending.length, 0);
@@ -96,7 +100,7 @@ test("on a TV only the tab in view is fetched; the others load when they are sel
   const before = await h.render();
   assert.ok(types(before.tree).includes("skeleton"), "the new tab shows skeletons until it arrives");
   await h.send("tick", { timer: true });
-  assert.ok(types((await h.render()).tree).includes("titleRail"));
+  assert.ok(railsOf((await h.render()).tree).length > 0);
 });
 
 test("kept rows paint at once: the first render after open already shows the rails, the fetch only refreshes them", async () => {
@@ -104,7 +108,7 @@ test("kept rows paint at once: the first render after open already shows the rai
   await h.send("open");
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
-  assert.ok(types(r.tree).includes("titleRail"));
+  assert.ok(railsOf(r.tree).length > 0);
   assert.ok(!types(r.tree).includes("skeleton"));
 });
 
@@ -131,10 +135,9 @@ test("Continuar viendo: the played titles come first, newest first; a title that
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
   const rail = byKey(r.tree, "recent");
-  assert.equal(rail.title, "Continuar viendo");
-  assert.deepEqual(rail.items.map((i) => i.id), ["peliculas-1", "peliculas-3"]);
-  const first = allNodes(r.tree).filter((n) => n.type === "titleRail")[0];
-  assert.equal(first.key, "recent");
+  assert.equal(byKey(r.tree, "recent-h").children[0].text, "Continuar viendo");
+  assert.deepEqual(cardsOf(rail).map((n) => n.item.id), ["peliculas-1", "peliculas-3"]);
+  assert.equal(railsOf(r.tree)[0].key, "recent");
 });
 
 test("in English; every tree draws with nothing dropped, on the phone and on the TV", async () => {
@@ -183,7 +186,7 @@ test("the floating button opens the search page in the plugin; submitting words 
   await h.send("search", { value: { q: "  dune  " } });
   const loading = await h.render();
   assert.deepEqual(loading.dropped, []);
-  assert.ok(types(loading.tree).includes("skeleton") && !types(loading.tree).includes("titleGrid"));
+  assert.ok(types(loading.tree).includes("skeleton") && !types(loading.tree).includes("grid"));
   assert.ok(loading.every, "a timer runs the search");
   await h.send("stick", { timer: true });
   assert.deepEqual(catalog.state.searched, ["dune"]);
@@ -191,8 +194,8 @@ test("the floating button opens the search page in the plugin; submitting words 
   assert.deepEqual(done.dropped, []);
   assert.equal((done.every || []).length, 0);
   const grid = byKey(done.tree, "results");
-  assert.equal(grid.items.length, 2);
-  assert.equal(grid.items[1].adult, true, "Kino hides it unless the 18+ code is unlocked");
+  assert.equal(cardsOf(grid).length, 2);
+  assert.equal(cardsOf(grid)[1].item.adult, true, "Kino hides it unless the 18+ code is unlocked");
   assert.equal(byKey(done.tree, "q").value, "dune");
 });
 
@@ -226,7 +229,7 @@ test("the empty search page paints what earlier searches found (never an 18+ tit
   const again = await h.render();
   assert.deepEqual(again.dropped, []);
   const hist = byKey(again.tree, "history");
-  assert.equal(hist.items.length, 1, "the adult one was not kept");
+  assert.equal(cardsOf(hist).length, 1, "the adult one was not kept");
   assert.ok(!types(again.tree).includes("skeleton"));
   await h.send("search", { value: { q: "otra" } });
   const loading = await h.render();
@@ -243,8 +246,8 @@ test("the home gets a live row once the timer has asked, and the live button ope
   const r = await h.render();
   assert.deepEqual(r.dropped, []);
   const row = byKey(r.tree, "live");
-  assert.equal(row.title, "En vivo");
-  assert.equal(row.items[0].kind, "live");
+  assert.equal(byKey(r.tree, "live-h").children[0].text, "En vivo");
+  assert.equal(cardsOf(row)[0].item.kind, "live");
   assert.equal(r.raw.appBar.actions[0].icon, "tv");
   await h.send("go", { arg: "live" });
   assert.equal(h.route(), "live");
@@ -338,5 +341,5 @@ test("TMDB ids and title logos: asked through kino.meta after a tab loads, the c
   assert.deepEqual(r.dropped, []);
   const hero = allNodes(r.tree).find((n) => n.type === "pageView");
   assert.ok(allNodes(hero).some((n) => n.type === "heroCard" && /image\.tmdb\.org/.test(String(n.logo))), "a slide carries its logo");
-  assert.equal(allNodes(r.tree).filter((n) => n.type === "titleRail")[0].items[0].tmdb, 4242);
+  assert.equal(cardsOf(railsOf(r.tree)[0])[0].item.tmdb, 4242);
 });

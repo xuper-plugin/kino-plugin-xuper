@@ -646,7 +646,8 @@ var TEXTS = Object.freeze({
   dCast: ["Reparto", "Cast"],
   dEpisodes: ["Episodios", "Episodes"],
   dFailed: ["No se pudo cargar la ficha de este t\xEDtulo. Revisa tu conexi\xF3n e int\xE9ntalo de nuevo.", "This title's page could not be loaded. Check your connection and try again."],
-  dSeeInKino: ["Ver en Kino", "Open in Kino"]
+  dSeeInKino: ["Ver en Kino", "Open in Kino"],
+  brMore: ["Ver m\xE1s", "See more"]
 });
 function say(kino2, key, vars = {}) {
   const pair = TEXTS[key];
@@ -6119,7 +6120,30 @@ var num = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 var https = (v) => typeof v === "string" && HTTPS2.test(v) && v.length <= 2048 ? v : void 0;
-var withOpen = (card) => card && (card.kind === "movie" || card.kind === "series") && typeof card.ref === "string" && card.ref.length < 600 && typeof card.id === "string" ? { ...card, open: { screen: { args: { open: card.ref, t: String(card.title || "").slice(0, 100), k: card.kind, y: card.year ? Number(card.year) || 0 : 0, i: card.id } } } } : card;
+var opensPage = (card) => !!card && (card.kind === "movie" || card.kind === "series") && typeof card.ref === "string" && card.ref.length < 600 && typeof card.id === "string";
+function openArgs(card) {
+  const year = card.year ? num(card.year) : 0;
+  return { open: card.ref, i: card.id, t: String(card.title || "").slice(0, 100), k: card.kind, ...year ? { y: year } : {} };
+}
+var cardNode = (card, size, scope) => ({
+  type: "titleCard",
+  key: `${scope}-${card.id}`,
+  size,
+  item: card,
+  ...opensPage(card) ? { onTap: { event: "openTitle", arg: JSON.stringify(openArgs(card)) } } : {}
+});
+var cardRow = (items, key, size) => ({ type: "SingleChildScrollView", key: key + "-s", direction: "horizontal", children: [{ type: "Row", key: key + "-r", gap: 12, children: items.map((c) => cardNode(c, size, key)) }] });
+var cardGrid = (items, key) => ({ type: "GridView", key, columns: { compact: 3, expanded: 6 }, children: items.map((c) => cardNode(c, "medium", key)) });
+function pushOf(arg) {
+  let a = null;
+  try {
+    a = JSON.parse(String(arg));
+  } catch (_) {
+    a = null;
+  }
+  if (!a || typeof a.open !== "string" || typeof a.i !== "string" || a.k !== "movie" && a.k !== "series") return null;
+  return { push: "detail", params: { open: a.open, i: a.i, t: typeof a.t === "string" ? a.t.slice(0, 100) : "", k: a.k, y: Number(a.y) || 0 } };
+}
 var hoursOf = (min) => {
   const m = num(min);
   return m > 0 ? m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}` : `${m} min` : "";
@@ -6304,7 +6328,7 @@ var slideNode = (s) => ({
       type: "TextButton",
       key: "info-" + s.id,
       ...twin("brInfo", "labelText"),
-      onPressed: s.kind === "movie" || s.kind === "series" ? { go: { screen: { args: { open: s.ref, t: String(s.title).slice(0, 100), k: s.kind, y: s.year ? Number(s.year) || 0 : 0, i: s.id } } } } : { go: { title: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } }
+      onPressed: s.kind === "movie" || s.kind === "series" ? { go: { screen: { args: openArgs(s) } } } : { go: { title: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } }
     }
   ]
 });
@@ -6348,12 +6372,16 @@ var roundRail = (items, titleOverride) => ({
   ]
 });
 var rail = (r, key, titleOverride) => ({
-  type: "titleRail",
+  type: "Column",
   key,
-  ...titleOverride || { title: r.title },
-  ...r.ref ? { ref: r.ref } : {},
-  items: r.items.map(withOpen),
-  size: "medium"
+  gap: 8,
+  children: [
+    { type: "Row", key: key + "-h", crossAxisAlignment: "center", children: [
+      { type: "Text", style: "h4", flex: 1, text: titleOverride ? titleOverride.title : r.title, textEn: titleOverride ? titleOverride.titleEn : r.title },
+      ...r.ref ? [{ type: "TextButton", key: key + "-more", ...twin("brMore", "labelText"), onPressed: { go: { browse: { ref: r.ref, title: r.title } } } }] : []
+    ] },
+    cardRow(r.items, key, "medium")
+  ]
 });
 var SEARCH_CAP = 60;
 var gridSkeleton = () => ({
@@ -6385,12 +6413,12 @@ function searchView({ query, status, items, history = [], device = "phone" }) {
     body.push({ type: "MaterialBanner", key: "searchFailed", role: "error", ...twin("brSearchFailed"), action: { ...twin("brRetry", "label"), onTap: "sretry" } });
   } else if (status === "done" && items) {
     if (items.length === 0) body.push({ type: "Text", ...twin("brNoResults", "text"), color: "muted" });
-    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP).map(withOpen) });
+    else body.push(cardGrid(items.slice(0, SEARCH_CAP), "results"));
   } else if (status !== "idle") {
     body.push(gridSkeleton());
   } else if (history.length > 0) {
     body.push({ type: "Text", ...twin("brSearchedBefore", "text"), style: "h4" });
-    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP).map(withOpen) });
+    body.push(cardGrid(history.slice(0, SEARCH_CAP), "history"));
   }
   return {
     type: "Scaffold",
@@ -6500,7 +6528,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.5.0";
+var PLUGIN_VERSION = "2.5.1";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
@@ -7426,6 +7454,11 @@ function makeBrowse({ kino: kino2, catalog, recent: recent2, clock: clock2, live
         out.state.season = null;
       }
       return out;
+    },
+    // A card of the list was tapped: its page goes over the list.
+    openTitle({ arg }) {
+      const route = pushOf(arg);
+      return route ? { route, state: { season: null } } : null;
     },
     // The page's timer: loads the title once, then no timer.
     async dtick({ route }) {

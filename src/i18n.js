@@ -346,6 +346,7 @@ export const TEXTS = Object.freeze({
   dEpisodes: ["Episodios", "Episodes"],
   dFailed: ["No se pudo cargar la ficha de este título. Revisa tu conexión e inténtalo de nuevo.", "This title's page could not be loaded. Check your connection and try again."],
   dSeeInKino: ["Ver en Kino", "Open in Kino"],
+  brMore: ["Ver más", "See more"],
 });
 
 /** The text for `key` in Kino's language, `{name}`s filled from `vars` (and `{place}` always). */
