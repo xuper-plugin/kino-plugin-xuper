@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.1
+
+- Re-publishes 2.6.0's script: a device that updated in the first minutes after 2.6.0 could keep the previous script under the 2.6.0 label. This version downloads it again.
+
 ## 2.6.0
 
 - The backup seeds now travel sealed: the plugin opens them with a key only Kino can read, so the pool is useless outside Kino.
