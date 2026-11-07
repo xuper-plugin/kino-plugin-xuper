@@ -1006,8 +1006,23 @@ function makeFingerprint(kino2) {
 }
 var snFrom = (kino2, j, snToken) => (blank(j.sn) ? kino2.crypto.hash("md5", snToken + SNTOKEN_SALT) : str(j.sn)).toLowerCase();
 
+// src/seedBox.js
+function isSeedBox(parsed) {
+  return !!parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.v === 1 && typeof parsed.iv === "string" && typeof parsed.data === "string";
+}
+function openSeedBox(kino2, box) {
+  try {
+    const text3 = kino2.crypto.decrypt("aes-256-gcm", { key: kino2.secret("seedKey"), iv: box.iv, ivEncoding: "base64", data: box.data });
+    const list = JSON.parse(text3);
+    return Array.isArray(list) ? list : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 // src/session.js
 var DEFAULT_SEEDS_URL = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
+var SEALED_SEEDS_URL = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.enc.json";
 var INVALID_SN = /* @__PURE__ */ new Set(["aaa100080", "aaa100082"]);
 var SESSION_DEAD = /* @__PURE__ */ new Set(["aaa100027", "aaa100028"]);
 var GEO_BLOCKED = "portal100024";
@@ -1395,6 +1410,7 @@ function makeSession({ kino: kino2, portal, clock: clock2, seedsUrl = DEFAULT_SE
     } catch (_) {
       list = null;
     }
+    if (isSeedBox(list)) list = openSeedBox(kino2, list);
     if (!Array.isArray(list)) {
       report(kino2, "seeds", "refresh", { ok: false, why: "parse" });
       return outcome(false, "parse");
@@ -5548,7 +5564,7 @@ function getDeps() {
   const config = { hosts, appId: APP_ID, apkVersion: APK_VERSION };
   let session = null;
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn, modeOf: () => session.mode() });
-  session = makeSession({ kino, portal, clock, shared: { email: SHARED_EMAIL, password: SHARED_PASSWORD } });
+  session = makeSession({ kino, portal, clock, seedsUrl: SEALED_SEEDS_URL, shared: { email: SHARED_EMAIL, password: SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino, clock });
   const live2 = makeLiveCatalog({ kino, portal, session, clock });
   const countryRow = makeCountryRow({ kino, live: live2 });
@@ -6554,7 +6570,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.5.3";
+var PLUGIN_VERSION = "2.6.0";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";

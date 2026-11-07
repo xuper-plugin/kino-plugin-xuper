@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "2.5.3",
+  "version": "2.6.0",
   "apiVersion": 8,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -243,7 +243,12 @@
       "use": "cipher-key",
       "encoding": "hex"
     },
-    "tmdbKey": "kino-sealed:v1:BvU3io1yZPPb6KxLY5C7cNvm0YOOS7tGf7wY0ioTzhFO_kEvRGrlaFELhhxcs9vqyq0QuzUMBdjujQd4ziih620FD4PsRJHFxt9C0w7Gb0pXA8WER5Xy39c4fsw"
+    "tmdbKey": "kino-sealed:v1:BvU3io1yZPPb6KxLY5C7cNvm0YOOS7tGf7wY0ioTzhFO_kEvRGrlaFELhhxcs9vqyq0QuzUMBdjujQd4ziih620FD4PsRJHFxt9C0w7Gb0pXA8WER5Xy39c4fsw",
+    "seedKey": {
+      "seal": "kino-sealed:v1:lsq2awZklCQpyNOaA5RQyl08E-mjQCrce3de_kfsJx33753lIuloJis4iLkvniJkEQa1C2j12VeFm3Bgwestwo1NDqG9h6AD2e2ZXJpAZWge78AxsE54to3svmgjB2rGZdkaXpe68KTNrg71f5WEcbq43AV9reYPANLyfw",
+      "use": "cipher-key",
+      "encoding": "hex"
+    }
   },
   "enhancements": {
     "14": {

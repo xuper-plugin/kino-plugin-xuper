@@ -5,6 +5,7 @@ import { createKino } from "../../sdk/kino-shim.mjs";
 import { COUNTRY_OPTIONS } from "../../src/countryRow.js";
 
 // Stand-in 24-byte 3DES key: the real one is sealed and only exists inside the app.
+export const STAND_IN_SEED_KEY = "aa".repeat(32); // 32 bytes: AES-256-GCM
 export const STAND_IN_KEY = "000102030405060708090a0b0c0d0e0f1011121314151617";
 
 const manifest = {
@@ -12,7 +13,10 @@ const manifest = {
   hosts: ["api.themoviedb.org", "raw.githubusercontent.com"],
   capabilities: ["search", "home", "browse", "episodes", "resolve", "download"],
   streamHosts: "any",
-  secrets: { magisKey: { seal: "kino-sealed:v1:stand-in", use: "cipher-key", encoding: "hex" } },
+  secrets: {
+    magisKey: { seal: "kino-sealed:v1:stand-in", use: "cipher-key", encoding: "hex" },
+    seedKey: { seal: "kino-sealed:v1:stand-in", use: "cipher-key", encoding: "hex" },
+  },
   settings: [
     { key: "email", label: "Correo electrónico", type: "text" },
     { key: "password", label: "Contraseña", type: "password" },
@@ -30,7 +34,7 @@ const manifest = {
 export function fakeKino({ secrets = {}, config = {}, fetch } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "fakekino-"));
   const secretsFile = join(dir, ".kino-secrets.json");
-  writeFileSync(secretsFile, JSON.stringify({ magisKey: STAND_IN_KEY, ...secrets }));
+  writeFileSync(secretsFile, JSON.stringify({ magisKey: STAND_IN_KEY, seedKey: STAND_IN_SEED_KEY, ...secrets }));
   const { kino } = createKino(manifest, { secretsFile, config });
   return Object.freeze({
     ...kino,

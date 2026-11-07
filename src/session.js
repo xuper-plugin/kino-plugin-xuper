@@ -5,9 +5,14 @@ import { PASSWORD_SALT, FIXED_MAC } from "./config.js";
 import { activateBean, makeFingerprint, snFrom } from "./device.js";
 import { isKinoError, configuredPair } from "./util.js";
 import { trace, report, errCode, seedTag } from "./trace.js";
+import { isSeedBox, openSeedBox } from "./seedBox.js";
 
 export const DEFAULT_SEEDS_URL =
   "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
+// The same pool sealed for Kino (src/seedBox.js): readable only inside Kino's runtime. The running plugin (wiring.js) reads
+// this one; the plain file above stays published only for the plugin versions that predate it.
+export const SEALED_SEEDS_URL =
+  "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.enc.json";
 
 // "This sn cannot activate anonymously": the only reasons to mint another device.
 const INVALID_SN = new Set(["aaa100080", "aaa100082"]);
@@ -421,6 +426,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (res && res.ok === false) { report(kino, "seeds", "refresh", { ok: false, why: "http", status: res.status }); return outcome(false, "http"); }
     let list;
     try { list = JSON.parse(res.text()); } catch (_) { list = null; }
+    // The sealed envelope opens only inside Kino; a plain array (a test, or the old file) is taken as it is.
+    if (isSeedBox(list)) list = openSeedBox(kino, list);
     if (!Array.isArray(list)) { report(kino, "seeds", "refresh", { ok: false, why: "parse" }); return outcome(false, "parse"); }
     const clean = sampleSeeds(
       list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken)),

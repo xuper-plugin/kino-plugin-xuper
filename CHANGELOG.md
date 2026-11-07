@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.0
+
+- The backup seeds now travel sealed: the plugin opens them with a key only Kino can read, so the pool is useless outside Kino.
+
 ## 2.5.3
 
 - The title page's banner is a slider of the title's pictures (TMDB backdrops) when there is more than one.
