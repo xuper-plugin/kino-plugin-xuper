@@ -1,4 +1,5 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { createCipheriv, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKino } from "../../sdk/kino-shim.mjs";
@@ -6,6 +7,19 @@ import { COUNTRY_OPTIONS } from "../../src/countryRow.js";
 
 // Stand-in 24-byte 3DES key: the real one is sealed and only exists inside the app.
 export const STAND_IN_SEED_KEY = "aa".repeat(32); // 32 bytes: AES-256-GCM
+/** What the collector publishes for [list]: AES-256-GCM under [keyHex], data = ciphertext || 16-byte tag, base64 iv and data. */
+export function sealSeeds(list, keyHex = STAND_IN_SEED_KEY) {
+  const iv = randomBytes(12);
+  const c = createCipheriv("aes-256-gcm", Buffer.from(keyHex, "hex"), iv);
+  const ct = Buffer.concat([c.update(JSON.stringify(list), "utf8"), c.final(), c.getAuthTag()]);
+  return { v: 1, iv: iv.toString("base64"), data: ct.toString("base64") };
+}
+/** A pool file's text as the collector publishes it: a JSON list is sealed, anything else (a 404 page, junk) is left as is. */
+export function sealedText(text) {
+  let v;
+  try { v = JSON.parse(text); } catch (_) { return text; }
+  return Array.isArray(v) ? JSON.stringify(sealSeeds(v)) : text;
+}
 export const STAND_IN_KEY = "000102030405060708090a0b0c0d0e0f1011121314151617";
 
 const manifest = {

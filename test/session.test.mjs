@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { fakeKino } from "./helpers/fakeKino.mjs";
+import { fakeKino, sealSeeds } from "./helpers/fakeKino.mjs";
 import { PortalError } from "../src/portal.js";
 import { SNTOKEN_SALT, PASSWORD_SALT, FIXED_MAC } from "../src/config.js";
 import { makeSession } from "../src/session.js";
@@ -46,7 +46,7 @@ function setup({ config = {}, seeds = null, stored = null, fetchAnswer = [], fet
       timeouts.push(o && o.timeoutMs);
       if (fetchAnswer instanceof Error) throw fetchAnswer;
       if (fetchRaw) return fetchRaw;
-      return reply(fetchAnswer);
+      return reply(Array.isArray(fetchAnswer) ? sealSeeds(fetchAnswer) : fetchAnswer); // the pool is published sealed
     },
   });
   if (seeds) kino.storage.set("seeds", JSON.stringify(seeds));

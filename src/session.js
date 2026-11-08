@@ -7,11 +7,9 @@ import { isKinoError, configuredPair } from "./util.js";
 import { trace, report, errCode, seedTag } from "./trace.js";
 import { isSeedBox, openSeedBox } from "./seedBox.js";
 
-export const DEFAULT_SEEDS_URL =
-  "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json";
-// The same pool sealed for Kino (src/seedBox.js): readable only inside Kino's runtime. The running plugin (wiring.js) reads
-// this one; the plain file above stays published only for the plugin versions that predate it.
-export const SEALED_SEEDS_URL =
+// The seed pool, sealed for Kino (src/seedBox.js): readable only inside Kino's runtime. It is the only pool published; a plain
+// list is never taken.
+export const SEEDS_URL =
   "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.enc.json";
 
 // "This sn cannot activate anonymously": the only reasons to mint another device.
@@ -93,7 +91,7 @@ function seedEntry(e) {
   return out;
 }
 
-export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL, random, shared }) {
+export function makeSession({ kino, portal, clock, seedsUrl = SEEDS_URL, random, shared }) {
   // No Math.random: the injected source, else the host's CSPRNG.
   const rand = random || (() => parseInt(kino.crypto.randomBytes(4, "hex"), 16) / 0x100000000);
   const lock = makeLock(); // mint / login / switch: read-modify-write over the stored session
@@ -426,8 +424,8 @@ export function makeSession({ kino, portal, clock, seedsUrl = DEFAULT_SEEDS_URL,
     if (res && res.ok === false) { report(kino, "seeds", "refresh", { ok: false, why: "http", status: res.status }); return outcome(false, "http"); }
     let list;
     try { list = JSON.parse(res.text()); } catch (_) { list = null; }
-    // The sealed envelope opens only inside Kino; a plain array (a test, or the old file) is taken as it is.
-    if (isSeedBox(list)) list = openSeedBox(kino, list);
+    // Only the sealed envelope is taken; it opens only inside Kino. A plain list is refused.
+    list = isSeedBox(list) ? openSeedBox(kino, list) : null;
     if (!Array.isArray(list)) { report(kino, "seeds", "refresh", { ok: false, why: "parse" }); return outcome(false, "parse"); }
     const clean = sampleSeeds(
       list.filter((e) => e && typeof e === "object" && !blank(e.sn) && !blank(e.userToken)),

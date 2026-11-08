@@ -361,8 +361,9 @@ test("the REAL shared pair never shows in messages, errors, logs or stored value
 // ---- the seed pool file (dedicated `seeds` branch) --------------------------------------------
 
 test("seeds: default URL is the seeds branch; a 600-entry answer stores 200 newest-first, three fields, < 30000 bytes", async () => {
-  const { DEFAULT_SEEDS_URL } = await import("../src/session.js");
-  assert.equal(DEFAULT_SEEDS_URL, "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json");
+  const { SEEDS_URL } = await import("../src/session.js");
+  const { sealSeeds } = await import("./helpers/fakeKino.mjs");
+  assert.equal(SEEDS_URL, "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.enc.json");
   const hex = (n, w) => n.toString(16).padStart(w, "0");
   const list = [];
   for (let i = 0; i < 600; i++) {
@@ -371,10 +372,10 @@ test("seeds: default URL is the seeds branch; a 600-entry answer stores 200 newe
     list.push({ sn: hex(i, 32), userId: "9000" + hex(i, 6), userToken: hex(i * 7919, 32), mintedAt: 1_700_000_000_000 + i, extra: "x".repeat(10) });
   }
   const fetchedUrls = [];
-  const kino = fakeKino({ fetch: async (url) => { fetchedUrls.push(url); return { text: () => JSON.stringify(list) }; } });
+  const kino = fakeKino({ fetch: async (url) => { fetchedUrls.push(url); return { text: () => JSON.stringify(sealSeeds(list)) }; } });
   const session = makeSession({ kino, portal: fakePortal(), clock: { now: () => 1_000_000 }, random: () => 0 });
   assert.equal(await session.refreshSeeds(), true);
-  assert.deepEqual(fetchedUrls, [DEFAULT_SEEDS_URL]);
+  assert.deepEqual(fetchedUrls, [SEEDS_URL]);
   const raw = kino.storage.get("seeds");
   const pool = JSON.parse(raw);
   assert.equal(pool.length, 200);

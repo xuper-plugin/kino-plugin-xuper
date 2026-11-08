@@ -8,11 +8,12 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { accountWorld } from "./helpers/accountWorld.mjs";
 
-// sha256 of each file as of 2.2.33 (c7b1929), line endings normalised.
+// sha256 of each file as of 2.2.33 (c7b1929), line endings normalised. sharedAccount.test.mjs re-pinned in 2.6.2 with the
+// owner's go-ahead (2026-11-08): the seed pool is published only sealed, so its seed test now serves and expects the sealed file.
 const PINNED = {
   "settings.test.mjs": "bea282b333bb76bc8b8c10dea8249f293367f6bee309184eb93e4a99d0d214ca",
   "registration.test.mjs": "477474bfc7e9840ad95717b0ee233eb0275c8e53058cd365f1aaaa4bd8de03ec",
-  "sharedAccount.test.mjs": "7535f405e7c2d50249d58deaaf3395a18853da03cc43048e517dea3817dc59bb",
+  "sharedAccount.test.mjs": "e7f7173724ac9619baed24612f4315d2e35374d6bc535eb03f90d6da39a9cccb",
   "accountSentences.test.mjs": "4f0c08d6a8e149c1cb55d2f0d3610f6734a1fe45c61297d452685fa5ce60d362",
   "accountRelogin.test.mjs": "2ddc48b2ae5e3b392ef5dbe771c90b83778ec979521b9fd49d2a7a023bc21bcf",
   "accountSync.test.mjs": "ebad72271330a6fd90df2d7668f853e364d02266ea1826d76a3f05244563503d",

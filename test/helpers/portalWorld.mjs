@@ -3,7 +3,7 @@
 // and throws (a black hole), an alive host spends `aliveMs` and answers its route. The modules the
 // exports use (catalog, resolve, live) are built exactly as src/wiring.js builds them.
 import assert from "node:assert/strict";
-import { fakeKino } from "./fakeKino.mjs";
+import { fakeKino, sealedText } from "./fakeKino.mjs";
 import { makePortal } from "../../src/portal.js";
 import { makeCrypto } from "../../src/crypto.js";
 import { makeSession } from "../../src/session.js";
@@ -67,7 +67,7 @@ export function portalWorld({
       seedDownloads.push({ timeoutMs: opts.timeoutMs, at: clock.t });
       if (seedsDead) { clock.t += opts.timeoutMs; throw new Error("timeout"); }
       clock.t += alive;
-      return { ok: true, status: 200, text: () => seedsText };
+      return { ok: true, status: 200, text: () => sealedText(seedsText) }; // the pool is published sealed
     }
     if (u.host === "api.themoviedb.org") {
       tmdbRequests.push({ timeoutMs: opts.timeoutMs, at: clock.t });

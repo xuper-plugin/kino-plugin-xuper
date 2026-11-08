@@ -2,7 +2,7 @@
 // makeRegistration + makeSettings, as src/plugin.js builds them for the settings form and the configuration screen.
 // Requests are decrypted with the stand-in key; answers go out plain ({ returnCode: "0", ...fields }), which the portal
 // accepts as is. `saved` is a plain map the test edits like Kino's settings store (the kit's config is frozen).
-import { fakeKino } from "./fakeKino.mjs";
+import { fakeKino, sealedText } from "./fakeKino.mjs";
 import { makeCrypto } from "../../src/crypto.js";
 import { makePortal } from "../../src/portal.js";
 import { makeSession } from "../../src/session.js";
@@ -50,8 +50,9 @@ export function accountWorld({
       if (u.host === "raw.githubusercontent.com") {
         seedDownloads.push({ at: clock.t, timeoutMs: opts.timeoutMs });
         clock.t += requestMs;
-        if (typeof seedsAnswer === "function") return seedsAnswer();
-        return seedsAnswer ?? { ok: true, status: 200, text: () => "[]" };
+        // The pool is published sealed: a plain list a test hands in is served as the collector would seal it.
+        const r = typeof seedsAnswer === "function" ? seedsAnswer() : (seedsAnswer ?? { ok: true, status: 200, text: () => "[]" });
+        return r && typeof r.text === "function" ? { ...r, text: () => sealedText(r.text()) } : r;
       }
       const path = u.pathname.replace("/api/portalCore/", "");
       const bean = JSON.parse(decrypt(opts.body));

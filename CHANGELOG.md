@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.2
+
+- Only the sealed seed pool is read: the plain copy is no longer published, and a plain list is refused. Versions before 2.6.0 get no backup seeds until they update.
+
 ## 2.6.1
 
 - Re-publishes 2.6.0's script: a device that updated in the first minutes after 2.6.0 could keep the previous script under the 2.6.0 label. This version downloads it again.

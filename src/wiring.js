@@ -2,7 +2,7 @@
 // This is the only place that owns the real clock; everything else gets it injected.
 import { makeCrypto } from "./crypto.js";
 import { makePortal } from "./portal.js";
-import { makeSession, SEALED_SEEDS_URL } from "./session.js";
+import { makeSession } from "./session.js";
 import { makeCatalog } from "./catalog.js";
 import { makeTmdb } from "./tmdb.js";
 import { makeResolve } from "./resolve.js";
@@ -30,7 +30,7 @@ export function getDeps() {
   const crypto = makeCrypto(kino, { onDecode: makeDecodeReporter(kino) });  const config = { hosts: constants.hosts, appId: constants.APP_ID, apkVersion: constants.APK_VERSION };
   let session = null; // the portal needs the session's sn and the session needs the portal: wired lazily
   const portal = makePortal({ kino, crypto, config, clock, snProvider: () => session.current().sn, modeOf: () => session.mode() });
-  session = makeSession({ kino, portal, clock, seedsUrl: SEALED_SEEDS_URL, shared: { email: constants.SHARED_EMAIL, password: constants.SHARED_PASSWORD } });
+  session = makeSession({ kino, portal, clock, shared: { email: constants.SHARED_EMAIL, password: constants.SHARED_PASSWORD } });
   const tmdb = makeTmdb({ kino, clock });
   const live = makeLiveCatalog({ kino, portal, session, clock });
   const countryRow = makeCountryRow({ kino, live });

@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { build } from "esbuild";
-import { fakeKino } from "./helpers/fakeKino.mjs";
+import { fakeKino, sealedText } from "./helpers/fakeKino.mjs";
 import { checkOutput, checkSettingsOutput, markSearchHits, migrateAnswer, validateManifest } from "../sdk/contract.mjs";
 import { signingLane } from "../sdk/kino-shim.mjs";
 import { SHARED_EMAIL, SHARED_PASSWORD, APK_VER_HEADER, SPKG_VER, USER_AGENT, CONTENT_TYPE, RATE_LIMIT_MS, PORTAL_CODE, LIVE_APP, LIVE_APP_VERSION } from "../src/config.js";
@@ -92,7 +92,7 @@ function scriptedKino({ routes = {}, config = {}, seeds = null, seedsText = "[]"
   const reply = (obj) => ({ text: () => JSON.stringify(obj) });
   const fetch = async (url, opts = {}) => {
     const u = new URL(url);
-    if (u.host === SEEDS_URL_PART) { log.other.push(url); return { text: () => seedsText }; }
+    if (u.host === SEEDS_URL_PART) { log.other.push(url); return { text: () => sealedText(seedsText) }; }
     const prefix = "/api/portalCore/";
     assert.equal(u.protocol, "https:");
     assert.equal(u.host, HOST, "the portal host");

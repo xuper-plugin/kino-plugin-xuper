@@ -5,7 +5,7 @@
 // Everything runs through the REAL makeSession + makePortal + makeCrypto over a scripted fetch.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fakeKino } from "./helpers/fakeKino.mjs";
+import { fakeKino, sealedText } from "./helpers/fakeKino.mjs";
 import { makePortal } from "../src/portal.js";
 import { makeCrypto } from "../src/crypto.js";
 import { makeSession } from "../src/session.js";
@@ -51,7 +51,7 @@ function harness({ routes = {}, account = "shared", seeds = SEEDS, seedsText = "
   const reply = (obj) => ({ text: () => JSON.stringify(obj) });
   const fetch = async (url, opts = {}) => {
     const u = new URL(url);
-    if (u.host === "raw.githubusercontent.com") { seedDownloads.push(opts.timeoutMs); return { text: () => seedsText }; }
+    if (u.host === "raw.githubusercontent.com") { seedDownloads.push(opts.timeoutMs); return { text: () => sealedText(seedsText) }; }
     assert.equal(u.host, HOST);
     const path = u.pathname.slice("/api/portalCore/".length);
     const bean = JSON.parse(crypto.decryptBlob(opts.body));
