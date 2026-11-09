@@ -61,7 +61,12 @@ const SLOW_MEMORY_MS = 30 * 60_000;
 // refreshes a stale root only when no warm refresh started in the last SLOW_REFRESH_GAP_MS (REFRESH_AT_KEY, stamped
 // before the fetch, so a call Kino gave up on still counts). A root never kept, or one a page needs whole, is still
 // fetched. A refresh that is quick again clears the mark. Fast devices are untouched.
-export const HEAVY_REFRESH_MS = 12_000;
+// 12 s until 2.6.3, 8 s since: the board (2026-10-26..11-09, 500 sampled `perf_timeout`) says 79 % of the Homes that ran past Kino's 20 s were
+// WARM ones (`served=cache got=1`: kept rows served while one stale root was refreshed), and a root's decode (1-2 MB, 2-8 s on a weak TV) plus
+// its snapshot write (2-8 s) plus projecting the rows lands anywhere from 8 to 60+ s. A device is only protected from the call AFTER the one
+// that crossed the mark, so a mark at 12 s let the refreshes of 8-12 s (the `perf_slow` 8-12 s bucket is the biggest one) go on until one
+// ran past 20 s. Marked earlier, such a device refreshes one root per SLOW_REFRESH_GAP_MS and serves the kept rows in between.
+export const HEAVY_REFRESH_MS = 8_000;
 export const SLOW_REFRESH_GAP_MS = 30 * 60_000;
 const HEAVY_KEY = "refreshHeavy";
 const HEAVY_MEMORY_MS = 24 * 3600_000;

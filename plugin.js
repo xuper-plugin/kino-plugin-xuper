@@ -3429,7 +3429,7 @@ var COLD_PARALLEL = 2;
 var SLOW_FETCH_MS = 4e3;
 var SLOW_KEY = "portalSlow";
 var SLOW_MEMORY_MS = 30 * 6e4;
-var HEAVY_REFRESH_MS = 12e3;
+var HEAVY_REFRESH_MS = 8e3;
 var SLOW_REFRESH_GAP_MS = 30 * 6e4;
 var HEAVY_KEY = "refreshHeavy";
 var HEAVY_MEMORY_MS = 24 * 36e5;
@@ -6569,7 +6569,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.6.2";
+var PLUGIN_VERSION = "2.6.3";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";

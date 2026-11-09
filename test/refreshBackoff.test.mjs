@@ -84,6 +84,20 @@ test("a weak TV: after a warm refresh that made Home slow, the next calls serve 
   assert.deepEqual(after.asked, [], "and again not in the next call");
 });
 
+test("a refresh of 8-12 s (below the old 12 s mark) already holds the device back: the next calls serve the kept rows", async () => {
+  const t = tv();
+  await kept(t);
+  t.clock.t += 3 * HOUR; // every root stale
+  t.cost.answerMs = 3_000;
+  t.cost.writeMs = 3_000; // 3 s of network + two storage writes = ~9 s: slow enough to risk the next one running past Kino's 20 s, not slow enough for the old mark
+  const first = await timed(t, () => t.make().home());
+  assert.equal(first.asked.length, 1);
+  assert.ok(first.ms >= HEAVY_REFRESH_MS && first.ms < 12_000, `a refresh in the 8-12 s band (${first.ms} ms)`);
+  const next = await timed(t, () => t.make().home());
+  assert.deepEqual(next.asked, [], "the next Home refreshes nothing");
+  assert.ok(next.ms < 1_000, `and answers from the kept rows (${next.ms} ms)`);
+});
+
 test("a fast device keeps refreshing one stale root per call, as before", async () => {
   const t = tv();
   await kept(t);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.3
+
+- Home on weak TVs: a device is now held back from refreshing a stale root after a warm refresh of 8 s (it was 12 s). The board (2026-10-26..11-09, 500 sampled `perf_timeout`) shows 79 % of the Homes that ran past Kino's 20 s were warm ones (`served=cache got=1`), where kept rows are served while one stale root is refreshed: a root's decode (1-2 MB, 2-8 s on a weak TV) plus its snapshot write (2-8 s) lands anywhere from 8 to 60+ s, and a device is only protected from the call *after* the one that crossed the mark. Held back, a device refreshes one root per 30 minutes and serves the kept rows in between. Fast devices are untouched (new test in `test/refreshBackoff.test.mjs`).
+
 ## 2.6.2
 
 - Only the sealed seed pool is read: the plain copy is no longer published, and a plain list is refused. Versions before 2.6.0 get no backup seeds until they update.
