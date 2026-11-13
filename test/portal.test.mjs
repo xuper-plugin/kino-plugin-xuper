@@ -107,7 +107,7 @@ test("body: base fields + bean + device dict (device overwrites the bean)", asyn
   assert.equal(b.sn, "SN-STORED");
   assert.equal(b.appId, "app-1");
   assert.equal(b.apkVersion, "9.9");
-  assert.equal(b.sysVersion, "2025-08-07 05:40:11_36_16_");
+  assert.equal(b.sysVersion, "2023-03-07 12:22:37_31_12_");
   assert.equal(b.sdkVer, 36);
   assert.equal(b.loginType, "2");
   assert.equal(b.model, "sdk_gphone64_arm64");
@@ -143,8 +143,8 @@ test("headers are exactly the five, with the fixed apkVer literal", async () => 
   await portal.call("x", {});
   assert.deepEqual(calls[0].opts.headers, {
     apk: "app-1",
-    apkVer: "43404",
-    spkgVer: "2025-08-07 05:40:11_36_16_",
+    apkVer: "49920",
+    spkgVer: "2023-03-07 12:22:37_31_12_",
     "User-Agent": "okhttp/3.12.12",
     "Content-Type": "application/json;charset=utf-8",
   });

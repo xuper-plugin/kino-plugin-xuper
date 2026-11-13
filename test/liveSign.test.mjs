@@ -27,7 +27,7 @@ const TWO = [{ cflHost: "cdn1.live.test", authBase: auth(TOKEN_A, 1) }, { cflHos
 test("the live literals are the native proxy's", () => {
   assert.equal(LIVE_USER_AGENT, "Ranger/4.9.4-17294ac0");
   assert.equal(LIVE_APP, "com.android.msandroid");
-  assert.equal(LIVE_APP_VERSION, "49902");
+  assert.equal(LIVE_APP_VERSION, "49920");
   assert.equal(LIVE_X_BUFFER, "0");
 });
 
@@ -53,7 +53,7 @@ test("the headers: Content-Auth = authBase + the sign_o3 tail at now, the licens
       "Content-License": LICENSE,
       "User-Agent": "Ranger/4.9.4-17294ac0",
       App: "com.android.msandroid",
-      "App-Version": "49902",
+      "App-Version": "49920",
       "X-Buffer": "0",
     },
   });
