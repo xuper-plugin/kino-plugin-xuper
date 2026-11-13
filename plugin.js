@@ -77,15 +77,15 @@ function makeCrypto(kino2, { onDecode = null } = {}) {
 // src/config.js
 var hosts = ["osuhk.m3x8o50te.com", "oogoy.f30c96w8.com"];
 var APP_ID = "com.android.msandroid";
-var APK_VERSION = "49902";
+var APK_VERSION = "49920";
 var PORTAL_CODE = "masnew";
-var SPKG_VER = "2025-08-07 05:40:11_36_16_";
-var APK_VER_HEADER = "43404";
+var SPKG_VER = "2023-03-07 12:22:37_31_12_";
+var APK_VER_HEADER = "49920";
 var USER_AGENT = "okhttp/3.12.12";
 var UA_CDN = "Ranger/4.9.4-17294ac0";
 var LIVE_USER_AGENT = "Ranger/4.9.4-17294ac0";
 var LIVE_APP = "com.android.msandroid";
-var LIVE_APP_VERSION = "49902";
+var LIVE_APP_VERSION = "49920";
 var LIVE_X_BUFFER = "0";
 var CONTENT_TYPE = "application/json;charset=utf-8";
 var RATE_LIMIT_MS = 400;
@@ -2449,6 +2449,40 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
   return { read, write };
 }
 
+// src/homeFeed.js
+var FEED_URL = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/main/home/feed.json";
+var MAX_AGE_MS = 3 * 24 * 60 * 60 * 1e3;
+var ROOT_KEYS = ["peliculas", "series", "anime", "infantil"];
+function makeHomeFeed({ kino: kino2, clock: clock2, url = FEED_URL }) {
+  let promise = null;
+  async function fetchOnce() {
+    try {
+      const bust = Math.floor(clock2.now() / 36e5);
+      const res = await kino2.fetch(`${url}?v=${bust}`, { headers: { Accept: "application/json" } });
+      if (!res || res.ok === false) return null;
+      const d = JSON.parse(res.text());
+      if (!d || d.v !== 1 || !d.roots || typeof d.roots !== "object") return null;
+      if (typeof d.at === "number" && clock2.now() - d.at > MAX_AGE_MS) return null;
+      const roots = {};
+      for (const k of ROOT_KEYS) {
+        const r = d.roots[k];
+        if (r && Array.isArray(r.recommendList) && r.recommendList.length) roots[k] = r;
+      }
+      return Object.keys(roots).length ? { roots } : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  return {
+    // La respuesta getNextColumns pre-armada de una raíz, o null. Comparte una sola descarga entre las 4 raíces.
+    async rootResponse(root) {
+      if (!promise) promise = fetchOnce();
+      const feed = await promise;
+      return feed && feed.roots[root] ? feed.roots[root] : null;
+    }
+  };
+}
+
 // src/byteCache.js
 function makeByteCache({ kino: kino2, key, budgetBytes, clock: clock2, ttlMs, valid: valid3 = () => true, keepMs = ttlMs }) {
   const what = String(key).split(":")[0];
@@ -3496,6 +3530,7 @@ function offsetOf(cursor) {
 }
 function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null, countryRow = null }) {
   const store = makeRowsStore({ kino: kino2, ttlMs: SNAPSHOT_TTL_MS });
+  const homeFeed = makeHomeFeed({ kino: kino2, clock: clock2 });
   const ids = makeIdsStore({ kino: kino2, clock: clock2 });
   const titles = makeTitlesStore({ kino: kino2, clock: clock2 });
   const stale = (at) => {
@@ -3675,9 +3710,29 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     if (KINDS.some(({ root }) => !(root in cur.roots))) return "partial";
     return KINDS.some(({ root }) => stale(cur.roots[root])) ? "cache" : "fresh";
   };
+  async function seedFromFeed() {
+    const at = clock2.now();
+    for (const { root: k } of KINDS) {
+      let fed = null;
+      try {
+        fed = await homeFeed.rootResponse(k);
+      } catch (_) {
+        return;
+      }
+      if (!fed) return;
+      const sections = parseTree(fed);
+      if (!hasItems(sections)) return;
+      trees.set(k, { sections, at });
+    }
+    const rows2 = classify(Object.fromEntries(KINDS.map(({ root: k }) => [k, trees.get(k).sections])));
+    const everyRoot = KINDS.map(({ root: k }) => k);
+    current = { rows: rows2, roots: Object.fromEntries(everyRoot.map((k) => [k, at])), whole: new Set(everyRoot), withAll: new Set(everyRoot) };
+    dirty = true;
+  }
   async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home, root = null) {
     const startedAt = clock2.now();
     getCurrent();
+    if (current === null && root === null) await seedFromFeed();
     const warm = current !== null;
     const phaseEnd = Math.min(startedAt + (warm ? WARM_REFRESH_MS : COLD_DEADLINE_MS), startedAt + budgetMs - SLICE_MARGIN_MS);
     const storedBefore = warm ? Object.keys(current.roots).length : 0;
@@ -6569,7 +6624,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.6.3";
+var PLUGIN_VERSION = "2.6.4";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";

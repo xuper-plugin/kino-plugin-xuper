@@ -4,6 +4,7 @@ import { classify, mergeRoot, rootOfRow, genreOfRow, localizedRowTitle, KINDS } 
 import { isEnglish, isSpanish, genreName, say } from "./i18n.js";
 import { parseTree, refOf, parseShelveTime } from "./homeTree.js";
 import { fitRows, makeRowsStore } from "./rowsStore.js";
+import { makeHomeFeed } from "./homeFeed.js";
 import { isSeries } from "./refs.js";
 import { makeSearch, collapseSeasons } from "./search.js";
 import { makePortalChapters, makeEpisodes } from "./episodes.js";
@@ -165,6 +166,7 @@ function offsetOf(cursor) {
  */
 export function makeCatalog({ kino, portal, session, clock, tmdb = null, countryRow = null }) {
   const store = makeRowsStore({ kino, ttlMs: SNAPSHOT_TTL_MS });
+  const homeFeed = makeHomeFeed({ kino, clock }); // Home pre-armado (sin portal/sesión); null si falta/viejo/falla
   // The ids episodes() already learned, by contentId: cards carry them, no portal call is added for them.
   const ids = makeIdsStore({ kino, clock });
   // The titles of the movie cards shown, by contentId, for a movie's details() (titlesStore.js).
@@ -368,9 +370,29 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
    * scoped search pages). The call fetches roots only while it is young (see above). With nothing to
    * serve and every root it asked failing, it throws that error (Home says Xuper failed, "Reintentar").
    */
+  // Arranque frío: si el feed pre-armado trae las 4 raíces, se clasifican y se fija `current` SIN portal ni sesión (el Home sale
+  // aunque las seeds/el portal estén caídos). El portal solo se usa luego si el feed no cubre todo o para refrescar.
+  async function seedFromFeed() {
+    const at = clock.now();
+    for (const { root: k } of KINDS) {
+      let fed = null;
+      try { fed = await homeFeed.rootResponse(k); } catch (_) { return; }
+      if (!fed) return;
+      const sections = parseTree(fed);
+      if (!hasItems(sections)) return;
+      trees.set(k, { sections, at });
+    }
+    const rows = classify(Object.fromEntries(KINDS.map(({ root: k }) => [k, trees.get(k).sections])));
+    const everyRoot = KINDS.map(({ root: k }) => k);
+    current = { rows, roots: Object.fromEntries(everyRoot.map((k) => [k, at])), whole: new Set(everyRoot), withAll: new Set(everyRoot) };
+    dirty = true; // se persiste en rowsStore (caché en dispositivo) al final de buildRows
+  }
+
   async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home, root = null) {
     const startedAt = clock.now();
     getCurrent();
+    // Solo el Home/section/categorías (root === null) se siembran del feed; browse y búsqueda acotada van al portal como siempre.
+    if (current === null && root === null) await seedFromFeed();
     const warm = current !== null;
     // Every portal exchange of this call (session included) ends by `phaseEnd`; see WARM_REFRESH_MS.
     const phaseEnd = Math.min(startedAt + (warm ? WARM_REFRESH_MS : COLD_DEADLINE_MS), startedAt + budgetMs - SLICE_MARGIN_MS);
