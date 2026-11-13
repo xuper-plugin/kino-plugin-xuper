@@ -374,19 +374,24 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
   // Arranque frío: si el feed pre-armado trae las 4 raíces, se clasifican y se fija `current` SIN portal ni sesión (el Home sale
   // aunque las seeds/el portal estén caídos). El portal solo se usa luego si el feed no cubre todo o para refrescar.
   async function seedFromFeed() {
-    const at = clock.now();
-    for (const { root: k } of KINDS) {
-      let fed = null;
-      try { fed = await homeFeed.rootResponse(k); } catch (_) { return; }
-      if (!fed) return;
-      const sections = parseTree(fed);
-      if (!hasItems(sections)) return;
-      trees.set(k, { sections, at });
-    }
-    const rows = classify(Object.fromEntries(KINDS.map(({ root: k }) => [k, trees.get(k).sections])));
-    const everyRoot = KINDS.map(({ root: k }) => k);
-    current = { rows, roots: Object.fromEntries(everyRoot.map((k) => [k, at])), whole: new Set(everyRoot), withAll: new Set(everyRoot) };
-    dirty = true; // se persiste en rowsStore (caché en dispositivo) al final de buildRows
+    // NUNCA lanza ni bloquea más allá del timeout del fetch (homeFeed): si el feed no está, no abre o falla, se deja `current`
+    // en null y buildRows sigue al portal como siempre. Un error aquí jamás debe romper el Home.
+    try {
+      const at = clock.now();
+      const got = new Map();
+      for (const { root: k } of KINDS) {
+        const fed = await homeFeed.rootResponse(k);
+        if (!fed) return;
+        const sections = parseTree(fed);
+        if (!hasItems(sections)) return;
+        got.set(k, { sections, at });
+      }
+      for (const [k, v] of got) trees.set(k, v);
+      const rows = classify(Object.fromEntries(KINDS.map(({ root: k }) => [k, trees.get(k).sections])));
+      const everyRoot = KINDS.map(({ root: k }) => k);
+      current = { rows, roots: Object.fromEntries(everyRoot.map((k) => [k, at])), whole: new Set(everyRoot), withAll: new Set(everyRoot) };
+      dirty = true; // se persiste en rowsStore (caché en dispositivo) al final de buildRows
+    } catch (_) { /* feed no disponible: el Home sigue por el portal */ }
   }
 
   async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home, root = null) {

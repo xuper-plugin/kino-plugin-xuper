@@ -3724,23 +3724,23 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     return KINDS.some(({ root }) => stale(cur.roots[root])) ? "cache" : "fresh";
   };
   async function seedFromFeed() {
-    const at = clock2.now();
-    for (const { root: k } of KINDS) {
-      let fed = null;
-      try {
-        fed = await homeFeed.rootResponse(k);
-      } catch (_) {
-        return;
+    try {
+      const at = clock2.now();
+      const got = /* @__PURE__ */ new Map();
+      for (const { root: k } of KINDS) {
+        const fed = await homeFeed.rootResponse(k);
+        if (!fed) return;
+        const sections = parseTree(fed);
+        if (!hasItems(sections)) return;
+        got.set(k, { sections, at });
       }
-      if (!fed) return;
-      const sections = parseTree(fed);
-      if (!hasItems(sections)) return;
-      trees.set(k, { sections, at });
+      for (const [k, v] of got) trees.set(k, v);
+      const rows2 = classify(Object.fromEntries(KINDS.map(({ root: k }) => [k, trees.get(k).sections])));
+      const everyRoot = KINDS.map(({ root: k }) => k);
+      current = { rows: rows2, roots: Object.fromEntries(everyRoot.map((k) => [k, at])), whole: new Set(everyRoot), withAll: new Set(everyRoot) };
+      dirty = true;
+    } catch (_) {
     }
-    const rows2 = classify(Object.fromEntries(KINDS.map(({ root: k }) => [k, trees.get(k).sections])));
-    const everyRoot = KINDS.map(({ root: k }) => k);
-    current = { rows: rows2, roots: Object.fromEntries(everyRoot.map((k) => [k, at])), whole: new Set(everyRoot), withAll: new Set(everyRoot) };
-    dirty = true;
   }
   async function buildRows(need = "full", budgetMs = CALL_BUDGET_MS.home, root = null) {
     const startedAt = clock2.now();
@@ -6651,7 +6651,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.6.7";
+var PLUGIN_VERSION = "2.6.8";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
