@@ -1,5 +1,5 @@
 #!/bin/sh
-# Genera el Home pre-armado de Xuper en el Mac (IP que alcanza el portal) y publica home/feed.json.
+# Genera el Home pre-armado de Xuper en el Mac (IP que alcanza el portal) y publica home/feed.enc.json.
 # Lo dispara launchd 2 veces al día. Trabaja en un CLON DEDICADO (no en el repo de trabajo del autor),
 # así nunca pisa cambios sin commitear. Reusa el cliente del seed-minter (3DES + clave + seeds locales).
 set -e
@@ -27,7 +27,7 @@ if git diff --cached --quiet; then
   exit 0
 fi
 git -c user.name=xuper-plugin -c user.email=335105665+xuper-plugin@users.noreply.github.com \
-  commit -q -m "Home pre-armado: actualiza home/feed.json"
+  commit -q -m "Home pre-armado: actualiza home/feed.enc.json"
 if git pull -q --rebase origin main && git push -q origin HEAD:main; then
   echo "$(date '+%F %T') publicado"
 else
