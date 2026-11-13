@@ -162,7 +162,7 @@ test("the manifest declares homeCountry: a select, default none, its options the
   // Every portal category of the map is reachable from the setting.
   const reachable = new Set(s.options.flatMap((o) => countriesOf(o.value)).map((cc) => CATEGORIES_BY_COUNTRY[cc]));
   assert.deepEqual([...reachable].sort(), [...new Set(Object.values(CATEGORIES_BY_COUNTRY))].sort());
-  assert.equal(m.apiVersion, 6);
+  assert.equal(m.apiVersion, 8);
 });
 
 // ---- the real live catalog over a scripted portal ------------------------------------------------

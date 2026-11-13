@@ -559,7 +559,7 @@ test("garbage arguments that cannot work reject (with a kino error), they never 
 test("each export's body starts with `await null` (checked in the source text)", () => {
   const text = readFileSync(new URL("src/plugin.js", ROOT), "utf8");
   const exportsList = [...text.matchAll(/export async function (\w+)\(([^)]*)\)\s*\{\s*(await null;)?/g)];
-  assert.equal(exportsList.length, 15); // + section, categories, liveSearch (apiVersion 6)
+  assert.equal(exportsList.length, 18); // search, home, browse, section, categories, episodes, details, resolve, sign, liveCategories, liveChannels, liveSearch, migrate, settingsStatus, action, validateSettings, screen, screenEvent
   for (const m of exportsList) assert.ok(m[3], m[1] + " must start with await null");
 });
 
@@ -686,8 +686,8 @@ for (const file of ["src-bundle.mjs", "built-bundle.mjs"]) {
   });
 }
 
-test("the manifest opts in to Kino's error board at the verbose level (plugin 2.0: playback, live and cast instrumented), apiVersion 6", () => {
+test("the manifest opts in to Kino's error board at the verbose level (plugin 2.0: playback, live and cast instrumented), apiVersion 8", () => {
   assert.equal(checked.ok, true);
-  assert.equal(checked.manifest.apiVersion, 6);
+  assert.equal(checked.manifest.apiVersion, 8);
   assert.equal(checked.manifest.telemetry, "verbose");
 });

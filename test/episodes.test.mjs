@@ -674,7 +674,7 @@ test("kino.tmdb throwing (not_allowed, rate_limited, anything) or answering a no
 
 test("kino.tmdb absent (Kino before 0.9.53): the sealed-key kino.fetch path, the key in the query", async () => {
   const urls = [];
-  const kino = { ...fakeKino(), secret: () => "KEYMARKER", fetch: async (url) => { urls.push(url); return { ok: true, status: 200, text: () => JSON.stringify({ tv_results: [{ id: 3 }] }) }; } };
+  const kino = { ...fakeKino(), tmdb: undefined, secret: () => "KEYMARKER", fetch: async (url) => { urls.push(url); return { ok: true, status: 200, text: () => JSON.stringify({ tv_results: [{ id: 3 }] }) }; } };
   assert.equal(typeof kino.tmdb, "undefined");
   assert.equal((await makeTmdb({ kino }).seriesByImdb("tt1234567")).tmdbId, 3);
   const u = new URL(urls[0]);

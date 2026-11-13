@@ -3869,7 +3869,6 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const nowMs = clock2.now();
     const idsOf = ids.lookup();
     const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2), isSpanish(kino2))).filter((i) => i !== null).map((i) => ({ ...i, adult: true }));
-    titles.rememberMovies(items);
     const next = offset + BROWSE_PAGE;
     return next < all.length ? { items, next: String(next) } : { items };
   }
@@ -3906,7 +3905,6 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const nowMs = clock2.now();
     const idsOf = ids.lookup();
     const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino2), isSpanish(kino2))).filter((i) => i !== null).map((i) => adult ? { ...i, adult: true } : i);
-    titles.rememberMovies(items);
     const next = offset + BROWSE_PAGE;
     return next < ranked.length ? { items, next: String(next) } : { items };
   }
@@ -6653,7 +6651,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.6.6";
+var PLUGIN_VERSION = "2.6.7";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";

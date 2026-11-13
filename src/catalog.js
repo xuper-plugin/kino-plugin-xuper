@@ -506,7 +506,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const idsOf = ids.lookup();
     const items = all.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null)
       .map((i) => ({ ...i, adult: true }));
-    titles.rememberMovies(items);
+    // 18+ no persiste nada (privacidad): no se indexan los títulos adultos. details() usa sus otras fuentes.
     const next = offset + BROWSE_PAGE;
     return next < all.length ? { items, next: String(next) } : { items };
   }
@@ -556,7 +556,7 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const idsOf = ids.lookup();
     const items = ranked.slice(offset, offset + BROWSE_PAGE).map((i) => projectItem(i, nowMs, idsOf, isEnglish(kino), isSpanish(kino))).filter((i) => i !== null)
       .map((i) => (adult ? { ...i, adult: true } : i));
-    titles.rememberMovies(items);
+    // La búsqueda acotada no escribe el índice de títulos (su invariante: solo claves rows: de la caché del Home); details() usa sus otras fuentes.
     const next = offset + BROWSE_PAGE;
     return next < ranked.length ? { items, next: String(next) } : { items };
   }
