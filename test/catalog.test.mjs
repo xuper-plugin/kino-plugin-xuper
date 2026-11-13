@@ -817,7 +817,7 @@ test("home's four root calls are paced >= 400 ms apart through the real portal c
   const base = fakeKino({
     // El feed pre-armado (home/feed.json) se prueba antes que el portal; aquí se simula ausente para medir el pacing del portal.
     fetch: async (url) => {
-      if (String(url).includes("/home/feed.json")) return { ok: false };
+      if (String(url).includes("/home/feed")) return { ok: false };
       starts.push(now); return { text: () => JSON.stringify(smallTree("p")) };
     },
   });

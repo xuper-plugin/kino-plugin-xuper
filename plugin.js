@@ -2450,9 +2450,19 @@ function makeRowsStore({ kino: kino2, ttlMs }) {
 }
 
 // src/homeFeed.js
-var FEED_URL = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/main/home/feed.json";
+var FEED_URL = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/main/home/feed.enc.json";
 var MAX_AGE_MS = 3 * 24 * 60 * 60 * 1e3;
 var ROOT_KEYS = ["peliculas", "series", "anime", "infantil"];
+function openFeedBox(kino2, box) {
+  if (!box || typeof box !== "object" || box.v !== 1 || typeof box.iv !== "string" || typeof box.data !== "string") return null;
+  try {
+    const text3 = kino2.crypto.decrypt("aes-256-gcm", { key: kino2.secret("feedKey"), iv: box.iv, ivEncoding: "base64", data: box.data });
+    const d = JSON.parse(text3);
+    return d && typeof d === "object" && d.v === 1 && d.roots ? d : null;
+  } catch (_) {
+    return null;
+  }
+}
 function makeHomeFeed({ kino: kino2, clock: clock2, url = FEED_URL }) {
   let promise = null;
   async function fetchOnce() {
@@ -2460,8 +2470,8 @@ function makeHomeFeed({ kino: kino2, clock: clock2, url = FEED_URL }) {
       const bust = Math.floor(clock2.now() / 36e5);
       const res = await kino2.fetch(`${url}?v=${bust}`, { headers: { Accept: "application/json" } });
       if (!res || res.ok === false) return null;
-      const d = JSON.parse(res.text());
-      if (!d || d.v !== 1 || !d.roots || typeof d.roots !== "object") return null;
+      const d = openFeedBox(kino2, JSON.parse(res.text()));
+      if (!d) return null;
       if (typeof d.at === "number" && clock2.now() - d.at > MAX_AGE_MS) return null;
       const roots = {};
       for (const k of ROOT_KEYS) {
@@ -6624,7 +6634,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.6.4";
+var PLUGIN_VERSION = "2.6.5";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";

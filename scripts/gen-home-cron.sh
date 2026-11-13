@@ -17,12 +17,13 @@ cd "$WORK"
 git fetch -q origin main
 git reset -q --hard origin/main   # seguro: clon dedicado
 
-# El generador hace chdir al minter (para su .env), por eso --out va en ruta ABSOLUTA.
-python3 scripts/gen-home.py --minter "$MINTER" --out "$WORK/home/feed.json"
+# El generador hace chdir al minter (para su .env), por eso --out va en ruta ABSOLUTA. El feed se publica CIFRADO (feed.enc.json).
+python3 scripts/gen-home.py --minter "$MINTER" --out "$WORK/home/feed.enc.json"
 
-git add home/feed.json
+git rm -q --ignore-unmatch home/feed.json   # ya no se publica el plano
+git add home/feed.enc.json
 if git diff --cached --quiet; then
-  echo "$(date '+%F %T') sin cambios en home/feed.json"
+  echo "$(date '+%F %T') sin cambios en home/feed.enc.json"
   exit 0
 fi
 git -c user.name=xuper-plugin -c user.email=335105665+xuper-plugin@users.noreply.github.com \

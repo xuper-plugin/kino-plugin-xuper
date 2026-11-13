@@ -11,7 +11,7 @@ seeds estén caídas). Reproducir/entrar a una categoría sí sigue usando la se
 Corre en el Mac (IP que alcanza el portal) por launchd. Uso:
   python3 scripts/gen-home.py [--minter ~/kino-seed-minter] [--out home/feed.json] [--size 60]
 """
-import os, sys, json, time, argparse, pathlib
+import os, sys, json, time, base64, argparse, pathlib
 
 ROOTS = [("peliculas", "masnew_movies"), ("series", "masnew_series"),
          ("anime", "masnew_anime"), ("infantil", "masnew_kids")]
@@ -52,10 +52,18 @@ def main():
     ap = argparse.ArgumentParser()
     here = pathlib.Path(__file__).resolve().parent
     ap.add_argument("--minter", default=str(pathlib.Path.home() / "kino-seed-minter"))
-    ap.add_argument("--out", default=str(here.parent / "home" / "feed.json"))
+    ap.add_argument("--out", default=str(here.parent / "home" / "feed.enc.json"))
+    ap.add_argument("--key", default=str(pathlib.Path.home() / ".config" / "kino-xuper" / "feed.key"))
     ap.add_argument("--size", type=int, default=60)   # = TREE_PAGE_SIZE del plugin
     ap.add_argument("--max-seeds", type=int, default=12)
     args = ap.parse_args()
+
+    # Clave AES-256 (hex) para sellar el feed como el de las semillas: el plugin la abre con kino.secret("feedKey"); una copia
+    # del código fuera de Kino (un fork) no puede. Se lee de un archivo local (nunca va al repo).
+    key_hex = pathlib.Path(args.key).expanduser().read_text().strip()
+    key = bytes.fromhex(key_hex)
+    if len(key) != 32:
+        print(f"clave inválida ({len(key)} bytes, deben ser 32)"); return 1
 
     minter = str(pathlib.Path(args.minter).expanduser())
     os.chdir(minter)            # para que iptv_client encuentre ./.env (la clave 3DES)
@@ -95,11 +103,19 @@ def main():
         return 1
 
     feed = {"v": SCHEMA, "at": int(time.time() * 1000), "roots": roots}
+    plain = json.dumps(feed, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+    # Sello AES-256-GCM, mismo formato que las semillas (seedBox.js): { v:1, iv:b64(12B), data:b64(ciphertext+tag16) }.
+    from Crypto.Cipher import AES  # pycryptodome (igual que iptv_client)
+    iv = os.urandom(12)
+    ct, tag = AES.new(key, AES.MODE_GCM, nonce=iv).encrypt_and_digest(plain)
+    envelope = {"v": 1, "iv": base64.b64encode(iv).decode("ascii"), "data": base64.b64encode(ct + tag).decode("ascii")}
+
     out_path = pathlib.Path(args.out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(feed, ensure_ascii=False, separators=(",", ":"))
+    text = json.dumps(envelope, separators=(",", ":"))
     out_path.write_text(text, encoding="utf-8")
-    print(f"listo: {out_path} ({round(len(text.encode('utf-8'))/1024)} KB, {len(roots)} raíces)")
+    print(f"listo: {out_path} (claro {round(len(plain)/1024)} KB -> cifrado {round(len(text)/1024)} KB, {len(roots)} raíces)")
     return 0
 
 if __name__ == "__main__":
