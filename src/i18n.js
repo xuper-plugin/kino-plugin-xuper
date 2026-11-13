@@ -283,6 +283,8 @@ export const TEXTS = Object.freeze({
   // Home & help tab.
   scrHomeTitle: ["Inicio", "Home"],
   scrHomeHint: ["Una fila con los canales en vivo de tu país al final de Inicio.", "A row with your country's live channels at the end of Home."],
+  scrWarmSwitch: ["Precargar sesión", "Preload session"],
+  scrWarmHint: ["Abre la sesión al entrar a Inicio para que el primer clic en una película o serie sea instantáneo.", "Opens the session on Home so the first click on a movie or series is instant."],
   scrFaqTitle: ["Preguntas frecuentes", "Frequently asked questions"],
   scrFaqAnonQ: ["¿Qué es la sesión anónima?", "What is the anonymous session?"],
   scrFaqAnonA: [

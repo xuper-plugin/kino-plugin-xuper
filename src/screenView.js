@@ -6,7 +6,7 @@ import { RESEND_WAIT_MS } from "./screenModel.js";
 import { logo } from "./browseView.js";
 
 /** The plugin's version, shown in the diagnostics (kept equal to kino-plugin.json by a test). */
-export const PLUGIN_VERSION = "2.6.5";
+export const PLUGIN_VERSION = "2.6.6";
 /** Every network press may take Kino's longest press budget: the old buttons' own bounds (25 s) fit inside it. */
 export const PRESS_MS = 30_000;
 export const TABS = ["account", "connection", "more"];
@@ -161,6 +161,9 @@ function moreTab(s, ctx) {
       caption("scrHomeHint"),
       // Kino's own select (the same 19 options, their English names from the manifest), saved as it changes.
       { type: "settings", key: "homeForm", keys: ["homeCountry"], autoSave: true, onSaved: "saved" },
+      // "Precargar sesión": calienta la sesión al abrir Inicio para que el primer clic sea instantáneo (guardado en storage).
+      { type: "Switch", key: "warmSwitch", ...twin("scrWarmSwitch", "labelText"), value: s.warmSession, onChanged: "warm.change" },
+      caption("scrWarmHint"),
     ] },
     { type: "Card", key: "faqCard", children: [
       section("scrFaqTitle"),

@@ -72,11 +72,13 @@ export function snapshot({ kino, settings, session }) {
     auto: f ? f.autoRefresh : true,
     contribOn: (() => { try { return kino.config.get("contributeSeeds") !== false; } catch (_) { return true; } })(),
     contribAt: contribAt !== null && contribAt > 0 ? contribAt : null,
+    // Ajuste opcional "Precargar sesión" (guardado en storage, no en el manifest): calienta la sesión al abrir Inicio.
+    warmSession: readJson(kino, "warmSession") === true,
   };
 }
 
 /** A short fingerprint of what the tabs show: a timer re-renders only when it changed. */
 export function fingerprint(s) {
   return [s.ok, s.accountState, s.account, s.usingShared, s.sharedConfigured, s.ownConfigured, s.sharedToggle, s.emailMasked, s.kind,
-    s.regionBlocked, s.pool, s.usable, s.seedsAt, s.exhausted, s.auto, s.contribOn, s.contribAt].join("|");
+    s.regionBlocked, s.pool, s.usable, s.seedsAt, s.exhausted, s.auto, s.contribOn, s.contribAt, s.warmSession].join("|");
 }

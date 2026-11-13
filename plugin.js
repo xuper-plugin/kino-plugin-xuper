@@ -584,6 +584,8 @@ var TEXTS = Object.freeze({
   // Home & help tab.
   scrHomeTitle: ["Inicio", "Home"],
   scrHomeHint: ["Una fila con los canales en vivo de tu pa\xEDs al final de Inicio.", "A row with your country's live channels at the end of Home."],
+  scrWarmSwitch: ["Precargar sesi\xF3n", "Preload session"],
+  scrWarmHint: ["Abre la sesi\xF3n al entrar a Inicio para que el primer clic en una pel\xEDcula o serie sea instant\xE1neo.", "Opens the session on Home so the first click on a movie or series is instant."],
   scrFaqTitle: ["Preguntas frecuentes", "Frequently asked questions"],
   scrFaqAnonQ: ["\xBFQu\xE9 es la sesi\xF3n an\xF3nima?", "What is the anonymous session?"],
   scrFaqAnonA: [
@@ -3469,6 +3471,7 @@ var SLICE_MARGIN_MS = 2e3;
 var WARM_REFRESH_MS = 8e3;
 var COLD_DEADLINE_MS = 12e3;
 var LIVE_ROW_MS = WARM_REFRESH_MS;
+var SESSION_WARM_MS = 2e4;
 var COLD_PARALLEL = 2;
 var SLOW_FETCH_MS = 4e3;
 var SLOW_KEY = "portalSlow";
@@ -3808,6 +3811,19 @@ function makeCatalog({ kino: kino2, portal, session, clock: clock2, tmdb = null,
     const live2 = countryRow ? countryRow(Math.min(clock2.now() + LIVE_ROW_MS, callDeadline(clock2, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
     const rows2 = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock2.now(), ids.lookup(), isEnglish(kino2), isSpanish(kino2));
     titles.rememberMovies(rows2.flatMap((r) => r.items));
+    let warm = false;
+    try {
+      warm = JSON.parse(kino2.storage.get("warmSession")) === true;
+    } catch (_) {
+      warm = false;
+    }
+    if (warm) {
+      try {
+        session.ensure({ deadline: clock2.now() + SESSION_WARM_MS }).catch(() => {
+        });
+      } catch (_) {
+      }
+    }
     const row2 = await live2;
     return row2 ? [...rows2.slice(0, MAX_HOME_ROWS - 1), row2] : rows2;
   }
@@ -6094,7 +6110,9 @@ function snapshot({ kino: kino2, settings: settings2, session }) {
         return true;
       }
     })(),
-    contribAt: contribAt !== null && contribAt > 0 ? contribAt : null
+    contribAt: contribAt !== null && contribAt > 0 ? contribAt : null,
+    // Ajuste opcional "Precargar sesión" (guardado en storage, no en el manifest): calienta la sesión al abrir Inicio.
+    warmSession: readJson(kino2, "warmSession") === true
   };
 }
 function fingerprint(s) {
@@ -6115,7 +6133,8 @@ function fingerprint(s) {
     s.exhausted,
     s.auto,
     s.contribOn,
-    s.contribAt
+    s.contribAt,
+    s.warmSession
   ].join("|");
 }
 
@@ -6634,7 +6653,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.6.5";
+var PLUGIN_VERSION = "2.6.6";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";
@@ -6833,7 +6852,10 @@ function moreTab(s, ctx) {
       section("scrHomeTitle"),
       caption("scrHomeHint"),
       // Kino's own select (the same 19 options, their English names from the manifest), saved as it changes.
-      { type: "settings", key: "homeForm", keys: ["homeCountry"], autoSave: true, onSaved: "saved" }
+      { type: "settings", key: "homeForm", keys: ["homeCountry"], autoSave: true, onSaved: "saved" },
+      // "Precargar sesión": calienta la sesión al abrir Inicio para que el primer clic sea instantáneo (guardado en storage).
+      { type: "Switch", key: "warmSwitch", ...twin("scrWarmSwitch", "labelText"), value: s.warmSession, onChanged: "warm.change" },
+      caption("scrWarmHint")
     ] },
     { type: "Card", key: "faqCard", children: [
       section("scrFaqTitle"),
@@ -7191,6 +7213,14 @@ function makeEvents({ kino: kino2, clock: clock2, deps: deps2 }) {
     },
     "shared.off"() {
       return { config: { useSharedAccount: false }, state: { signin: null, sharedError: null, inputs: { sharedSwitch: false }, ...bump() }, toast: toastOf("scrSharedOff", "info") };
+    },
+    // "Precargar sesión": se guarda en storage (no es un ajuste del manifest); catalog.home() lo lee para calentar la sesión.
+    "warm.change"({ value }) {
+      try {
+        kino2.storage.set("warmSession", JSON.stringify(value === true));
+      } catch (_) {
+      }
+      return { state: { ...bump() } };
     },
     // ---- seeds ----
     async "seeds.switch"({ arg }) {

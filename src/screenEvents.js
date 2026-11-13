@@ -145,6 +145,12 @@ export function makeEvents({ kino, clock, deps }) {
       return { config: { useSharedAccount: false }, state: { signin: null, sharedError: null, inputs: { sharedSwitch: false }, ...bump() }, toast: toastOf("scrSharedOff", "info") };
     },
 
+    // "Precargar sesión": se guarda en storage (no es un ajuste del manifest); catalog.home() lo lee para calentar la sesión.
+    "warm.change"({ value }) {
+      try { kino.storage.set("warmSession", JSON.stringify(value === true)); } catch (_) { /* da igual */ }
+      return { state: { ...bump() } };
+    },
+
     // ---- seeds ----
     async "seeds.switch"({ arg }) {
       const d = deps();

@@ -48,6 +48,7 @@ export const WARM_REFRESH_MS = 8_000;
 export const COLD_DEADLINE_MS = 12_000;
 // Home's "Canales en vivo" row is never kept: it gets what a warm refresh gets.
 export const LIVE_ROW_MS = WARM_REFRESH_MS;
+const SESSION_WARM_MS = 20_000; // tope para calentar la sesión en 2º plano (ajuste "Precargar sesión"): click rápido después
 // A cold build asks this many roots at once, but only once the portal was measured slow (its network time
 // alone, never the decoding): on a fast portal a 32-bit TV's CPU is the cost, and two roots would double it.
 const COLD_PARALLEL = 2;
@@ -452,6 +453,11 @@ export function makeCatalog({ kino, portal, session, clock, tmdb = null, country
     const live = countryRow ? countryRow(Math.min(clock.now() + LIVE_ROW_MS, callDeadline(clock, CALL_BUDGET_MS.home))).catch(() => null) : Promise.resolve(null);
     const rows = projectRows(await buildRows("home", CALL_BUDGET_MS.home), clock.now(), ids.lookup(), isEnglish(kino), isSpanish(kino));
     titles.rememberMovies(rows.flatMap((r) => r.items));
+    // Ajuste opcional "Precargar sesión" (toggle de la pantalla propia, guardado en storage; apagado por defecto): si está activo,
+    // calienta la sesión en SEGUNDO PLANO (sin bloquear ni fallar la vista) para que el primer click en un card no espere la sesión fría.
+    let warm = false;
+    try { warm = JSON.parse(kino.storage.get("warmSession")) === true; } catch (_) { warm = false; }
+    if (warm) { try { session.ensure({ deadline: clock.now() + SESSION_WARM_MS }).catch(() => {}); } catch (_) { /* da igual */ } }
     const row = await live;
     return row ? [...rows.slice(0, MAX_HOME_ROWS - 1), row] : rows;
   }
