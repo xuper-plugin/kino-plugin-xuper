@@ -77,15 +77,15 @@ function makeCrypto(kino2, { onDecode = null } = {}) {
 // src/config.js
 var hosts = ["osuhk.m3x8o50te.com", "oogoy.f30c96w8.com"];
 var APP_ID = "com.android.msandroid";
-var APK_VERSION = "49920";
+var APK_VERSION = "49902";
 var PORTAL_CODE = "masnew";
-var SPKG_VER = "2023-03-07 12:22:37_31_12_";
-var APK_VER_HEADER = "49920";
+var SPKG_VER = "2025-08-07 05:40:11_36_16_";
+var APK_VER_HEADER = "43404";
 var USER_AGENT = "okhttp/3.12.12";
 var UA_CDN = "Ranger/4.9.4-17294ac0";
 var LIVE_USER_AGENT = "Ranger/4.9.4-17294ac0";
 var LIVE_APP = "com.android.msandroid";
-var LIVE_APP_VERSION = "49920";
+var LIVE_APP_VERSION = "49902";
 var LIVE_X_BUFFER = "0";
 var CONTENT_TYPE = "application/json;charset=utf-8";
 var RATE_LIMIT_MS = 400;
@@ -6651,7 +6651,7 @@ function detailPage({ r, entry, season }) {
 }
 
 // src/screenView.js
-var PLUGIN_VERSION = "2.6.8";
+var PLUGIN_VERSION = "2.6.9";
 var PRESS_MS = 3e4;
 var TABS2 = ["account", "connection", "more"];
 var EMAIL_PATTERN = "^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$";

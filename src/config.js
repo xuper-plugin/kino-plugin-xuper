@@ -4,12 +4,12 @@ export const hosts = ["osuhk.m3x8o50te.com", "oogoy.f30c96w8.com"];
 
 // The owner supplies the real values (not secrets per the spec, but not known here): left empty.
 export const APP_ID = "com.android.msandroid";
-export const APK_VERSION = "49920";
+export const APK_VERSION = "49902";
 
 export const PORTAL_CODE = "masnew";
-export const SPKG_VER = "2023-03-07 12:22:37_31_12_";
+export const SPKG_VER = "2025-08-07 05:40:11_36_16_";
 // Fixed literal of the `apkVer` header: a different field from the device dict's `apkVersion`.
-export const APK_VER_HEADER = "49920";
+export const APK_VER_HEADER = "43404";
 export const USER_AGENT = "okhttp/3.12.12";
 // The `User-Agent` the CDN expects on VOD media requests (not the portal's okhttp one).
 export const UA_CDN = "Ranger/4.9.4-17294ac0";
@@ -17,7 +17,7 @@ export const UA_CDN = "Ranger/4.9.4-17294ac0";
 // APP_VERSION and the X-Buffer header): a fixed app id and version, NOT the credentials' ones VOD sends.
 export const LIVE_USER_AGENT = "Ranger/4.9.4-17294ac0";
 export const LIVE_APP = "com.android.msandroid";
-export const LIVE_APP_VERSION = "49920";
+export const LIVE_APP_VERSION = "49902";
 export const LIVE_X_BUFFER = "0";
 export const CONTENT_TYPE = "application/json;charset=utf-8";
 export const RATE_LIMIT_MS = 400;
