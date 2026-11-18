@@ -1,0 +1,734 @@
+{
+ "note": "The 121 real live categories of every source but xuper, collected on the device 2026-11-17 (device/all-live-categories.json). rawId = the source's raw category id; expect = the virtual category the design maps it to (§2.5). Exposed ids are rebuilt from rawId with hexEnc, never taken from the device dump (its premiumtv ids skipped encodeURIComponent).",
+ "categories": [
+  {
+   "src": "tvenvivo",
+   "rawId": "deportes",
+   "title": "Deportes",
+   "expect": "v.sports"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "co",
+   "title": "Colombia",
+   "expect": "v.co"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "mx",
+   "title": "México",
+   "expect": "v.mx"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "pe",
+   "title": "Perú",
+   "expect": "v.pe"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "ar",
+   "title": "Argentina",
+   "expect": "v.ar"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "us",
+   "title": "Estados Unidos",
+   "expect": "v.us"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "intl",
+   "title": "Internacional",
+   "expect": "v.intl"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "novelas",
+   "title": "Novelas",
+   "expect": "v.novelas"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "infantil",
+   "title": "Infantil",
+   "expect": "v.kids"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "docs",
+   "title": "Documentales",
+   "expect": "v.docs"
+  },
+  {
+   "src": "tvenvivo",
+   "rawId": "cine",
+   "title": "Cine y series",
+   "expect": "v.movies"
+  },
+  {
+   "src": "caracol",
+   "rawId": "all",
+   "title": "Canales en vivo",
+   "expect": "v.co"
+  },
+  {
+   "src": "cablevisionhd",
+   "rawId": "sports",
+   "title": "Deportes",
+   "expect": "v.sports"
+  },
+  {
+   "src": "cablevisionhd",
+   "rawId": "entertainment",
+   "title": "Entretenimiento",
+   "expect": "v.ent"
+  },
+  {
+   "src": "cablevisionhd",
+   "rawId": "news",
+   "title": "Noticias",
+   "expect": "v.news"
+  },
+  {
+   "src": "cablevisionhd",
+   "rawId": "movies",
+   "title": "Películas",
+   "expect": "v.movies"
+  },
+  {
+   "src": "cablevisionhd",
+   "rawId": "kids",
+   "title": "Infantil",
+   "expect": "v.kids"
+  },
+  {
+   "src": "cablevisionhd",
+   "rawId": "education",
+   "title": "Educación",
+   "expect": "v.docs"
+  },
+  {
+   "src": "cablevisionhd",
+   "rawId": "other",
+   "title": "Otros",
+   "expect": "v.ent"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "El Salvador - TCS",
+   "title": "El Salvador - TCS",
+   "expect": "v.sv"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "El Salvador",
+   "title": "El Salvador",
+   "expect": "v.sv"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Guatemala",
+   "title": "Guatemala",
+   "expect": "v.gt"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Honduras",
+   "title": "Honduras",
+   "expect": "v.hn"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Costa Rica",
+   "title": "Costa Rica",
+   "expect": "v.cr"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "México",
+   "title": "México",
+   "expect": "v.mx"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Colombia",
+   "title": "Colombia",
+   "expect": "v.co"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Ecuador",
+   "title": "Ecuador",
+   "expect": "v.ec"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Perú",
+   "title": "Perú",
+   "expect": "v.pe"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Chile",
+   "title": "Chile",
+   "expect": "v.cl"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Argentina",
+   "title": "Argentina",
+   "expect": "v.ar"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Paraguay",
+   "title": "Paraguay",
+   "expect": "v.py"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "República Dominicana",
+   "title": "República Dominicana",
+   "expect": "v.do"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Venezuela",
+   "title": "Venezuela",
+   "expect": "v.ve"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Bolivia",
+   "title": "Bolivia",
+   "expect": "v.bo"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "España",
+   "title": "España",
+   "expect": "v.es"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Anime",
+   "title": "Anime",
+   "expect": "v.anime"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Doramas / Asia",
+   "title": "Doramas / Asia",
+   "expect": "v.asia"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Fashion",
+   "title": "Fashion",
+   "expect": "v.ent"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Cine / Películas",
+   "title": "Cine / Películas",
+   "expect": "v.movies"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Cine / Películas Premium",
+   "title": "Cine / Películas Premium",
+   "expect": "v.movies"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Entretenimiento Premium",
+   "title": "Entretenimiento Premium",
+   "expect": "v.ent"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Entretenimiento / Cine / Series",
+   "title": "Entretenimiento / Cine / Series",
+   "expect": "v.ent"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Telemundo Noticias",
+   "title": "Telemundo Noticias",
+   "expect": "v.news"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Tecnología",
+   "title": "Tecnología",
+   "expect": "v.docs"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Documentales y Cultura",
+   "title": "Documentales y Cultura",
+   "expect": "v.docs"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Informativos",
+   "title": "Informativos",
+   "expect": "v.news"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Infantiles",
+   "title": "Infantiles",
+   "expect": "v.kids"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Música",
+   "title": "Música",
+   "expect": "v.music"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "FIFA+",
+   "title": "FIFA+",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Sky Sports",
+   "title": "Sky Sports",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Tigo Sports / Fox",
+   "title": "Tigo Sports / Fox",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Deportes",
+   "title": "Deportes",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "DSports",
+   "title": "DSports",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "FOX Sports",
+   "title": "FOX Sports",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Win Sports",
+   "title": "Win Sports",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Movistar Deportes",
+   "title": "Movistar Deportes",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "ESPN",
+   "title": "ESPN",
+   "expect": "v.sports"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Religiosos",
+   "title": "Religiosos",
+   "expect": "v.faith"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "TV Chichicasteca",
+   "title": "TV Chichicasteca",
+   "expect": "v.gt"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Canela TV",
+   "title": "Canela TV",
+   "expect": "v.movies"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "FreeTV",
+   "title": "FreeTV",
+   "expect": "v.movies"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Sony Channels",
+   "title": "Sony Channels",
+   "expect": "v.movies"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "Rakuten TV",
+   "title": "Rakuten TV",
+   "expect": "v.movies"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "LG Channels",
+   "title": "LG Channels",
+   "expect": "v.movies"
+  },
+  {
+   "src": "premiumtv",
+   "rawId": "RUN:TIME TV",
+   "title": "RUN:TIME TV",
+   "expect": "v.movies"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3016",
+   "title": "┃ES┃ M+ DEPORTES",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "supertv",
+   "rawId": "2655",
+   "title": "┃ES┃ DAZN ESPAÑA",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "supertv",
+   "rawId": "863",
+   "title": "┃ES┃ OTROS DEPORTES",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3010",
+   "title": "┃UCL┃ CHAMPIONS LEAGUE",
+   "expect": "v.sp.eu"
+  },
+  {
+   "src": "supertv",
+   "rawId": "821",
+   "title": "┃NL┃ VIAPLAY PREMIER LEAGUE",
+   "expect": "v.sp.nl"
+  },
+  {
+   "src": "supertv",
+   "rawId": "822",
+   "title": "┃NL┃ VIAPLAY BUNDESLIGA",
+   "expect": "v.sp.nl"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3152",
+   "title": "┃NL┃ VIAPLAY LIGUE 1",
+   "expect": "v.sp.nl"
+  },
+  {
+   "src": "supertv",
+   "rawId": "520",
+   "title": "┃DE┃ SKY SPORT BUNDESLIGA RAW",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3309",
+   "title": "┃DE┃ SKY SPORT BUNDESLIGA FHD",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3308",
+   "title": "┃DE┃ SKY SPORT BUNDESLIGA HD",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "881",
+   "title": "┃DE┃ SKY SPORT BUNDESLIGA REPLAY",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3035",
+   "title": "┃DE┃ DAZN UEFA CHAMPIONS LEAGUE",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3201",
+   "title": "┃DE┃ DAZN BUNDESLIGA",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3202",
+   "title": "┃DE┃ DAZN LA LIGA",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3203",
+   "title": "┃DE┃ DAZN SERIE A",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3204",
+   "title": "┃DE┃ DAZN LIGUE 1",
+   "expect": "v.sp.de"
+  },
+  {
+   "src": "supertv",
+   "rawId": "889",
+   "title": "┃UK┃ LIVE FOOTBALL",
+   "expect": "v.sp.gb"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3782",
+   "title": "┃UK┃ PREMIER LEAGUE+",
+   "expect": "v.sp.gb"
+  },
+  {
+   "src": "supertv",
+   "rawId": "2862",
+   "title": "┃UK┃ EPL PREMIER LEAGUE TEAMS",
+   "expect": "v.sp.gb"
+  },
+  {
+   "src": "supertv",
+   "rawId": "2924",
+   "title": "┃UK┃ EPL PREMIER LEAGUE REPLAY",
+   "expect": "v.sp.gb"
+  },
+  {
+   "src": "supertv",
+   "rawId": "2916",
+   "title": "┃UK┃ LA LIGA TEAMS",
+   "expect": "v.sp.gb"
+  },
+  {
+   "src": "supertv",
+   "rawId": "2917",
+   "title": "┃UK┃ SERIE A TEAMS",
+   "expect": "v.sp.gb"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3409",
+   "title": "┃UK┃ LIGUE 1 PPV",
+   "expect": "v.events"
+  },
+  {
+   "src": "supertv",
+   "rawId": "2923",
+   "title": "┃UK┃ UEFA EVENTS",
+   "expect": "v.events"
+  },
+  {
+   "src": "supertv",
+   "rawId": "2930",
+   "title": "┃UK┃ UEFA REPLAY",
+   "expect": "v.sp.gb"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3159",
+   "title": "┃ES┃ M+ SUPER COPA",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "supertv",
+   "rawId": "865",
+   "title": "┃ES┃ M+ LA LIGA",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "supertv",
+   "rawId": "867",
+   "title": "┃ES┃ M+ LA LIGA REPLAY",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "supertv",
+   "rawId": "866",
+   "title": "┃ES┃ DAZN LA LIGA",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "supertv",
+   "rawId": "3397",
+   "title": "┃ES┃ LA LIGA+",
+   "expect": "v.sp.es"
+  },
+  {
+   "src": "futbollibre",
+   "rawId": "hoy",
+   "title": "Partidos de hoy",
+   "expect": "v.events"
+  },
+  {
+   "src": "futbollibre",
+   "rawId": "main",
+   "title": "Canales deportivos",
+   "expect": "v.sports"
+  },
+  {
+   "src": "futbollibre",
+   "rawId": "mas",
+   "title": "Más canales",
+   "expect": "v.sports"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "live",
+   "title": "En vivo ahora",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "networks",
+   "title": "TV deportiva 24/7",
+   "expect": "v.sp.us"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "football",
+   "title": "Fútbol",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "basketball",
+   "title": "Baloncesto",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "tennis",
+   "title": "Tenis",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "motorsport",
+   "title": "Motor",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "mma",
+   "title": "MMA",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "baseball",
+   "title": "Béisbol",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "hockey",
+   "title": "Hockey",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "rugby",
+   "title": "Rugby",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "americanfootball",
+   "title": "Fútbol americano",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "golf",
+   "title": "Golf",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "cricket",
+   "title": "Críquet",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "college",
+   "title": "Deporte universitario",
+   "expect": "v.events"
+  },
+  {
+   "src": "nuvio-sports",
+   "rawId": "other",
+   "title": "Otros deportes",
+   "expect": "v.events"
+  },
+  {
+   "src": "deportv",
+   "rawId": "today",
+   "title": {
+    "es": "Hoy",
+    "en": "Today"
+   },
+   "expect": "v.events"
+  },
+  {
+   "src": "deportv",
+   "rawId": "l_uefa-nations-league",
+   "title": "UEFA Nations League",
+   "expect": "v.events"
+  },
+  {
+   "src": "deportv",
+   "rawId": "l_amistoso-internacional",
+   "title": "Amistoso Internacional",
+   "expect": "v.events"
+  },
+  {
+   "src": "cncverse",
+   "rawId": "cnc_SportzXLiveEvents_tv",
+   "title": "SportzX Live Events",
+   "expect": "v.events"
+  },
+  {
+   "src": "cncverse",
+   "rawId": "cnc_PlayZTVLiveEvents_tv",
+   "title": "PlayZTV Live Events",
+   "expect": "v.events"
+  },
+  {
+   "src": "cncverse",
+   "rawId": "cnc_LivXowLiveEvents_tv",
+   "title": "LivXow Live Events",
+   "expect": "v.events"
+  },
+  {
+   "src": "cncverse",
+   "rawId": "cnc_SKTechLiveEvents_tv",
+   "title": "SKTech Live Events",
+   "expect": "v.events"
+  },
+  {
+   "src": "cncverse",
+   "rawId": "cnc_PlayFyLiveEvents_tv",
+   "title": "PlayFy Live Events",
+   "expect": "v.events"
+  }
+ ]
+}

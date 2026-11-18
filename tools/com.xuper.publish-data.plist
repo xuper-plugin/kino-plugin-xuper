@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE: the Xuper data publisher (tools/publish.sh data) every 2 hours, plus once at load.
+  It replaces any older catalog or matches agent (unload those first). Nothing loads it automatically:
+  the owner fills the placeholders and loads it by hand, after three clean manual runs (tools/README-publish.md).
+    __REPO__  absolute path of the kino-plugin-xuper checkout (the folder that holds tools/publish.sh)
+    __HOME__  absolute path of the home folder (logs go to __HOME__/.config/xuper-catalog/)
+    __PATH__  a PATH where node, gh and python3 are found (launchd starts with /usr/bin:/bin:/usr/sbin:/sbin)
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.xuper.publish-data</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/tools/publish.sh</string>
+    <string>data</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>7200</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>LowPriorityIO</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/.config/xuper-catalog/publish-data.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.config/xuper-catalog/publish-data.log</string>
+</dict>
+</plist>

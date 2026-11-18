@@ -1,0 +1,4 @@
+Embedding domain not allowed
+REFERER: VACIO
+HOST: VACIO
+SCHEME: VACIO

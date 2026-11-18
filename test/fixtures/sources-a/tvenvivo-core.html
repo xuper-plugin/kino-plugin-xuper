@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+
+<div id="core-access-warning" role="alert">
+    <div class="core-warning-box">
+        <h1>Acceso no permitido</h1>
+        <p>Prohibido utilizar este contenido mediante iframe, sandbox o fuera de los dominios autorizados.</p>
+        <button type="button" id="core-copy-link">Copiar enlace de Televiendo</button>
+    </div>
+</div>
+
+<div id="player-loader" aria-live="polite">
+    <div class="player-loader-content">
+        <img
+            class="player-loader-logo"
+            src="latam.gif"
+            alt="Latam"
+        >
+
+        <div class="player-loader-text">
+            Cargando transmisión<span class="loader-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
+        </div>
+    </div>
+</div>
+
+<iframe
+    id="player-frame"
+    src="https://regionales.saohgdassregions.com/stream.php?canal=azteca7&amp;target=1&amp;sig=7d1f0a9c3b5e2d4f6a8c0e1b3d5f7a9c2e4b6d8f0a1c3e5b7d9f1a2c4e6b8d0f"
+    referrerpolicy="origin"
+    allow="autoplay; encrypted-media; fullscreen"
+    allowfullscreen
+    scrolling="no">
+</iframe>
+
+<div style="display:none">
+<script id="_wauirg">
+var _wau = _wau || [];
+_wau.push(["dynamic", "ulzj1ht61i", "irg", "c4302bffffff"]);
+</script>
+<script async src="//waust.at/d.js"></script>
+</div>
+
+</body>
+</html>

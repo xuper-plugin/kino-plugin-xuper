@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.DS_Store
+# The kit's local state (node sdk/run.mjs and friends), never published.
+.kino-secrets.json
+.kino-storage.json
+.kino-cookies.json
+.kino-shared.json
+# An author key never enters the repository.
+*.pem
+keys/

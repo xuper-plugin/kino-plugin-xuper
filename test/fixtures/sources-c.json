@@ -1,0 +1,190 @@
+{
+ "note": "Real payloads of 2026-11-17, trimmed (S/verify/C/tools/make-fixture.mjs)",
+ "cncManifest": {
+  "catalogs": [
+   {
+    "type": "tv",
+    "id": "cnc_SportzXLiveEvents_tv",
+    "name": "⚡SportzX Live Events (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_SportzXHighlights_tv",
+    "name": "🎬SportzX Highlights (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_PlayZTVLiveEvents_tv",
+    "name": "⚡PlayZTV Live Events (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_JIOTVPlusIND3_tv",
+    "name": "📺 JIOTV+ IND 3 (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_LivXowLiveEvents_tv",
+    "name": "⚡LivXow Live Events (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_LivXowHighlights_tv",
+    "name": "🎬LivXow Highlights (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_SKTechLiveEvents_tv",
+    "name": "⚡SKTech Live Events (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_SUNNXT_SKTechProvider_tv",
+    "name": "📺 SUN NXT (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_PlayFyLiveEvents_tv",
+    "name": "⚡ PlayFy Live Events (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_PlayFyHighlights_tv",
+    "name": "🎬 PlayFy Highlights (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_JIOTVIND_tv",
+    "name": "📺 JIO TV (IND) (tv)"
+   },
+   {
+    "type": "tv",
+    "id": "cnc_EasyPlayLiveTV_tv",
+    "name": "EasyPlay Live TV (tv)"
+   }
+  ]
+ },
+ "cncSKTech": {
+  "metas": [
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjo0MiwidGl0bGUiOiJOZXcgWmVhbGFuZCB2cyBJbmRpYSIsInBvc3RlciI6Imh0dHBzOi8vY2FyZC5jbmN2ZXJzZS5kcGRucy5vcmcvP3RpdGxlPUlDQytXb3JsZCtUZXN0K0NoYW1waW9uc2hpcCZ0ZWFtQT1OZXcrWmVhbGFuZCZ0ZWFtQj1JbmRpYSZ0ZWFtQUltZz1odHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzE4Nzc1NS9pbWFnZSZ0ZWFtQkltZz1odHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzE4Nzc2NS9pbWFnZSZldmVudExvZ289aHR0cDovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS91bmlxdWUtdG91cm5hbWVudC8xODgzMy9pbWFnZS9kYXJrJnRpbWU9Tm92KzE4JTJDKzIwMjYrMTAlM0EwMCtQTStVVEMmaXNMaXZlPWZhbHNlJmlzRW5kZWQ9ZmFsc2UiLCJzbHVnIjoicHJvL1NVTkRJRmR2Y214a0lGUmxjM1FnUTJoaGJYQnBiMjV6YUdsd0xVNWxkeUJhWldGc1lXNWtMWFp6TFVsdVpHbGhNVGM1TkRnMk5EVXdOalE0TWciLCJmb3JtYXRzIjpbeyJ0aXRsZSI6IlNLIExJVkUgIiwid2ViTGluayI6InByby9TVU5ESUZkdmNteGtJRlJsYzNRZ1EyaGhiWEJwYjI1emFHbHdMVTVsZHlCYVpXRnNZVzVrTFhaekxVbHVaR2xoTVRjNU5EZzJORFV3TmpRNE1nLnR4dCJ9XSwiZXZlbnRJbmZvIjp7InRlYW1BIjoiTmV3IFplYWxhbmQiLCJ0ZWFtQiI6IkluZGlhIiwidGVhbUFGbGFnIjoiaHR0cHM6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdGVhbS8xODc3NTUvaW1hZ2UiLCJ0ZWFtQkZsYWciOiJodHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzE4Nzc2NS9pbWFnZSIsImV2ZW50Q2F0IjoiQ3JpY2tldCIsImV2ZW50TmFtZSI6IklDQyBXb3JsZCBUZXN0IENoYW1waW9uc2hpcCIsImV2ZW50TG9nbyI6Imh0dHA6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdW5pcXVlLXRvdXJuYW1lbnQvMTg4MzMvaW1hZ2UvZGFyayIsImlzSG90IjoiMCIsImV2ZW50VHlwZSI6bnVsbCwic3RhcnRUaW1lIjoiMjAyNi8xMS8xOCAyMjowMDowMCArMDAwMCIsImVuZFRpbWUiOm51bGx9fQ==",
+    "type": "tv",
+    "name": "🔜 New Zealand vs India",
+    "poster": "https://card.cncverse.dpdns.org/?title=ICC+World+Test+Championship&teamA=New+Zealand&teamB=India&teamAImg=https://img.sofascore.com/api/v1/team/187755/image&teamBImg=https://img.sofascore.com/api/v1/team/187765/image&eventLogo=http://img.sofascore.com/api/v1/unique-tournament/18833/image/dark&time=Nov+18%2C+2026+05%3A00+PM+COT&isLive=false&isEnded=false"
+   },
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjoxLCJ0aXRsZSI6Ik5QTCIsInBvc3RlciI6Imh0dHBzOi8vY2FyZC5jbmN2ZXJzZS5kcGRucy5vcmcvP3RpdGxlPU5lcGFsK1ByZW1pZXIrbGVhZ3VlKyZ0ZWFtQT1OUEwmdGVhbUFJbWc9aHR0cHM6Ly93d3cuZmFuY29kZS5jb20vc2tpbGx1cC11cGxvYWRzL2Ntcy1tZWRpYS9OUEwtUzMucG5nJmV2ZW50TG9nbz1odHRwczovL3d3dy5mYW5jb2RlLmNvbS9za2lsbHVwLXVwbG9hZHMvY21zLW1lZGlhL05QTC1TMy5wbmcmdGltZT1Ob3YrMTUlMkMrMjAyNiswNiUzQTQ1K0FNK1VUQyZpc0xpdmU9ZmFsc2UmaXNFbmRlZD10cnVlIiwic2x1ZyI6InByby9UbVZ3WVd3Z1VISmxiV2xsY2lCc1pXRm5kV1VnTFVKcklIWnpJRU4zY2kxMmN5MHhOemt6TURNM05ESTFOREUyIiwiZm9ybWF0cyI6W3sidGl0bGUiOiJGQU5DT0RFICIsIndlYkxpbmsiOiJwcm8vVG1Wd1lXd2dVSEpsYldsbGNpQnNaV0ZuZFdVZ0xVSnJJSFp6SUVOM2NpMTJjeTB4Tnprek1ETTNOREkxTkRFMi50eHQifSx7InRpdGxlIjoiU0QgU0VSVkVSICIsIndlYkxpbmsiOiJwcm8vVG1Wd1lXd2dVSEpsYldsbGNpQnNaV0ZuZFdVZ0xVSnJJSFp6SUVOM2NpMTJjeTB4Tnprek1ETTNOREkxTkRFMi50eHQifSx7InRpdGxlIjoiU1RBUiBTRUxFQ1QgIiwid2ViTGluayI6InByby9UbVZ3WVd3Z1VISmxiV2xsY2lCc1pXRm5kV1VnTFVKcklIWnpJRU4zY2kxMmN5MHhOemt6TURNM05ESTFOREUyLnR4dCJ9XSwiZXZlbnRJbmZvIjp7InRlYW1BIjoiTlBMIiwidGVhbUIiOiJOUEwiLCJ0ZWFtQUZsYWciOiJodHRwczovL3d3dy5mYW5jb2RlLmNvbS9za2lsbHVwLXVwbG9hZHMvY21zLW1lZGlhL05QTC1TMy5wbmciLCJ0ZWFtQkZsYWciOiJodHRwczovL3d3dy5mYW5jb2RlLmNvbS9za2lsbHVwLXVwbG9hZHMvY21zLW1lZGlhL05QTC1TMy5wbmciLCJldmVudENhdCI6IkNyaWNrZXQiLCJldmVudE5hbWUiOiJOZXBhbCBQcmVtaWVyIGxlYWd1ZSAiLCJldmVudExvZ28iOiJodHRwczovL3d3dy5mYW5jb2RlLmNvbS9za2lsbHVwLXVwbG9hZHMvY21zLW1lZGlhL05QTC1TMy5wbmciLCJpc0hvdCI6IjAiLCJldmVudFR5cGUiOm51bGwsInN0YXJ0VGltZSI6IjIwMjYvMTEvMTUgMDY6NDU6MDAgKzAwMDAiLCJlbmRUaW1lIjoiMjAyNi8xMS8xNSAxMDo0NTowMCArMDAwMCJ9fQ==",
+    "type": "tv",
+    "name": "✅ NPL",
+    "poster": "https://card.cncverse.dpdns.org/?title=Nepal+Premier+league+&teamA=NPL&teamAImg=https://www.fancode.com/skillup-uploads/cms-media/NPL-S3.png&eventLogo=https://www.fancode.com/skillup-uploads/cms-media/NPL-S3.png&time=Nov+15%2C+2026+01%3A45+AM+COT&isLive=false&isEnded=true"
+   },
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjoyMywidGl0bGUiOiJBZmdoYW5pc3RhbiB2cyBaaW1iYWJ3ZSIsInBvc3RlciI6Imh0dHBzOi8vY2FyZC5jbmN2ZXJzZS5kcGRucy5vcmcvP3RpdGxlPVRlc3QrU2VyaWVzJnRlYW1BPUFmZ2hhbmlzdGFuJnRlYW1CPVppbWJhYndlJnRlYW1BSW1nPWh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vMTg3NTc1L2ltYWdlJnRlYW1CSW1nPWh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vMTg3NzQ1L2ltYWdlJmV2ZW50TG9nbz1odHRwOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3VuaXF1ZS10b3VybmFtZW50LzExMTg5L2ltYWdlL2RhcmsmdGltZT1Ob3YrMTYlMkMrMjAyNiswNiUzQTAwK0FNK1VUQyZpc0xpdmU9ZmFsc2UmaXNFbmRlZD10cnVlIiwic2x1ZyI6InByby9WR1Z6ZENCVFpYSnBaWE10UVdabmFHRnVhWE4wWVc0dGRuTXRXbWx0WW1GaWQyVXhOemswTnpFNU5EVTRNVEV5IiwiZm9ybWF0cyI6W3sidGl0bGUiOiJXSUxMT1cgQURGUkVFIiwid2ViTGluayI6InByby9WR1Z6ZENCVFpYSnBaWE10UVdabmFHRnVhWE4wWVc0dGRuTXRXbWx0WW1GaWQyVXhOemswTnpFNU5EVTRNVEV5LnR4dCJ9LHsidGl0bGUiOiJTSyBMSVZFICIsIndlYkxpbmsiOiJwcm8vVkdWemRDQlRaWEpwWlhNdFFXWm5hR0Z1YVhOMFlXNHRkbk10V21sdFltRmlkMlV4TnprME56RTVORFU0TVRFeS50eHQifSx7InRpdGxlIjoiV0lMTE9XIEFMVCIsIndlYkxpbmsiOiJwcm8vVkdWemRDQlRaWEpwWlhNdFFXWm5hR0Z1YVhOMFlXNHRkbk10V21sdFltRmlkMlV4TnprME56RTVORFU0TVRFeS50eHQifV0sImV2ZW50SW5mbyI6eyJ0ZWFtQSI6IkFmZ2hhbmlzdGFuIiwidGVhbUIiOiJaaW1iYWJ3ZSIsInRlYW1BRmxhZyI6Imh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vMTg3NTc1L2ltYWdlIiwidGVhbUJGbGFnIjoiaHR0cHM6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdGVhbS8xODc3NDUvaW1hZ2UiLCJldmVudENhdCI6IkNyaWNrZXQiLCJldmVudE5hbWUiOiJUZXN0IFNlcmllcyIsImV2ZW50TG9nbyI6Imh0dHA6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdW5pcXVlLXRvdXJuYW1lbnQvMTExODkvaW1hZ2UvZGFyayIsImlzSG90IjoiMCIsImV2ZW50VHlwZSI6bnVsbCwic3RhcnRUaW1lIjoiMjAyNi8xMS8xNiAwNjowMDowMCArMDAwMCIsImVuZFRpbWUiOiIyMDI2LzExLzE2IDE0OjAwOjAwICswMDAwIn19",
+    "type": "tv",
+    "name": "✅ Afghanistan vs Zimbabwe",
+    "poster": "https://card.cncverse.dpdns.org/?title=Test+Series&teamA=Afghanistan&teamB=Zimbabwe&teamAImg=https://img.sofascore.com/api/v1/team/187575/image&teamBImg=https://img.sofascore.com/api/v1/team/187745/image&eventLogo=http://img.sofascore.com/api/v1/unique-tournament/11189/image/dark&time=Nov+16%2C+2026+01%3A00+AM+COT&isLive=false&isEnded=true"
+   },
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjoyMSwidGl0bGUiOiJTb3V0aCBBZnJpY2EgdnMgQmFuZ2xhZGVzaCIsInBvc3RlciI6Imh0dHBzOi8vY2FyZC5jbmN2ZXJzZS5kcGRucy5vcmcvP3RpdGxlPUlDQytXb3JsZCtUZXN0K0NoYW1waW9uc2hpcCZ0ZWFtQT1Tb3V0aCtBZnJpY2EmdGVhbUI9QmFuZ2xhZGVzaCZ0ZWFtQUltZz1odHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzE4Nzc0Ny9pbWFnZSZ0ZWFtQkltZz1odHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzE4Nzc0NC9pbWFnZSZldmVudExvZ289aHR0cDovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS91bmlxdWUtdG91cm5hbWVudC8xODgzMy9pbWFnZS9kYXJrJnRpbWU9Tm92KzE2JTJDKzIwMjYrMDglM0EwMCtBTStVVEMmaXNMaXZlPWZhbHNlJmlzRW5kZWQ9dHJ1ZSIsInNsdWciOiJwcm8vU1VORElGZHZjbXhrSUZSbGMzUWdRMmhoYlhCcGIyNXphR2x3TFZOdmRYUm9JRUZtY21sallTMTJjeTFDWVc1bmJHRmtaWE5vTVRjNU5EWTRPVEF5TmpjM05RIiwiZm9ybWF0cyI6W3sidGl0bGUiOiJXSUxMT1cgQURGUkVFIiwid2ViTGluayI6InByby9TVU5ESUZkdmNteGtJRlJsYzNRZ1EyaGhiWEJwYjI1emFHbHdMVk52ZFhSb0lFRm1jbWxqWVMxMmN5MUNZVzVuYkdGa1pYTm9NVGM1TkRZNE9UQXlOamMzTlEudHh0In0seyJ0aXRsZSI6IldJTExPVyBIRCIsIndlYkxpbmsiOiJwcm8vU1VORElGZHZjbXhrSUZSbGMzUWdRMmhoYlhCcGIyNXphR2x3TFZOdmRYUm9JRUZtY21sallTMTJjeTFDWVc1bmJHRmtaWE5vTVRjNU5EWTRPVEF5TmpjM05RLnR4dCJ9XSwiZXZlbnRJbmZvIjp7InRlYW1BIjoiU291dGggQWZyaWNhIiwidGVhbUIiOiJCYW5nbGFkZXNoIiwidGVhbUFGbGFnIjoiaHR0cHM6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdGVhbS8xODc3NDcvaW1hZ2UiLCJ0ZWFtQkZsYWciOiJodHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzE4Nzc0NC9pbWFnZSIsImV2ZW50Q2F0IjoiQ3JpY2tldCIsImV2ZW50TmFtZSI6IklDQyBXb3JsZCBUZXN0IENoYW1waW9uc2hpcCIsImV2ZW50TG9nbyI6Imh0dHA6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdW5pcXVlLXRvdXJuYW1lbnQvMTg4MzMvaW1hZ2UvZGFyayIsImlzSG90IjoiMCIsImV2ZW50VHlwZSI6bnVsbCwic3RhcnRUaW1lIjoiMjAyNi8xMS8xNiAwODowMDowMCArMDAwMCIsImVuZFRpbWUiOiIyMDI2LzExLzE2IDE3OjAwOjAwICswMDAwIn19",
+    "type": "tv",
+    "name": "✅ South Africa vs Bangladesh",
+    "poster": "https://card.cncverse.dpdns.org/?title=ICC+World+Test+Championship&teamA=South+Africa&teamB=Bangladesh&teamAImg=https://img.sofascore.com/api/v1/team/187747/image&teamBImg=https://img.sofascore.com/api/v1/team/187744/image&eventLogo=http://img.sofascore.com/api/v1/unique-tournament/18833/image/dark&time=Nov+16%2C+2026+03%3A00+AM+COT&isLive=false&isEnded=true"
+   },
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjozMSwidGl0bGUiOiJDYW5hZGEgdnMgR3VhdGVtYWxhIiwicG9zdGVyIjoiaHR0cHM6Ly9jYXJkLmNuY3ZlcnNlLmRwZG5zLm9yZy8_dGl0bGU9Q09OQ0FDQUYrTmF0aW9ucytMZWFndWUmdGVhbUE9Q2FuYWRhJnRlYW1CPUd1YXRlbWFsYSZ0ZWFtQUltZz1odHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzQ3NTIvaW1hZ2UmdGVhbUJJbWc9aHR0cHM6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdGVhbS81MTYzL2ltYWdlJmV2ZW50TG9nbz1odHRwOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3VuaXF1ZS10b3VybmFtZW50LzE0MTAwL2ltYWdlL2RhcmsmdGltZT1Ob3YrMTclMkMrMjAyNiswMSUzQTAwK0FNK1VUQyZpc0xpdmU9dHJ1ZSZpc0VuZGVkPWZhbHNlIiwic2x1ZyI6InByby9RMDlPUTBGRFFVWWdUbUYwYVc5dWN5Qk1aV0ZuZFdVdFEyRnVZV1JoTFhaekxVZDFZWFJsYldGc1lURTNPVFE0TVRVMk16RTRNalUiLCJmb3JtYXRzIjpbeyJ0aXRsZSI6IlRTTiBTUE9SVFMgIiwid2ViTGluayI6InByby9RMDlPUTBGRFFVWWdUbUYwYVc5dWN5Qk1aV0ZuZFdVdFEyRnVZV1JoTFhaekxVZDFZWFJsYldGc1lURTNPVFE0TVRVMk16RTRNalUudHh0In0seyJ0aXRsZSI6IkZPWCBTUE9SVFMgIiwid2ViTGluayI6InByby9RMDlPUTBGRFFVWWdUbUYwYVc5dWN5Qk1aV0ZuZFdVdFEyRnVZV1JoTFhaekxVZDFZWFJsYldGc1lURTNPVFE0TVRVMk16RTRNalUudHh0In0seyJ0aXRsZSI6IlRVRE4iLCJ3ZWJMaW5rIjoicHJvL1EwOU9RMEZEUVVZZ1RtRjBhVzl1Y3lCTVpXRm5kV1V0UTJGdVlXUmhMWFp6TFVkMVlYUmxiV0ZzWVRFM09UUTRNVFUyTXpFNE1qVS50eHQifSx7InRpdGxlIjoiVklYIDEiLCJ3ZWJMaW5rIjoicHJvL1EwOU9RMEZEUVVZZ1RtRjBhVzl1Y3lCTVpXRm5kV1V0UTJGdVlXUmhMWFp6TFVkMVlYUmxiV0ZzWVRFM09UUTRNVFUyTXpFNE1qVS50eHQifSx7InRpdGxlIjoiRk9YIFNQT1JUUyAxIiwid2ViTGluayI6InByby9RMDlPUTBGRFFVWWdUbUYwYVc5dWN5Qk1aV0ZuZFdVdFEyRnVZV1JoTFhaekxVZDFZWFJsYldGc1lURTNPVFE0TVRVMk16RTRNalUudHh0In1dLCJldmVudEluZm8iOnsidGVhbUEiOiJDYW5hZGEiLCJ0ZWFtQiI6Ikd1YXRlbWFsYSIsInRlYW1BRmxhZyI6Imh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vNDc1Mi9pbWFnZSIsInRlYW1CRmxhZyI6Imh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vNTE2My9pbWFnZSIsImV2ZW50Q2F0IjoiRm9vdGJhbGwiLCJldmVudE5hbWUiOiJDT05DQUNBRiBOYXRpb25zIExlYWd1ZSIsImV2ZW50TG9nbyI6Imh0dHA6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdW5pcXVlLXRvdXJuYW1lbnQvMTQxMDAvaW1hZ2UvZGFyayIsImlzSG90IjoiMCIsImV2ZW50VHlwZSI6bnVsbCwic3RhcnRUaW1lIjoiMjAyNi8xMS8xNyAwMTowMDowMCArMDAwMCIsImVuZFRpbWUiOiIyMDI2LzExLzE3IDAzOjIwOjAwICswMDAwIn19",
+    "type": "tv",
+    "name": "🔴 Canada vs Guatemala",
+    "poster": "https://card.cncverse.dpdns.org/?title=CONCACAF+Nations+League&teamA=Canada&teamB=Guatemala&teamAImg=https://img.sofascore.com/api/v1/team/4752/image&teamBImg=https://img.sofascore.com/api/v1/team/5163/image&eventLogo=http://img.sofascore.com/api/v1/unique-tournament/14100/image/dark&time=Nov+16%2C+2026+08%3A00+PM+COT&isLive=true&isEnded=false"
+   },
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjozMiwidGl0bGUiOiJCYWx0aW1vcmUgUmF2ZW5zIHZzIExvcyBBbmdlbGVzIENoYXJnZXJzIiwicG9zdGVyIjoiaHR0cHM6Ly9jYXJkLmNuY3ZlcnNlLmRwZG5zLm9yZy8_dGl0bGU9TkZMJnRlYW1BPUJhbHRpbW9yZStSYXZlbnMmdGVhbUI9TG9zK0FuZ2VsZXMrQ2hhcmdlcnMmdGVhbUFJbWc9aHR0cHM6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdGVhbS80NDEzL2ltYWdlJnRlYW1CSW1nPWh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vNDQyOS9pbWFnZSZldmVudExvZ289aHR0cDovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS91bmlxdWUtdG91cm5hbWVudC85NDY0L2ltYWdlL2RhcmsmdGltZT1Ob3YrMTclMkMrMjAyNiswMSUzQTE1K0FNK1VUQyZpc0xpdmU9dHJ1ZSZpc0VuZGVkPWZhbHNlIiwic2x1ZyI6InByby9Ua1pNTFVKaGJIUnBiVzl5WlNCU1lYWmxibk10ZG5NdFRHOXpJRUZ1WjJWc1pYTWdRMmhoY21kbGNuTXhOemswT0RFMU9EazBOamcxIiwiZm9ybWF0cyI6W3sidGl0bGUiOiJUU04gU1BPUlRTIDMiLCJ3ZWJMaW5rIjoicHJvL1RrWk1MVUpoYkhScGJXOXlaU0JTWVhabGJuTXRkbk10VEc5eklFRnVaMlZzWlhNZ1EyaGhjbWRsY25NeE56azBPREUxT0RrME5qZzEudHh0In0seyJ0aXRsZSI6IlRTTiBTUE9SVFMgMSIsIndlYkxpbmsiOiJwcm8vVGtaTUxVSmhiSFJwYlc5eVpTQlNZWFpsYm5NdGRuTXRURzl6SUVGdVoyVnNaWE1nUTJoaGNtZGxjbk14TnprME9ERTFPRGswTmpnMS50eHQifSx7InRpdGxlIjoiTkJDIFNQT1JUUyAiLCJ3ZWJMaW5rIjoicHJvL1RrWk1MVUpoYkhScGJXOXlaU0JTWVhabGJuTXRkbk10VEc5eklFRnVaMlZzWlhNZ1EyaGhjbWRsY25NeE56azBPREUxT0RrME5qZzEudHh0In0seyJ0aXRsZSI6IlNLWSBUT1AgRVZFTlQgIiwid2ViTGluayI6InByby9Ua1pNTFVKaGJIUnBiVzl5WlNCU1lYWmxibk10ZG5NdFRHOXpJRUZ1WjJWc1pYTWdRMmhoY21kbGNuTXhOemswT0RFMU9EazBOamcxLnR4dCJ9LHsidGl0bGUiOiJTUE9SVFYgQlIiLCJ3ZWJMaW5rIjoicHJvL1RrWk1MVUpoYkhScGJXOXlaU0JTWVhabGJuTXRkbk10VEc5eklFRnVaMlZzWlhNZ1EyaGhjbWRsY25NeE56azBPREUxT0RrME5qZzEudHh0In0seyJ0aXRsZSI6IlNEIFNFUlZFUiAiLCJ3ZWJMaW5rIjoicHJvL1RrWk1MVUpoYkhScGJXOXlaU0JTWVhabGJuTXRkbk10VEc5eklFRnVaMlZzWlhNZ1EyaGhjbWRsY25NeE56azBPREUxT0RrME5qZzEudHh0In1dLCJldmVudEluZm8iOnsidGVhbUEiOiJCYWx0aW1vcmUgUmF2ZW5zIiwidGVhbUIiOiJMb3MgQW5nZWxlcyBDaGFyZ2VycyIsInRlYW1BRmxhZyI6Imh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vNDQxMy9pbWFnZSIsInRlYW1CRmxhZyI6Imh0dHBzOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3RlYW0vNDQyOS9pbWFnZSIsImV2ZW50Q2F0IjoiQW1lcmljYW4gZm9vdGJhbGwiLCJldmVudE5hbWUiOiJORkwiLCJldmVudExvZ28iOiJodHRwOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3VuaXF1ZS10b3VybmFtZW50Lzk0NjQvaW1hZ2UvZGFyayIsImlzSG90IjoiMCIsImV2ZW50VHlwZSI6bnVsbCwic3RhcnRUaW1lIjoiMjAyNi8xMS8xNyAwMToxNTowMCArMDAwMCIsImVuZFRpbWUiOiIyMDI2LzExLzE3IDA0OjQ1OjAwICswMDAwIn19",
+    "type": "tv",
+    "name": "🔴 Baltimore Ravens vs Los Angeles Chargers",
+    "poster": "https://card.cncverse.dpdns.org/?title=NFL&teamA=Baltimore+Ravens&teamB=Los+Angeles+Chargers&teamAImg=https://img.sofascore.com/api/v1/team/4413/image&teamBImg=https://img.sofascore.com/api/v1/team/4429/image&eventLogo=http://img.sofascore.com/api/v1/unique-tournament/9464/image/dark&time=Nov+16%2C+2026+08%3A15+PM+COT&isLive=true&isEnded=false"
+   },
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjozNCwidGl0bGUiOiJNaWFtaSBIZWF0IHZzIEhvdXN0b24gUm9ja2V0cyIsInBvc3RlciI6Imh0dHBzOi8vY2FyZC5jbmN2ZXJzZS5kcGRucy5vcmcvP3RpdGxlPU5CQSZ0ZWFtQT1NaWFtaStIZWF0JnRlYW1CPUhvdXN0b24rUm9ja2V0cyZ0ZWFtQUltZz1odHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzM0MzUvaW1hZ2UmdGVhbUJJbWc9aHR0cHM6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdGVhbS8zNDEyL2ltYWdlJmV2ZW50TG9nbz1odHRwOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3VuaXF1ZS10b3VybmFtZW50LzEzMi9pbWFnZS9kYXJrJnRpbWU9Tm92KzE3JTJDKzIwMjYrMTIlM0EzMCtBTStVVEMmaXNMaXZlPXRydWUmaXNFbmRlZD1mYWxzZSIsInNsdWciOiJwcm8vVGtKQkxVMXBZVzFwSUVobFlYUXRkbk10U0c5MWMzUnZiaUJTYjJOclpYUnpNVGM1TkRneE5qWTBOams1TWciLCJmb3JtYXRzIjpbeyJ0aXRsZSI6IlNLIExJVkUgIiwid2ViTGluayI6InByby9Ua0pCTFUxcFlXMXBJRWhsWVhRdGRuTXRTRzkxYzNSdmJpQlNiMk5yWlhSek1UYzVORGd4TmpZME5qazVNZy50eHQifSx7InRpdGxlIjoiU0QgU0VSVkVSICIsIndlYkxpbmsiOiJwcm8vVGtKQkxVMXBZVzFwSUVobFlYUXRkbk10U0c5MWMzUnZiaUJTYjJOclpYUnpNVGM1TkRneE5qWTBOams1TWcudHh0In1dLCJldmVudEluZm8iOnsidGVhbUEiOiJNaWFtaSBIZWF0IiwidGVhbUIiOiJIb3VzdG9uIFJvY2tldHMiLCJ0ZWFtQUZsYWciOiJodHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzM0MzUvaW1hZ2UiLCJ0ZWFtQkZsYWciOiJodHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzM0MTIvaW1hZ2UiLCJldmVudENhdCI6IkJhc2tldGJhbGwiLCJldmVudE5hbWUiOiJOQkEiLCJldmVudExvZ28iOiJodHRwOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3VuaXF1ZS10b3VybmFtZW50LzEzMi9pbWFnZS9kYXJrIiwiaXNIb3QiOiIwIiwiZXZlbnRUeXBlIjpudWxsLCJzdGFydFRpbWUiOiIyMDI2LzExLzE3IDAwOjMwOjAwICswMDAwIiwiZW5kVGltZSI6IjIwMjYvMTEvMTcgMDM6MzA6MDAgKzAwMDAifX0=",
+    "type": "tv",
+    "name": "🔴 Miami Heat vs Houston Rockets",
+    "poster": "https://card.cncverse.dpdns.org/?title=NBA&teamA=Miami+Heat&teamB=Houston+Rockets&teamAImg=https://img.sofascore.com/api/v1/team/3435/image&teamBImg=https://img.sofascore.com/api/v1/team/3412/image&eventLogo=http://img.sofascore.com/api/v1/unique-tournament/132/image/dark&time=Nov+16%2C+2026+07%3A30+PM+COT&isLive=true&isEnded=false"
+   },
+   {
+    "id": "cnc:U0tUZWNoTGl2ZUV2ZW50czo6eyJldmVudElkIjozOSwidGl0bGUiOiJCcm9va2x5biBOZXRzIHZzIFBoaWxhZGVscGhpYSA3NmVycyIsInBvc3RlciI6Imh0dHBzOi8vY2FyZC5jbmN2ZXJzZS5kcGRucy5vcmcvP3RpdGxlPU5CQSZ0ZWFtQT1Ccm9va2x5bitOZXRzJnRlYW1CPVBoaWxhZGVscGhpYSs3NmVycyZ0ZWFtQUltZz1odHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzM0MzYvaW1hZ2UmdGVhbUJJbWc9aHR0cHM6Ly9pbWcuc29mYXNjb3JlLmNvbS9hcGkvdjEvdGVhbS8zNDIwL2ltYWdlJmV2ZW50TG9nbz1odHRwOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3VuaXF1ZS10b3VybmFtZW50LzEzMi9pbWFnZS9kYXJrJnRpbWU9Tm92KzE3JTJDKzIwMjYrMTIlM0EzMCtBTStVVEMmaXNMaXZlPXRydWUmaXNFbmRlZD1mYWxzZSIsInNsdWciOiJwcm8vVGtKQkxVSnliMjlyYkhsdUlFNWxkSE10ZG5NdFVHaHBiR0ZrWld4d2FHbGhJRGMyWlhKek1UYzVORGd4TmpZME5qazVNdyIsImZvcm1hdHMiOlt7InRpdGxlIjoiU0sgTElWRSAiLCJ3ZWJMaW5rIjoicHJvL1RrSkJMVUp5YjI5cmJIbHVJRTVsZEhNdGRuTXRVR2hwYkdGa1pXeHdhR2xoSURjMlpYSnpNVGM1TkRneE5qWTBOams1TXcudHh0In0seyJ0aXRsZSI6IlNEIFNFUlZFUiAiLCJ3ZWJMaW5rIjoicHJvL1RrSkJMVUp5YjI5cmJIbHVJRTVsZEhNdGRuTXRVR2hwYkdGa1pXeHdhR2xoSURjMlpYSnpNVGM1TkRneE5qWTBOams1TXcudHh0In1dLCJldmVudEluZm8iOnsidGVhbUEiOiJCcm9va2x5biBOZXRzIiwidGVhbUIiOiJQaGlsYWRlbHBoaWEgNzZlcnMiLCJ0ZWFtQUZsYWciOiJodHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzM0MzYvaW1hZ2UiLCJ0ZWFtQkZsYWciOiJodHRwczovL2ltZy5zb2Zhc2NvcmUuY29tL2FwaS92MS90ZWFtLzM0MjAvaW1hZ2UiLCJldmVudENhdCI6IkJhc2tldGJhbGwiLCJldmVudE5hbWUiOiJOQkEiLCJldmVudExvZ28iOiJodHRwOi8vaW1nLnNvZmFzY29yZS5jb20vYXBpL3YxL3VuaXF1ZS10b3VybmFtZW50LzEzMi9pbWFnZS9kYXJrIiwiaXNIb3QiOiIwIiwiZXZlbnRUeXBlIjpudWxsLCJzdGFydFRpbWUiOiIyMDI2LzExLzE3IDAwOjMwOjAwICswMDAwIiwiZW5kVGltZSI6IjIwMjYvMTEvMTcgMDM6MzA6MDAgKzAwMDAifX0=",
+    "type": "tv",
+    "name": "🔴 Brooklyn Nets vs Philadelphia 76ers",
+    "poster": "https://card.cncverse.dpdns.org/?title=NBA&teamA=Brooklyn+Nets&teamB=Philadelphia+76ers&teamAImg=https://img.sofascore.com/api/v1/team/3436/image&teamBImg=https://img.sofascore.com/api/v1/team/3420/image&eventLogo=http://img.sofascore.com/api/v1/unique-tournament/132/image/dark&time=Nov+16%2C+2026+07%3A30+PM+COT&isLive=true&isEnded=false"
+   }
+  ]
+ },
+ "nuvioGolf": {
+  "metas": [
+   {
+    "id": "nuvio_sport_dlv_event_52abde25a7e3317103dc4a48",
+    "type": "tv",
+    "name": "🔴 LIVE: Boston Common Golf vs Motor City Golf Club",
+    "poster": "https://nuviosports.xyz/img/match?cat=golf&title=Boston+Common+Golf+vs+Motor+City+Golf+Club&t1=Boston+Common+Golf&t2=Motor+City+Golf+Club&lg=WTGL+Golf&lb=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Funited-kingdom%2Fsky-sports-golf-uk.png&ch=Sky+Sport+1+NZ&cb=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Fnew-zealand%2Fsky-sport-1-nz.png&st=live&tm=1%3A00+AM&shape=landscape&v=2",
+    "logo": "https://nuviosports.xyz/logo.png"
+   },
+   {
+    "id": "nuvio_sport_ts_ch_golf-channel",
+    "type": "tv",
+    "name": "📺 Golf Channel",
+    "poster": "https://nuviosports.xyz/img?url=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Fargentina%2Fgolf-channel-ar.png&text=Golf%20Channel&color=64748b&embed=1",
+    "logo": "https://nuviosports.xyz/logo.png"
+   },
+   {
+    "id": "nuvio_sport_dlv_ch_528_movistar-golf",
+    "type": "tv",
+    "name": "📺 Movistar Golf",
+    "poster": "https://nuviosports.xyz/img?url=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Faustria%2Fcanal-plus-golf-at.png&text=Movistar%20Golf&color=64748b&embed=1",
+    "logo": "https://nuviosports.xyz/logo.png"
+   },
+   {
+    "id": "nuvio_sport_dlv_ch_422_supersport-golf",
+    "type": "tv",
+    "name": "📺 SuperSport Golf",
+    "poster": "https://nuviosports.xyz/img?url=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Fsouth-africa%2Fsupersport-za.png&text=SuperSport%20Golf&color=64748b&embed=1",
+    "logo": "https://nuviosports.xyz/logo.png"
+   },
+   {
+    "id": "nuvio_sport_vavoo_ch_golf-hd-france",
+    "type": "tv",
+    "name": "📺 Golf",
+    "poster": "https://nuviosports.xyz/img?url=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Fhong-kong%2Fnow-golf-hk.png&text=Golf&color=64748b&embed=1",
+    "logo": "https://nuviosports.xyz/logo.png"
+   },
+   {
+    "id": "nuvio_sport_cdn_2590079",
+    "type": "tv",
+    "name": "⏱️ The RSM Classic",
+    "poster": "https://nuviosports.xyz/img/match?cat=golf&title=The+RSM+Classic&lb=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Funited-kingdom%2Fsky-sports-golf-uk.png&ch=The+RSM+Classic&st=upcoming&tm=12%3A00+AM&shape=landscape&v=2",
+    "logo": "https://nuviosports.xyz/logo.png"
+   }
+  ]
+ },
+ "nuvioOther": {
+  "metas": [
+   {
+    "id": "nuvio_sport_leaf_expired:notice",
+    "type": "tv",
+    "name": "🔴 LIVE: ⚠️ Subscription Expired",
+    "poster": "https://nuviosports.xyz/img/match?cat=other&title=%E2%9A%A0%EF%B8%8F+Subscription+Expired&ch=%E2%9A%A0%EF%B8%8F+Subscription+Expired&st=live&tm=3%3A01+AM&shape=landscape&v=2",
+    "logo": "https://nuviosports.xyz/logo.png"
+   },
+   {
+    "id": "nuvio_sport_dlv_event_190d5c869ddcf1459edbc7dc",
+    "type": "tv",
+    "name": "🔴 LIVE: Powerlifting: 2026 IPF World Championship",
+    "poster": "https://nuviosports.xyz/img?url=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Funited-states%2Fcbs-logo-white-us.png&text=Powerlifting%3A%202026%20IPF%20World%20Championship&color=333333&embed=1",
+    "logo": "https://nuviosports.xyz/logo.png"
+   },
+   {
+    "id": "nuvio_sport_dlv_event_155fbcdc3430dfbbba204b64",
+    "type": "tv",
+    "name": "🔴 LIVE: Harlan Coben's Final Twist S2, E7",
+    "poster": "https://nuviosports.xyz/img?url=https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2Ftv-logo%2Ftv-logos%40main%2Fcountries%2Funited-states%2Fcbs-logo-white-us.png&text=Harlan%20Coben's%20Final%20Twist%20S2%2C%20E7&color=333333&embed=1",
+    "logo": "https://nuviosports.xyz/logo.png"
+   }
+  ]
+ }
+}

@@ -1,0 +1,244 @@
+{
+  "id": "xuper",
+  "name": "Xuper",
+  "version": "3.0.0",
+  "apiVersion": 27,
+  "entry": "plugin.js",
+  "icon": "icon.png",
+  "capabilities": [
+    "identity",
+    "screen",
+    "home",
+    "search",
+    "episodes",
+    "resolve",
+    "drm",
+    "channels",
+    "browse",
+    "migrate",
+    "storageLarge"
+  ],
+  "telemetry": true,
+  "categories": [
+    "movies",
+    "series",
+    "anime",
+    "live"
+  ],
+  "screen": {
+    "label": "Xuper",
+    "labelEn": "Xuper",
+    "icon": "movie",
+    "menuOpens": "screen",
+    "opensFrom": [
+      "menu",
+      "settings"
+    ],
+    "settingsButton": {
+      "label": "Abrir Xuper",
+      "labelEn": "Open Xuper"
+    },
+    "settingsIn": "screen"
+  },
+  "fetchHosts": "any",
+  "streamHosts": "any",
+  "liveStreamHosts": "any",
+  "hosts": [
+    {
+      "host": "x.xkplugins.site"
+    },
+    {
+      "host": "middleware.ditu.caracoltv.com"
+    },
+    {
+      "host": "vegetatvv2.duckdns.org",
+      "insecureHttp": true
+    },
+    {
+      "host": "966gaddn.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "9paday.wtf",
+      "insecureHttp": true
+    },
+    {
+      "host": "alakazoo.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "alexatv.world",
+      "insecureHttp": true
+    },
+    {
+      "host": "apex-ayoumas.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "ashmedia.site",
+      "insecureHttp": true
+    },
+    {
+      "host": "avefenixtv.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "brumotto00.zapto.org",
+      "insecureHttp": true
+    },
+    {
+      "host": "capitanhero.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "doubleclicktv.live",
+      "insecureHttp": true
+    },
+    {
+      "host": "dreamteev.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "dsaiiiilllliillsad.cdnip.online",
+      "insecureHttp": true
+    },
+    {
+      "host": "eu.kartal38.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "fast-smart33.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "frido1.live",
+      "insecureHttp": true
+    },
+    {
+      "host": "fv99.nesewvp.top",
+      "insecureHttp": true
+    },
+    {
+      "host": "goodbom.net",
+      "insecureHttp": true
+    },
+    {
+      "host": "hydragold.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "interstellar.salex74.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "krplay.eu",
+      "insecureHttp": true
+    },
+    {
+      "host": "line.krishkaz.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "line.tmpes.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "line.zee-ott.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "line.zen8kk.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "line.znn8.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "louismag.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "ltv.ddns.net",
+      "insecureHttp": true
+    },
+    {
+      "host": "lunicaoriginaleapp.giize.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "myultratv.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "neezfaopro.top",
+      "insecureHttp": true
+    },
+    {
+      "host": "nexotvplus.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "pp.tresinl.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "reborned.cc",
+      "insecureHttp": true
+    },
+    {
+      "host": "sa.xurvani.cfd",
+      "insecureHttp": true
+    },
+    {
+      "host": "toni-tv.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "topcliente.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "vca.easy747.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "vewora.com",
+      "insecureHttp": true
+    },
+    {
+      "host": "vip2.sharkhost.xyz",
+      "insecureHttp": true
+    },
+    {
+      "host": "wickediptv.live",
+      "insecureHttp": true
+    },
+    {
+      "host": "xvisnet.xyz",
+      "insecureHttp": true
+    }
+  ],
+  "settings": [
+    {
+      "key": "contributeSeeds",
+      "label": "Aportar una sesión anónima",
+      "labelEn": "Share an anonymous session",
+      "type": "toggle",
+      "default": true,
+      "hint": "Comparte una sesión anónima para zonas bloqueadas. Puedes apagarlo.",
+      "hintEn": "Shares an anonymous session for blocked regions. You can turn it off."
+    }
+  ],
+  "theme": {
+    "accent": "#1E90F8",
+    "onAccent": "#050B2D",
+    "background": "#050B2D",
+    "surface": "#101A45",
+    "highlight": "#8FD0FF"
+  },
+  "signature": {
+    "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
+    "value": "79ade7247c9052f866d0e9054a6ba73a101c2869380221500333d8383d431fe61d877a8667ebe15b1f783cc734329bb9ea1f71e0e015d31b035b7c0f261b9e05"
+  }
+}

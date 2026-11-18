@@ -1,0 +1,743 @@
+{
+ "note": "Synthetic xuper-like live column titles (the masnew portal refuses this client since 2026-11-16, BUG-2; the 1.0.43 baseline had about 130 columns of this style). id = a column id; expect = the virtual category (null = passes through).",
+ "columns": [
+  {
+   "id": "1000",
+   "title": {
+    "es": "Todos",
+    "en": "All channels"
+   },
+   "expect": "v.all.xuper"
+  },
+  {
+   "id": "1001",
+   "title": "Colombia",
+   "expect": "v.co"
+  },
+  {
+   "id": "1002",
+   "title": "🇨🇴 Locales",
+   "expect": "v.co"
+  },
+  {
+   "id": "1003",
+   "title": "CO | Locales",
+   "expect": "v.co"
+  },
+  {
+   "id": "1004",
+   "title": "México",
+   "expect": "v.mx"
+  },
+  {
+   "id": "1005",
+   "title": "🇲🇽 Regionales",
+   "expect": "v.mx"
+  },
+  {
+   "id": "1006",
+   "title": "MX: Regionales",
+   "expect": "v.mx"
+  },
+  {
+   "id": "1007",
+   "title": "Argentina",
+   "expect": "v.ar"
+  },
+  {
+   "id": "1008",
+   "title": "🇦🇷 Canales",
+   "expect": "v.ar"
+  },
+  {
+   "id": "1009",
+   "title": "Perú",
+   "expect": "v.pe"
+  },
+  {
+   "id": "1010",
+   "title": "[PE] Regionales",
+   "expect": "v.pe"
+  },
+  {
+   "id": "1011",
+   "title": "Chile",
+   "expect": "v.cl"
+  },
+  {
+   "id": "1012",
+   "title": "Ecuador",
+   "expect": "v.ec"
+  },
+  {
+   "id": "1013",
+   "title": "Venezuela",
+   "expect": "v.ve"
+  },
+  {
+   "id": "1014",
+   "title": "Bolivia",
+   "expect": "v.bo"
+  },
+  {
+   "id": "1015",
+   "title": "Paraguay",
+   "expect": "v.py"
+  },
+  {
+   "id": "1016",
+   "title": "Uruguay",
+   "expect": "v.uy"
+  },
+  {
+   "id": "1017",
+   "title": "Centroamérica",
+   "expect": "v.cam"
+  },
+  {
+   "id": "1018",
+   "title": "Costa Rica",
+   "expect": "v.cr"
+  },
+  {
+   "id": "1019",
+   "title": "Panamá",
+   "expect": "v.pa"
+  },
+  {
+   "id": "1020",
+   "title": "Guatemala",
+   "expect": "v.gt"
+  },
+  {
+   "id": "1021",
+   "title": "Honduras",
+   "expect": "v.hn"
+  },
+  {
+   "id": "1022",
+   "title": "El Salvador",
+   "expect": "v.sv"
+  },
+  {
+   "id": "1023",
+   "title": "Nicaragua",
+   "expect": "v.ni"
+  },
+  {
+   "id": "1024",
+   "title": "República Dominicana",
+   "expect": "v.do"
+  },
+  {
+   "id": "1025",
+   "title": "Puerto Rico",
+   "expect": "v.pr"
+  },
+  {
+   "id": "1026",
+   "title": "Cuba",
+   "expect": "v.cu"
+  },
+  {
+   "id": "1027",
+   "title": "Canadá",
+   "expect": "v.ca"
+  },
+  {
+   "id": "1028",
+   "title": "España",
+   "expect": "v.es"
+  },
+  {
+   "id": "1029",
+   "title": "Portugal",
+   "expect": "v.pt"
+  },
+  {
+   "id": "1030",
+   "title": "Brasil",
+   "expect": "v.br"
+  },
+  {
+   "id": "1031",
+   "title": "Italia",
+   "expect": "v.it"
+  },
+  {
+   "id": "1032",
+   "title": "Francia",
+   "expect": "v.fr"
+  },
+  {
+   "id": "1033",
+   "title": "Alemania",
+   "expect": "v.de"
+  },
+  {
+   "id": "1034",
+   "title": "Reino Unido",
+   "expect": "v.gb"
+  },
+  {
+   "id": "1035",
+   "title": "USA",
+   "expect": "v.us"
+  },
+  {
+   "id": "1036",
+   "title": "USA Latino",
+   "expect": "v.us"
+  },
+  {
+   "id": "1037",
+   "title": "AR | Deportes",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1038",
+   "title": "Deportes",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1039",
+   "title": "Deportes Premium",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1040",
+   "title": "Deportes 2",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1041",
+   "title": "ESPN",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1042",
+   "title": "Fox Sports",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1043",
+   "title": "DirecTV Sports",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1044",
+   "title": "Win Sports",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1045",
+   "title": "beIN Sports",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1046",
+   "title": "TNT Sports",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1047",
+   "title": "Liga MX",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1048",
+   "title": "Liga Pro Ecuador",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1049",
+   "title": "Fútbol Argentino",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1050",
+   "title": "Fútbol Europeo",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1051",
+   "title": "Premier League",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1052",
+   "title": "LaLiga",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1053",
+   "title": "Serie A",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1054",
+   "title": "Bundesliga",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1055",
+   "title": "Champions League",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1056",
+   "title": "Copa Libertadores",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1057",
+   "title": "Replay Fútbol",
+   "expect": "v.sports"
+  },
+  {
+   "id": "1058",
+   "title": "NBA",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1059",
+   "title": "NFL",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1060",
+   "title": "MLB",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1061",
+   "title": "NHL",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1062",
+   "title": "UFC / Boxeo",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1063",
+   "title": "WWE",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1064",
+   "title": "F1 / Motor",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1065",
+   "title": "Tenis",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1066",
+   "title": "Golf",
+   "expect": "v.othersp"
+  },
+  {
+   "id": "1067",
+   "title": "Eventos",
+   "expect": "v.events"
+  },
+  {
+   "id": "1068",
+   "title": "PPV",
+   "expect": "v.events"
+  },
+  {
+   "id": "1069",
+   "title": "Eventos deportivos",
+   "expect": "v.events"
+  },
+  {
+   "id": "1070",
+   "title": "Eventos en vivo",
+   "expect": "v.events"
+  },
+  {
+   "id": "1071",
+   "title": "Partidos de hoy",
+   "expect": "v.events"
+  },
+  {
+   "id": "1072",
+   "title": "Películas",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1073",
+   "title": "Cine Latino",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1074",
+   "title": "Cine Clásico",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1075",
+   "title": "Estrenos",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1076",
+   "title": "Cine Mexicano",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1077",
+   "title": "Películas de Acción",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1078",
+   "title": "Terror",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1079",
+   "title": "HBO",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1080",
+   "title": "Cinemax",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1081",
+   "title": "Star Channel",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1082",
+   "title": "Paramount",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1083",
+   "title": "Series",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1084",
+   "title": "Sitcoms",
+   "expect": "v.movies"
+  },
+  {
+   "id": "1085",
+   "title": "Series 24/7",
+   "expect": "v.247"
+  },
+  {
+   "id": "1086",
+   "title": "24/7",
+   "expect": "v.247"
+  },
+  {
+   "id": "1087",
+   "title": "24/7 Caricaturas",
+   "expect": "v.kids"
+  },
+  {
+   "id": "1088",
+   "title": "Infantil",
+   "expect": "v.kids"
+  },
+  {
+   "id": "1089",
+   "title": "Kids 24/7",
+   "expect": "v.kids"
+  },
+  {
+   "id": "1090",
+   "title": "Caricaturas",
+   "expect": "v.kids"
+  },
+  {
+   "id": "1091",
+   "title": "Disney",
+   "expect": "v.kids"
+  },
+  {
+   "id": "1092",
+   "title": "Nickelodeon",
+   "expect": "v.kids"
+  },
+  {
+   "id": "1093",
+   "title": "Novelas",
+   "expect": "v.novelas"
+  },
+  {
+   "id": "1094",
+   "title": "Telenovelas Turcas",
+   "expect": "v.novelas"
+  },
+  {
+   "id": "1095",
+   "title": "Novelas Colombianas",
+   "expect": "v.novelas"
+  },
+  {
+   "id": "1096",
+   "title": "Anime",
+   "expect": "v.anime"
+  },
+  {
+   "id": "1097",
+   "title": "Anime 24/7",
+   "expect": "v.anime"
+  },
+  {
+   "id": "1098",
+   "title": "Doramas",
+   "expect": "v.asia"
+  },
+  {
+   "id": "1099",
+   "title": "K-Drama",
+   "expect": "v.asia"
+  },
+  {
+   "id": "1100",
+   "title": "Documentales",
+   "expect": "v.docs"
+  },
+  {
+   "id": "1101",
+   "title": "Discovery",
+   "expect": "v.docs"
+  },
+  {
+   "id": "1102",
+   "title": "Nat Geo",
+   "expect": "v.docs"
+  },
+  {
+   "id": "1103",
+   "title": "Cultura",
+   "expect": "v.docs"
+  },
+  {
+   "id": "1104",
+   "title": "Ciencia y Tecnología",
+   "expect": "v.docs"
+  },
+  {
+   "id": "1105",
+   "title": "Historia",
+   "expect": "v.docs"
+  },
+  {
+   "id": "1106",
+   "title": "ARG | Noticias",
+   "expect": "v.news"
+  },
+  {
+   "id": "1107",
+   "title": "Noticias",
+   "expect": "v.news"
+  },
+  {
+   "id": "1108",
+   "title": "Noticias Internacionales",
+   "expect": "v.news"
+  },
+  {
+   "id": "1109",
+   "title": "Noticias Colombia",
+   "expect": "v.news"
+  },
+  {
+   "id": "1110",
+   "title": "CNN",
+   "expect": "v.news"
+  },
+  {
+   "id": "1111",
+   "title": "Música",
+   "expect": "v.music"
+  },
+  {
+   "id": "1112",
+   "title": "Radio",
+   "expect": "v.music"
+  },
+  {
+   "id": "1113",
+   "title": "Conciertos",
+   "expect": "v.music"
+  },
+  {
+   "id": "1114",
+   "title": "Música 24/7",
+   "expect": "v.music"
+  },
+  {
+   "id": "1115",
+   "title": "Reggaetón",
+   "expect": "v.music"
+  },
+  {
+   "id": "1116",
+   "title": "Religión",
+   "expect": "v.faith"
+  },
+  {
+   "id": "1117",
+   "title": "Cristianos",
+   "expect": "v.faith"
+  },
+  {
+   "id": "1118",
+   "title": "Católicos",
+   "expect": "v.faith"
+  },
+  {
+   "id": "1119",
+   "title": "LATAM | Variedades",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1120",
+   "title": "Comedia",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1121",
+   "title": "Entretenimiento",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1122",
+   "title": "Variedades",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1123",
+   "title": "Reality",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1124",
+   "title": "Cocina",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1125",
+   "title": "Viajes",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1126",
+   "title": "Moda",
+   "expect": "v.ent"
+  },
+  {
+   "id": "1127",
+   "title": "Adultos",
+   "expect": "v.adult"
+  },
+  {
+   "id": "1128",
+   "title": "XXX",
+   "expect": "v.adult"
+  },
+  {
+   "id": "1129",
+   "title": "+18",
+   "expect": "v.adult"
+  },
+  {
+   "id": "1130",
+   "title": "Adult 24/7",
+   "expect": "v.adult"
+  },
+  {
+   "id": "1131",
+   "title": "Para adultos",
+   "expect": "v.adult"
+  },
+  {
+   "id": "1132",
+   "title": "AR | Locales",
+   "expect": null
+  },
+  {
+   "id": "1133",
+   "title": "4K",
+   "expect": null
+  },
+  {
+   "id": "1134",
+   "title": "FHD",
+   "expect": null
+  },
+  {
+   "id": "1135",
+   "title": "HD",
+   "expect": null
+  },
+  {
+   "id": "1136",
+   "title": "SD",
+   "expect": null
+  },
+  {
+   "id": "1137",
+   "title": "Locales",
+   "expect": null
+  },
+  {
+   "id": "1138",
+   "title": "Regionales",
+   "expect": null
+  },
+  {
+   "id": "1139",
+   "title": "Comunitarios",
+   "expect": null
+  },
+  {
+   "id": "1140",
+   "title": "Canales Premium",
+   "expect": null
+  },
+  {
+   "id": "1141",
+   "title": "VIP",
+   "expect": null
+  },
+  {
+   "id": "1142",
+   "title": "Pluto TV",
+   "expect": null
+  },
+  {
+   "id": "1143",
+   "title": "Samsung TV Plus",
+   "expect": null
+  },
+  {
+   "id": "1144",
+   "title": "Tubi",
+   "expect": null
+  },
+  {
+   "id": "1145",
+   "title": "Roku",
+   "expect": null
+  },
+  {
+   "id": "1146",
+   "title": "Canales nuevos",
+   "expect": null
+  }
+ ]
+}
