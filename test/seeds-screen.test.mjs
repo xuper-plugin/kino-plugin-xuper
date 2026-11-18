@@ -94,7 +94,7 @@ test("25. Ajustes ▸ Sesión de Xuper in every state (own, seed with time left,
       if (s.kind === "own") assert.equal(all.includes(lang === "en" ? "Session: your own (anonymous)" : "Sesión: propia (anónima)"), !s.geo, name + ": plainly own only when not blocked");
       assert.equal(all.includes(lang === "en" ? "Your region: blocked by Xuper" : "Tu zona: bloqueada por Xuper"), s.geo, name + ": the region line only when blocked");
       const cards = tree.body.children[1].children[0].children.map((c) => c.key);
-      assert.deepEqual(cards, ["cfgAccount", "cfgXuper", "cfgContrib", "cfgData", "cfgAbout"], "the two cards between Cuenta and Datos");
+      assert.deepEqual(cards, ["cfgAccount", "cfgSupport", "cfgXuper", "cfgContrib", "cfgData", "cfgAbout"], "the two cards between Apoyar and Datos");
     }
     const seedTree = configView({ seeds: states.seed, contrib: { on: true, at: null } });
     assert.ok(texts(seedTree).includes(lang === "en" ? "Change seed" : "Cambiar semilla"));
@@ -108,7 +108,7 @@ test("25b. Ajustes ▸ Aportar: the switch on the setting, the help, the last co
     kino.lang = lang;
     const E = lang === "en";
     const never = configView({ seeds: null, contrib: { on: true, at: null }, now: T0 });
-    const sw = JSON.parse(JSON.stringify(never)).body.children[1].children[0].children[2].children[1];
+    const sw = JSON.parse(JSON.stringify(never)).body.children[1].children[0].children.find((c) => c.key === "cfgContrib").children[1];
     assert.equal(sw.type, "Switch");
     assert.equal(sw.value, true);
     assert.deepEqual(sw.onChanged, { event: "contrib" });
@@ -117,7 +117,7 @@ test("25b. Ajustes ▸ Aportar: the switch on the setting, the help, the last co
     assert.ok(texts(never).includes(E ? "What is shared?" : "¿Qué se comparte?"));
     assert.ok(texts(never).some((t) => t.startsWith(E ? "Now and then it shares a new anonymous session" : "De vez en cuando comparte una sesión anónima nueva")));
     const off = configView({ seeds: null, contrib: { on: false, at: T0 - 125 * MIN }, now: T0 });
-    assert.equal(off.body.children[1].children[0].children[2].children[1].value, false);
+    assert.equal(off.body.children[1].children[0].children.find((c) => c.key === "cfgContrib").children[1].value, false);
     assert.ok(texts(off).includes(E ? "Last contribution 2 h ago" : "Último aporte hace 2 h"));
   }
 });
@@ -189,9 +189,9 @@ test("screen events: Cambiar semilla's toasts (changed, 503, this hour, offline,
 
 // ── 24: the manifest ──
 
-test("24. manifest: telemetry true, the contributeSeeds toggle (default on) with its ES and EN texts, version 3.0.0", () => {
+test("24. manifest: telemetry true, the contributeSeeds toggle (default on) with its ES and EN texts, version 3.0.1", () => {
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
-  assert.equal(m.version, "3.0.0");
+  assert.equal(m.version, "3.0.1");
   assert.equal(m.telemetry, true, "kino.seed only sends with telemetry declared");
   const s = m.settings.find((x) => x.key === "contributeSeeds");
   assert.deepEqual(s, {

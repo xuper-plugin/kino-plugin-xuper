@@ -3,7 +3,7 @@
 // Palette: the theme's semantic colors (they adapt) + the xuper brand.
 // No view carries a 1 s timer: data is drawn from what is stored (src/data.js) in the first frame, a skeleton
 // appears only when nothing was ever stored, and slow events show the hidden `busy` bar through a local `ui` op.
-import { SECTIONS, lang, httpImages } from "./config.js";
+import { SECTIONS, lang, httpImages, SUPPORT_URL } from "./config.js";
 import { X_LOGO_DATA } from "./logo.js";
 import { isLiveMatch, matchStart, visibleMatches, LIVE_BEFORE_MS } from "./v2.js";
 
@@ -89,6 +89,19 @@ const scrollPage = (key, gap, children) => ({
   ],
 });
 
+/**
+ * «Apoyar» (the welcome screen and Ajustes): Xuper's Ko-fi page. `go.url` opens nothing by itself: Kino first shows its
+ * own sheet (the host, this title; a QR code on a TV), and only from the person's own press.
+ */
+export function supportButton(key, E) {
+  return {
+    type: "Button", variant: "secondary", key, icon: "heart",
+    labelText: E ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aquí",
+    labelTextEn: "If you want to support me, click here",
+    onPressed: { go: { url: { href: SUPPORT_URL, title: E ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } },
+  };
+}
+
 // ── Screen 1: Welcome + Activate (the entry lock; identity runs only from this press) ──
 /**
  * The gate: Welcome + Activate. `error`: the last sign-in failed — `true` (identity refused or switched off: grant it
@@ -115,6 +128,8 @@ export function welcomeView({ error } = {}) {
     text: E ? "Could not activate. Grant the permission and try again." : "No se pudo activar. Acepta el permiso y vuelve a intentarlo.",
     textEn: "Could not activate. Grant the permission and try again.",
   });
+  // Below Activate (and below its error, which stays next to it); the TV's first focus stays on Activate.
+  body.push(supportButton("wSupport", E));
   return {
     type: "Scaffold", appBar: appBar(),
     body: { type: "Column", key: "welcome", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
@@ -179,7 +194,8 @@ function filterSheet(genres, fTag) {
   };
 }
 
-const railNode = (r, i) => ({ type: "titleRail", key: "rail-" + i, ...(r.title ? { title: r.title, titleEn: r.title } : {}), items: r.items, size: "medium" });
+// With its `ref` (the row's portal column), Kino adds the row's «Ver más», which pages it through `browse`.
+const railNode = (r, i) => ({ type: "titleRail", key: "rail-" + i, ...(r.title ? { title: r.title, titleEn: r.title } : {}), ...(r.ref ? { ref: r.ref } : {}), items: r.items, size: "medium" });
 
 /** The search sheet's field key: its text reaches `screenEvent("search")` as `value` (and in `state.inputs`). */
 export const SEARCH_FIELD = "sq";
@@ -816,6 +832,13 @@ export function configView({ version, device = "phone", ages = null, now = Date.
           labelText: E ? "Disconnect" : "Desconectar", labelTextEn: "Disconnect",
           confirm: E ? "Disconnect Xuper?" : "¿Desconectar Xuper?", confirmEn: "Disconnect Xuper?",
           onPressed: { event: "disconnect", timeoutMs: PRESS_MS } },
+      ] },
+      { type: "Card", key: "cfgSupport", children: [
+        { type: "Text", key: "cfgSupTitle", style: "h4", text: E ? "Support" : "Apoyar", textEn: "Support" },
+        { type: "Text", key: "cfgSupHint", color: "muted",
+          text: E ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
+          textEn: "If you like Xuper, you can support it on Ko-fi." },
+        supportButton("cfgSupportBtn", E),
       ] },
       ...(devices ? [devicesCard(devices, now, device)] : []),
       xuperSessionCard(seeds),

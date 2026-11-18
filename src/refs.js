@@ -2,7 +2,7 @@
 //   v:<contentId>:<type>      a VOD item (type: "1" = movie, "0" = series)
 //   e:<episodeId>:<seriesId>  an episode of a series
 //   cat:<name>                a whole section (pelicula/series/anime/ninos)
-//   col:<columnId>            a column/collection (a row's "Ver más")
+//   col:<columnId>[:a]        a column/collection (a row's "Ver más"); ":a" = its titles are 18+ (an Adultos row)
 //   L:<source>:<channel>      an AGGREGATED live channel — <source> = the connector's id, <channel> URL-encoded.
 //                             resolve dispatches to src/sources/<source>.resolve(<channel>).
 //   M:<source>:<channel>,<source>:<channel>,…
@@ -25,7 +25,8 @@ export function episodeRef(episodeId, seriesId) {
   return `e:${episodeId}:${seriesId || ""}`;
 }
 export function catRef(name) { return `cat:${name}`; }
-export function colRef(columnId) { return `col:${columnId}`; }
+/** A portal column's "Ver más". `adult`: the row is an Adultos one, so `browse` marks every title it pages as 18+. */
+export function colRef(columnId, adult = false) { return `col:${columnId}${adult ? ":a" : ""}`; }
 // An aggregated live channel: "L:<source>:<channel>". <channel> is URL-encoded (a URL, an Xtream id, a slug, a base64
 // descriptor...), so it never collides with the ":" and "|" separators. <source> is a connector id with no ":"
 // (e.g. "premiumtv", "supertv").
@@ -81,7 +82,13 @@ export function decodeRef(ref) {
     return out;
   }
   if (kind === "cat") return { kind: "category", name: rest };
-  if (kind === "col") return { kind: "column", columnId: rest };
+  if (kind === "col") {
+    const j = rest.indexOf(":");
+    if (j < 0) return { kind: "column", columnId: rest };
+    const out = { kind: "column", columnId: rest.slice(0, j) };
+    if (rest.slice(j + 1) === "a") out.adult = true;
+    return out;
+  }
   if (kind === "L") {
     const m = liveMember(rest);
     return { kind: "live", source: m.source, channel: m.channel };

@@ -1,6 +1,7 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.0";
+var PLUGIN_VERSION = "3.0.1";
+var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
 var DATA_BASE = typeof XUPER_DATA_BASE === "string" ? XUPER_DATA_BASE : "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/data/";
@@ -1003,6 +1004,9 @@ function itemRef(contentId, type) {
 function episodeRef(episodeId, seriesId) {
   return `e:${episodeId}:${seriesId || ""}`;
 }
+function colRef(columnId, adult = false) {
+  return `col:${columnId}${adult ? ":a" : ""}`;
+}
 function liveRef(source, channel) {
   return `L:${source}:${encodeURIComponent(channel == null ? "" : String(channel))}`;
 }
@@ -1055,7 +1059,13 @@ function decodeRef(ref) {
     return out;
   }
   if (kind === "cat") return { kind: "category", name: rest };
-  if (kind === "col") return { kind: "column", columnId: rest };
+  if (kind === "col") {
+    const j = rest.indexOf(":");
+    if (j < 0) return { kind: "column", columnId: rest };
+    const out = { kind: "column", columnId: rest.slice(0, j) };
+    if (rest.slice(j + 1) === "a") out.adult = true;
+    return out;
+  }
   if (kind === "L") {
     const m = liveMember(rest);
     return { kind: "live", source: m.source, channel: m.channel };
@@ -3386,6 +3396,8 @@ var HTTP = /^https?:\/\//;
 var HTTPS = /^https:\/\//;
 var ID_RX2 = /^[A-Za-z0-9._~-]{1,128}$/;
 var HASH_RX = /^[0-9a-f]{16}$/;
+var COLUMN_ID_RX = /^[1-9]\d{0,11}$/;
+var COL_REF_RX = /^col:[1-9]\d{0,11}(:a)?$/;
 function heroImage(posterList, httpsOnly = false) {
   if (!Array.isArray(posterList)) return null;
   const withUrl = posterList.filter((p) => p && p.fileUrl && (httpsOnly ? HTTPS : HTTP).test(p.fileUrl));
@@ -3420,7 +3432,10 @@ function railsOf(rows, adult = false, opts) {
   for (const r of rowList(rows)) {
     const items = toItems(rowCards(r), adult, opts).slice(0, RAIL_CAP);
     if (!items.length) continue;
-    out.push({ title: String(r && (r.name || r.title || r.columnName) || ""), items });
+    const rail = { title: String(r && (r.name || r.title || r.columnName) || ""), items };
+    const col = r && r.columnId != null ? String(r.columnId) : "";
+    if (COLUMN_ID_RX.test(col)) rail.columnId = col;
+    out.push(rail);
   }
   return out;
 }
@@ -3459,7 +3474,11 @@ function fromLegacyHome(legacy, opts) {
     });
     sec.slides = slides;
     const railTitle = (t2) => rec ? t2.slice(0, 200) : t2;
-    sec.rails = railsOf(s.rows, adult, itemOpts).map((r) => r.title ? { title: railTitle(r.title), items: r.items.map(idx) } : { items: r.items.map(idx) });
+    sec.rails = railsOf(s.rows, adult, itemOpts).map((r) => {
+      const rail = r.title ? { title: railTitle(r.title), items: r.items.map(idx) } : { items: r.items.map(idx) };
+      if (rec && r.columnId) rail.ref = colRef(r.columnId, adult);
+      return rail;
+    });
     sec.genres = genresOf(all);
     built.push([name, sec]);
   }
@@ -3616,6 +3635,7 @@ function validateCatalog(v2) {
     else s.rails.forEach((r, i) => {
       if (!r || !Array.isArray(r.items) || r.items.length > RAIL_CAP || !r.items.every((x) => isIdx(x, n))) bad(at2 + ".rails[" + i + "]");
       if (r && r.title !== void 0 && (typeof r.title !== "string" || r.title.length > 200)) bad(at2 + ".rails[" + i + "].title");
+      if (r && r.ref !== void 0 && (typeof r.ref !== "string" || !COL_REF_RX.test(r.ref) || r.ref.endsWith(":a") !== adult)) bad(at2 + ".rails[" + i + "].ref");
     });
     if (!Array.isArray(s.genres) || s.genres.length > GENRES_TOP || !s.genres.every((g) => typeof g === "string")) bad(at2 + ".genres");
   }
@@ -3686,7 +3706,11 @@ function sectionView(v2, name) {
   const items = (ids) => (ids || []).map((i) => at(v2, i)).filter(Boolean);
   return {
     slides: (s.slides || []).map((x) => ({ ...x })),
-    rails: (s.rails || []).map((r) => r.title ? { title: r.title, items: items(r.items) } : { items: items(r.items) }),
+    rails: (s.rails || []).map((r) => {
+      const rail = r.title ? { title: r.title, items: items(r.items) } : { items: items(r.items) };
+      if (r.ref) rail.ref = r.ref;
+      return rail;
+    }),
     genres: (s.genres || []).slice(),
     all: items(s.all)
   };
@@ -3760,6 +3784,9 @@ var PARTS = {
     dir: "c",
     asset: "home.json",
     relTtl: 60 * MIN2,
+    // The revision of this device-side conversion, kept in the meta as `b`. A Release copy built by an older one is
+    // downloaded in full and converted again once (releasePart). 2 = the rails carry their «Ver más» ref (3.0.1).
+    build: 2,
     fromLegacy: (j) => fromLegacyHome(j, { poster: "recommended" }),
     validate: validateCatalog,
     shape: (v) => !!v && v.schema === SCHEMA && Array.isArray(v.items) && !!v.sections && typeof v.sections === "object"
@@ -3995,9 +4022,10 @@ async function releasePart(name, force) {
   const now = Date.now();
   const m = getJson(p.meta) || {};
   const have = read(name);
-  const due = force || !have || dueSince(m.checkedAt, p.relTtl, now) && !inBackoff(m, now);
+  const rebuild = !!have && m.src === "rel" && (Number(m.b) || 0) < (p.build || 0);
+  const due = force || !have || (rebuild || dueSince(m.checkedAt, p.relTtl, now)) && !inBackoff(m, now);
   if (!due || remaining2() < 1e3) return;
-  const fromRel = !!have && m.src === "rel";
+  const fromRel = !!have && m.src === "rel" && !rebuild;
   const r = await condGet(RELEASE_BASE + "/" + p.asset, {
     etag: fromRel ? m.etag : "",
     lm: fromRel ? m.lm : "",
@@ -4029,7 +4057,7 @@ async function releasePart(name, force) {
     why4 = "http " + r.code;
   }
   if (!why4 && !v) why4 = "not an object";
-  if (!why4) why4 = commit(name, JSON.stringify(v), v, { src: "rel", etag: r.etag || "", lm: r.lm || "", checkedAt: now }, false);
+  if (!why4) why4 = commit(name, JSON.stringify(v), v, { src: "rel", etag: r.etag || "", lm: r.lm || "", checkedAt: now, b: p.build || 0 }, false);
   if (why4) {
     log5(name + " release failed: " + why4);
     patchMeta(name, (cur) => ({ ...cur, failAt: now, failN: (cur.failN | 0) + 1 }));
@@ -4067,7 +4095,8 @@ function commit(name, text, v, fields, authoritative) {
     checkedAt: fields.checkedAt,
     writtenAt: now,
     failAt: 0,
-    failN: 0
+    failN: 0,
+    ...fields.b ? { b: fields.b } : {}
   });
   _committedIn[name] = callSeq();
   L0[name] = { h: v.hash, v };
@@ -10100,6 +10129,15 @@ async function home() {
   if (!rows.length) throw kino.error("unavailable", "Xuper: no catalog stored yet and the refresh failed");
   return rows;
 }
+function columnItems(cards, adult) {
+  const items = toItems(cards, adult, { poster: "recommended" });
+  const v2 = catalog();
+  if (v2 && Array.isArray(v2.items)) {
+    const adultIds = new Set(v2.items.filter((it) => it && it.adult === true).map((it) => it.id));
+    for (const it of items) if (adultIds.has(it.id)) it.adult = true;
+  }
+  return items;
+}
 async function browse(ref, cursor) {
   const r = decodeRef(ref);
   const page = Math.max(1, parseInt(cursor || "1", 10) || 1);
@@ -10114,7 +10152,7 @@ async function browse(ref, cursor) {
   }
   if (r.kind === "column") {
     const data = await columnPage(r.columnId, page);
-    const items = toItems(data && data.items);
+    const items = columnItems(data && data.items, !!r.adult);
     const total = Number(data && data.total) || 0;
     return { items, next: page * COLUMN_PAGE_SIZE < total ? String(page + 1) : null };
   }
@@ -10411,6 +10449,17 @@ var scrollPage = (key, gap, children) => ({
     }
   ]
 });
+function supportButton(key, E2) {
+  return {
+    type: "Button",
+    variant: "secondary",
+    key,
+    icon: "heart",
+    labelText: E2 ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aqu\xED",
+    labelTextEn: "If you want to support me, click here",
+    onPressed: { go: { url: { href: SUPPORT_URL, title: E2 ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } }
+  };
+}
 function welcomeView({ error } = {}) {
   const E2 = en5();
   const body = [
@@ -10445,6 +10494,7 @@ function welcomeView({ error } = {}) {
     text: E2 ? "Could not activate. Grant the permission and try again." : "No se pudo activar. Acepta el permiso y vuelve a intentarlo.",
     textEn: "Could not activate. Grant the permission and try again."
   });
+  body.push(supportButton("wSupport", E2));
   return {
     type: "Scaffold",
     appBar: appBar(),
@@ -10548,7 +10598,7 @@ function filterSheet(genres, fTag) {
     ] }]
   };
 }
-var railNode = (r, i) => ({ type: "titleRail", key: "rail-" + i, ...r.title ? { title: r.title, titleEn: r.title } : {}, items: r.items, size: "medium" });
+var railNode = (r, i) => ({ type: "titleRail", key: "rail-" + i, ...r.title ? { title: r.title, titleEn: r.title } : {}, ...r.ref ? { ref: r.ref } : {}, items: r.items, size: "medium" });
 var SEARCH_FIELD = "sq";
 function searchSheet() {
   const E2 = en5();
@@ -11253,6 +11303,17 @@ function configView({ version, device = "phone", ages = null, now = Date.now(), 
           confirmEn: "Disconnect Xuper?",
           onPressed: { event: "disconnect", timeoutMs: PRESS_MS }
         }
+      ] },
+      { type: "Card", key: "cfgSupport", children: [
+        { type: "Text", key: "cfgSupTitle", style: "h4", text: E2 ? "Support" : "Apoyar", textEn: "Support" },
+        {
+          type: "Text",
+          key: "cfgSupHint",
+          color: "muted",
+          text: E2 ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
+          textEn: "If you like Xuper, you can support it on Ko-fi."
+        },
+        supportButton("cfgSupportBtn", E2)
       ] },
       ...devices ? [devicesCard(devices, now, device)] : [],
       xuperSessionCard(seeds),

@@ -5,13 +5,14 @@
 // - `all`    unique item indexes in first-seen order: Kino "Ver más" is `all`, the Home row `all.slice(0, home)`;
 // - `home`   18, absent in `adultos` (never on Kino Home);
 // - `slides` the own screen's hero (at most 6, none in `adultos`, none whose item is adult anywhere);
-// - `rails`  `{ title?, items }` per portal row, at most 20 indexes each;
+// - `rails`  `{ title?, items, ref? }` per portal row, at most 20 indexes each; `ref` = `col:<columnId>` (`:a` in
+//            `adultos`), the row's whole portal column for its «Ver más» (recommended mode only);
 // - `genres` the 24 most frequent tags (raw values; the screen localizes the chips).
 // An optional field is left out, never written as "". `hash` = the first 16 hex characters of sha256 over the
 // canonical JSON (the object without `gen` and `hash`, keys in the order the builder writes them).
 import { SECTIONS, lang } from "./config.js";
 import { toItems, rowList, rowCards, sectionCards } from "./items.js";
-import { itemRef } from "./refs.js";
+import { itemRef, colRef } from "./refs.js";
 
 export const SCHEMA = 2;
 export const SECTION_NAMES = SECTIONS.map((s) => s.name);
@@ -26,6 +27,8 @@ const HTTP = /^https?:\/\//;
 const HTTPS = /^https:\/\//;
 const ID_RX = /^[A-Za-z0-9._~-]{1,128}$/;
 const HASH_RX = /^[0-9a-f]{16}$/;
+const COLUMN_ID_RX = /^[1-9]\d{0,11}$/;             // a portal column id (the backend's column_id is an int)
+const COL_REF_RX = /^col:[1-9]\d{0,11}(:a)?$/;      // a rail's «Ver más» (src/refs.js colRef)
 
 // ── builders (moved from screenView.js; legacy mode = byte-for-byte what 1.0.43 drew) ──
 
@@ -64,13 +67,20 @@ export function slidesOf(sliderCards, httpsOnly = false, clean = false) {
   return out;
 }
 
-/** Portal rows → `[{ title, items }]` (rows without items are skipped; `title` "" when the row has no name). */
+/**
+ * Portal rows → `[{ title, items, columnId? }]` (rows without items are skipped; `title` "" when the row has no name).
+ * `columnId`: the row's portal column when it has a usable one (a positive integer), whose whole content is its «Ver más»:
+ * a row carries only the portal's first 10 titles.
+ */
 export function railsOf(rows, adult = false, opts) {
   const out = [];
   for (const r of rowList(rows)) {
     const items = toItems(rowCards(r), adult, opts).slice(0, RAIL_CAP);
     if (!items.length) continue;
-    out.push({ title: String((r && (r.name || r.title || r.columnName)) || ""), items });
+    const rail = { title: String((r && (r.name || r.title || r.columnName)) || ""), items };
+    const col = r && r.columnId != null ? String(r.columnId) : "";
+    if (COLUMN_ID_RX.test(col)) rail.columnId = col;
+    out.push(rail);
   }
   return out;
 }
@@ -112,7 +122,12 @@ export function fromLegacyHome(legacy, opts) {
     const slides = adult ? [] : slidesOf(s.slider, rec, rec).map((x) => { const y = { ...x }; if (!y.text) delete y.text; return y; });
     sec.slides = slides;
     const railTitle = (t) => (rec ? t.slice(0, 200) : t);
-    sec.rails = railsOf(s.rows, adult, itemOpts).map((r) => (r.title ? { title: railTitle(r.title), items: r.items.map(idx) } : { items: r.items.map(idx) }));
+    sec.rails = railsOf(s.rows, adult, itemOpts).map((r) => {
+      const rail = r.title ? { title: railTitle(r.title), items: r.items.map(idx) } : { items: r.items.map(idx) };
+      // «Ver más» pages the row's whole portal column (src/catalog.js browse); legacy mode stays 1.0.43's shape.
+      if (rec && r.columnId) rail.ref = colRef(r.columnId, adult);
+      return rail;
+    });
     sec.genres = genresOf(all);
     built.push([name, sec]);
   }
@@ -263,6 +278,9 @@ export function validateCatalog(v2) {
     else s.rails.forEach((r, i) => {
       if (!r || !Array.isArray(r.items) || r.items.length > RAIL_CAP || !r.items.every((x) => isIdx(x, n))) bad(at + ".rails[" + i + "]");
       if (r && r.title !== undefined && (typeof r.title !== "string" || r.title.length > 200)) bad(at + ".rails[" + i + "].title");
+      // a rail's «Ver más»: a portal column, flagged 18+ exactly when the section is (an adult column unflagged would
+      // page its titles past Kino's parental lock)
+      if (r && r.ref !== undefined && (typeof r.ref !== "string" || !COL_REF_RX.test(r.ref) || r.ref.endsWith(":a") !== adult)) bad(at + ".rails[" + i + "].ref");
     });
     if (!Array.isArray(s.genres) || s.genres.length > GENRES_TOP || !s.genres.every((g) => typeof g === "string")) bad(at + ".genres");
   }
@@ -328,14 +346,18 @@ export function homeRows(v2) {
   return out;
 }
 
-/** One section as the screen draws it: `{ slides, rails: [{ title?, items }], genres, all }`, or null. */
+/** One section as the screen draws it: `{ slides, rails: [{ title?, items, ref? }], genres, all }`, or null. */
 export function sectionView(v2, name) {
   const s = v2 && v2.sections && v2.sections[name];
   if (!s) return null;
   const items = (ids) => (ids || []).map((i) => at(v2, i)).filter(Boolean);
   return {
     slides: (s.slides || []).map((x) => ({ ...x })),
-    rails: (s.rails || []).map((r) => (r.title ? { title: r.title, items: items(r.items) } : { items: items(r.items) })),
+    rails: (s.rails || []).map((r) => {
+      const rail = r.title ? { title: r.title, items: items(r.items) } : { items: items(r.items) };
+      if (r.ref) rail.ref = r.ref;
+      return rail;
+    }),
     genres: (s.genres || []).slice(),
     all: items(s.all),
   };

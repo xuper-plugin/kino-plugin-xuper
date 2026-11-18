@@ -291,7 +291,8 @@ function storedDevice(extra = {}) {
     "o2:bearer": "bearer-token",
     "o2:mig": "1",
     "o2:cat": JSON.stringify(cat),
-    "o2:catm": JSON.stringify({ h: cat.hash, gen: cat.gen, etag: '"e1"', lm: "", src: "rel", checkedAt: now, failAt: 0, failN: 0 }),
+    // b: 2 = converted by this version (src/data.js PARTS.catalog.build): an older conversion is rebuilt once
+    "o2:catm": JSON.stringify({ h: cat.hash, gen: cat.gen, etag: '"e1"', lm: "", src: "rel", b: 2, checkedAt: now, failAt: 0, failN: 0 }),
     "o2:mat": JSON.stringify(mat),
     "o2:matm": JSON.stringify({ h: mat.hash, gen: mat.gen, etag: '"m1"', lm: "", src: "rel", checkedAt: now, failAt: 0, failN: 0 }),
     "o2:ixm": JSON.stringify({ checkedAt: now, missingUntil: now + 3600000 }),

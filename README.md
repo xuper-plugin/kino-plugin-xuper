@@ -5,6 +5,11 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.1
+
+- **«Ver más» en cada fila del Inicio de Xuper:** abre todo el contenido de esa fila, no solo sus primeros títulos.
+- **Apoyar:** la pantalla de bienvenida y Ajustes tienen un botón para apoyar a Xuper en Ko-fi.
+
 ## Xuper 3.0.0
 
 Es una versión nueva por dentro, con el mismo plugin por fuera: mismo nombre, mismo id (`xuper`) y mismo repositorio.
@@ -46,6 +51,11 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.1
+
+- **"See more" on every row of Xuper's Home:** opens the row's whole content, not just its first titles.
+- **Support:** the welcome screen and Settings have a button to support Xuper on Ko-fi.
 
 ## Xuper 3.0.0
 

@@ -124,9 +124,24 @@ export async function home() {
   return rows;
 }
 
+/**
+ * A column page's cards as the rows show them (recommended posters, within Kino's limits). 18+ when the row was an
+ * Adultos one (`col:<id>:a`), or when the stored catalog holds the title as adult (adult is OR-ed across sections), so
+ * a «Ver más» never shows past Kino's parental lock what its row kept behind it.
+ */
+function columnItems(cards, adult) {
+  const items = toItems(cards, adult, { poster: "recommended" });
+  const v2 = storedCatalog();
+  if (v2 && Array.isArray(v2.items)) {
+    const adultIds = new Set(v2.items.filter((it) => it && it.adult === true).map((it) => it.id));
+    for (const it of items) if (adultIds.has(it.id)) it.adult = true;
+  }
+  return items;
+}
+
 /** Kino "Ver más": `cat:<section>` pages through the stored catalog (100 per page, no revalidation, so pages
  *  never shift under a cursor); with nothing stored it revalidates once, else throws (never an empty page).
- *  `col:<id>` stays on the backend. */
+ *  `col:<id>` (a row of the own screen: src/screenView.js railNode) pages the portal column through the backend. */
 export async function browse(ref, cursor) {
   const r = decodeRef(ref);
   const page = Math.max(1, parseInt(cursor || "1", 10) || 1);
@@ -141,7 +156,7 @@ export async function browse(ref, cursor) {
   }
   if (r.kind === "column") {
     const data = await columnPage(r.columnId, page);
-    const items = toItems(data && data.items);
+    const items = columnItems(data && data.items, !!r.adult);
     const total = Number(data && data.total) || 0;
     return { items, next: page * COLUMN_PAGE_SIZE < total ? String(page + 1) : null };
   }

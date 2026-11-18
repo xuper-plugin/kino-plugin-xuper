@@ -121,9 +121,9 @@ test("the card: used of max, newest first as listed, this phone marked, plugins 
       for (const want of E ? ["not a plugin", "30 days", "not refused", "per Telegram account"]
         : ["no un plugin", "30 días", "no se rechaza", "por cuenta de Telegram"]) assert.ok(all.includes(want), want);
       if (!E) for (const voseo of ["activás", "usás", "podés", "tenés", "probá", "intentá", "querés"]) assert.ok(!all.includes(voseo), voseo);
-      // order: the card sits right after the account card
+      // order: the card sits right after the account card and «Apoyar» (3.0.1)
       const keys = byKey(v, "cfg-scroll-col").children.map((c) => c.key);
-      assert.deepEqual(keys.slice(0, 2), ["cfgAccount", "cfgDevices"]);
+      assert.deepEqual(keys.slice(0, 3), ["cfgAccount", "cfgSupport", "cfgDevices"]);
     });
   }
   // on a TV the mark says "this device"

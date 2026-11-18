@@ -48,6 +48,9 @@ const H12 = /^[0-9a-f]{12}$/;
 const PARTS = {
   catalog: {
     key: KEYS.cat, meta: KEYS.catm, dir: "c", asset: "home.json", relTtl: 60 * MIN,
+    // The revision of this device-side conversion, kept in the meta as `b`. A Release copy built by an older one is
+    // downloaded in full and converted again once (releasePart). 2 = the rails carry their «Ver más» ref (3.0.1).
+    build: 2,
     fromLegacy: (j) => fromLegacyHome(j, { poster: "recommended" }),
     validate: validateCatalog,
     shape: (v) => !!v && v.schema === SCHEMA && Array.isArray(v.items) && !!v.sections && typeof v.sections === "object",
@@ -292,9 +295,12 @@ async function releasePart(name, force) {
   const now = Date.now();
   const m = getJson(p.meta) || {};
   const have = read(name);
-  const due = force || !have || (dueSince(m.checkedAt, p.relTtl, now) && !inBackoff(m, now));
+  // A copy an older conversion built (3.0.0's rails had no «Ver más») is fetched again in full, without its ETag, and
+  // converted once, instead of waiting up to 12 h for the publisher's next file. It still waits out a failure's backoff.
+  const rebuild = !!have && m.src === "rel" && (Number(m.b) || 0) < (p.build || 0);
+  const due = force || !have || ((rebuild || dueSince(m.checkedAt, p.relTtl, now)) && !inBackoff(m, now));
   if (!due || remaining() < 1000) return;
-  const fromRel = !!have && m.src === "rel";
+  const fromRel = !!have && m.src === "rel" && !rebuild;
   const r = await condGet(RELEASE_BASE + "/" + p.asset, {
     etag: fromRel ? m.etag : "", lm: fromRel ? m.lm : "",
     // Kino applies the timeout per hop (github.com 302, then the asset): keep two hops inside the call budget.
@@ -319,7 +325,7 @@ async function releasePart(name, force) {
     why = "http " + r.code;
   }
   if (!why && !v) why = "not an object";
-  if (!why) why = commit(name, JSON.stringify(v), v, { src: "rel", etag: r.etag || "", lm: r.lm || "", checkedAt: now }, false);
+  if (!why) why = commit(name, JSON.stringify(v), v, { src: "rel", etag: r.etag || "", lm: r.lm || "", checkedAt: now, b: p.build || 0 }, false);
   if (why) {
     log(name + " release failed: " + why);
     patchMeta(name, (cur) => ({ ...cur, failAt: now, failN: (cur.failN | 0) + 1 }));
@@ -365,7 +371,7 @@ function commit(name, text, v, fields, authoritative) {
   setJson(p.meta, {
     h: v.hash, gen: Math.max(gen, cur.h === v.hash ? Number(cur.gen) || 0 : 0),
     etag: fields.etag || "", lm: fields.lm || "", src: fields.src, checkedAt: fields.checkedAt, writtenAt: now,
-    failAt: 0, failN: 0,
+    failAt: 0, failN: 0, ...(fields.b ? { b: fields.b } : {}),
   });
   _committedIn[name] = callSeq();
   L0[name] = { h: v.hash, v };
