@@ -5,6 +5,15 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.2
+
+- **Aportar, ahora al servidor de Xuper:** con «Aportar una sesión anónima» encendido, de vez en cuando se comparte una
+  sesión anónima nueva (nunca la tuya) directamente con el servidor de Xuper, que la ofrece a quien está en una región
+  bloqueada. Ya no depende del diagnóstico de Kino. Puedes apagarlo cuando quieras.
+- **Sesiones para regiones bloqueadas:** si tu región no está bloqueada, a veces también se prepara una sesión de prueba
+  para alguien que sí lo está (como mucho una cada 3 horas).
+- **Región bloqueada:** si Xuper no puede funcionar en tu región, ahora lo dice claramente en vez de un error genérico.
+
 ## Xuper 3.0.1
 
 - **«Ver más» en cada fila del Inicio de Xuper:** abre todo el contenido de esa fila, no solo sus primeros títulos.
@@ -51,6 +60,15 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.2
+
+- **Contribute, now to Xuper's server:** with "Share an anonymous session" on, now and then a new anonymous session
+  (never yours) is shared directly with Xuper's server, which offers it to people in a blocked region. It no longer
+  depends on Kino's diagnostics. You can turn it off at any time.
+- **Sessions for blocked regions:** if your region is not blocked, sometimes a trial session is also prepared for
+  someone whose region is (at most one every 3 hours).
+- **Blocked region:** when Xuper cannot work in your region, it now says so clearly instead of a generic error.
 
 ## Xuper 3.0.1
 

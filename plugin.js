@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.1";
+var PLUGIN_VERSION = "3.0.2";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -167,7 +167,7 @@ function jsonBody(body) {
   return body === void 0 ? void 0 : { json: body };
 }
 async function rawBackend(method, path, body, bearer, timeoutMs = 2e4) {
-  const headers = { "Content-Type": "application/json" };
+  const headers = { "Content-Type": "application/json", "X-Plugin-Version": PLUGIN_VERSION };
   if (bearer) headers["Authorization"] = "Bearer " + bearer;
   return kino.fetch(serverUrl() + path, {
     method,
@@ -334,6 +334,20 @@ function rateLimited(fam) {
   }
   return e;
 }
+function regionBlockedText(lng) {
+  const es = "Xuper no est\xE1 disponible en tu regi\xF3n en este momento. Prueba m\xE1s tarde.";
+  const enText = "Xuper is not available in your region right now. Try again later.";
+  return lng === "en" ? enText : lng === "es" ? es : t(es, enText);
+}
+function regionBlocked(fam) {
+  const e = kino.error("unavailable", "Xuper: backend 451 region_blocked " + fam, { userMessage: regionBlockedText() });
+  try {
+    e.status = 451;
+    e.detail = "region_blocked";
+  } catch (_) {
+  }
+  return e;
+}
 function isRateLimited(e) {
   return !!e && (e.rateLimited === true || /rate limited \(429\)/.test(String(e.message || "")));
 }
@@ -373,6 +387,7 @@ async function authedOnce(method, path, body, timeoutMs, fam) {
     noteLimited(family, res);
     throw rateLimited(family);
   }
+  if (res.status === 451) throw regionBlocked(family);
   if (!res.ok) {
     let detail = "";
     try {
@@ -435,6 +450,24 @@ async function fetchSeed(timeoutMs) {
   if (Number.isFinite(minted) && minted > 0) out.mintedAt = Math.floor(minted);
   const expiresAt = Number(body.expires_at);
   return { ok: true, seed: out, lifeMs: Math.floor(remaining3 * 1e3), expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0 };
+}
+async function postSeed(seed, timeoutMs) {
+  const b = await storedBearer();
+  if (!b) return { ok: false, status: "nobearer" };
+  let res;
+  try {
+    res = await rawBackend("POST", "/seed", { seed }, b, timeoutMs);
+  } catch (_) {
+    return { ok: false, status: "network" };
+  }
+  if (!res) return { ok: false, status: "network" };
+  if (res.status === 401) {
+    bearerRefused(b);
+    return { ok: false, status: 401 };
+  }
+  const status2 = Number(res.status) || 0;
+  if (status2 >= 200 && status2 < 300) return { ok: true };
+  return { ok: false, status: status2 || "network" };
 }
 async function fetchDevices(timeoutMs) {
   const b = await storedBearer();
@@ -744,7 +777,7 @@ async function trialForRetry(fam, deadline2) {
   try {
     ok = await once(TRIAL_FLIGHT, () => trialFlow(deadline2));
   } catch (e) {
-    if (isRateLimited(e) || backendStatus(e) === 401) throw e;
+    if (isRateLimited(e) || backendStatus(e) === 401 || backendStatus(e) === 451) throw e;
     log2("trial: failed (" + (e && (e.code || e.message) || e) + ")");
   }
   if (!ok) throw trialError(fam);
@@ -771,6 +804,34 @@ async function trialAtOpen() {
   } catch (e) {
     log2("trial at open: failed (" + (e && (e.code || e.message) || e) + ")");
     return "failed";
+  }
+}
+var CONTRIB_TRIAL_START = "/trial/egress?contrib=1";
+var CONTRIB_FAMILY = "contrib";
+async function contribTrial(deadline2) {
+  if (!await storedBearer()) return { ok: false, status: "nobearer" };
+  if (_noRoute[CONTRIB_FAMILY]) return { ok: false, status: "noroute" };
+  try {
+    const r = await egressFlow({
+      start: CONTRIB_TRIAL_START,
+      family: CONTRIB_FAMILY,
+      stepPath: EGRESS_STEP,
+      portalTimeoutMs: TRIAL_PORTAL_TIMEOUT_MS,
+      backendTimeoutMs: BACKEND_HOP_TIMEOUT_MS,
+      post: authedOnce,
+      deadline: deadline2,
+      done: resultsOf
+    });
+    return { ok: true, contributed: r.contributed === true, reason: typeof r.reason === "string" ? r.reason : "" };
+  } catch (e) {
+    if (routeMissing(e)) {
+      _noRoute[CONTRIB_FAMILY] = true;
+      return { ok: false, status: "noroute" };
+    }
+    const st = backendStatus(e);
+    if (st === 409 && detailOf(e) === "contrib_not_needed") return { ok: false, status: "blocked" };
+    if (isRateLimited(e)) return { ok: false, status: 429 };
+    return { ok: false, status: st || "error" };
   }
 }
 
@@ -11204,8 +11265,8 @@ function contribCard(c, now) {
     both(
       "cfgContribHelp",
       [
-        "De vez en cuando comparte una sesi\xF3n an\xF3nima nueva, creada solo para eso: nunca la tuya ni tus datos. Solo se env\xEDa si el diagn\xF3stico de Kino est\xE1 activado para este plugin.",
-        "Now and then it shares a new anonymous session, created only for that: never yours, never your data. It is only sent while Kino's diagnostics are on for this plugin."
+        "De vez en cuando comparte una sesi\xF3n an\xF3nima nueva, creada solo para eso: nunca la tuya ni tus datos. Se env\xEDa al servidor de Xuper con tu acceso.",
+        "Now and then it shares a new anonymous session, created only for that: never yours, never your data. It is sent to Xuper's server with your access."
       ],
       { color: "muted", style: "caption" }
     ),
@@ -11401,7 +11462,6 @@ async function maybeContribute({ deadline: deadline2 = Infinity } = {}) {
   if (running) return null;
   running = true;
   try {
-    if (typeof kino.seed !== "function") return null;
     if (!enabled()) {
       trace("skip", { why: "off" });
       return null;
@@ -11433,9 +11493,15 @@ async function maybeContribute({ deadline: deadline2 = Infinity } = {}) {
         return null;
       }
       const seed = buildSeed(m.sn, m.act);
-      try {
-        kino.seed(seed);
-      } catch (_) {
+      const left = end - Date.now();
+      if (left < 500) {
+        trace("send", { ok: false, why: "time" });
+        return null;
+      }
+      const r = await postSeed(seed, Math.min(REQUEST_MS, left));
+      if (!r.ok) {
+        trace("send", { ok: false, code: r.status });
+        return null;
       }
       trace("done", { ok: 1, jwt: seed.jwtToken ? 1 : 0 });
       return seed;
@@ -11446,9 +11512,66 @@ async function maybeContribute({ deadline: deadline2 = Infinity } = {}) {
     running = false;
   }
 }
-var afterHome = (homeStartedAt) => maybeContribute({
-  deadline: Math.min(Date.now() + CONTRIB_WINDOW_MS, homeStartedAt + HOME_CONTRIB_END_MS)
-});
+var TRIAL_AT_KEY = "o2:contribTrialAt";
+var TRIAL_OFF_KEY = "o2:contribTrialOff";
+var TRIAL_BLOCKED_MS = 7 * 24 * 36e5;
+var TRIAL_MIN_WINDOW_MS = 6e3;
+var readStamp = (key) => {
+  const v = Number(getText(key));
+  return Number.isFinite(v) && v > 0 ? v : null;
+};
+var trialDue = (now) => {
+  const last = readStamp(TRIAL_AT_KEY);
+  if (last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS) return false;
+  const off = readStamp(TRIAL_OFF_KEY);
+  return !(off !== null && now < off && off - now <= TRIAL_BLOCKED_MS);
+};
+var seedDue = (now) => {
+  const last = readAt();
+  return !(last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS);
+};
+async function maybeContributeTrial({ deadline: deadline2 = Infinity } = {}) {
+  if (running) return false;
+  running = true;
+  try {
+    if (!enabled()) {
+      trace("trial_skip", { why: "off" });
+      return false;
+    }
+    const now = Date.now();
+    if (!trialDue(now)) {
+      trace("trial_skip", { why: "rate" });
+      return false;
+    }
+    const end = Math.min(now + TOTAL_MS, Number.isFinite(deadline2) ? deadline2 : Infinity);
+    if (end - now < TRIAL_MIN_WINDOW_MS) {
+      trace("trial_skip", { why: "time" });
+      return false;
+    }
+    setText(TRIAL_AT_KEY, String(now));
+    const r = await contribTrial(end);
+    if (!r.ok) {
+      if (r.status === "blocked") setText(TRIAL_OFF_KEY, String(now + TRIAL_BLOCKED_MS));
+      trace("trial_send", { ok: false, code: r.status });
+      return false;
+    }
+    trace("trial_done", { ok: r.contributed ? 1 : 0, why: r.reason || void 0 });
+    return r.contributed;
+  } catch (_) {
+    return false;
+  } finally {
+    running = false;
+  }
+}
+async function afterHome(homeStartedAt) {
+  const deadline2 = Math.min(Date.now() + CONTRIB_WINDOW_MS, homeStartedAt + HOME_CONTRIB_END_MS);
+  if (seedDue(Date.now())) {
+    const before = getText(AT_KEY);
+    const seed = await maybeContribute({ deadline: deadline2 });
+    if (seed || getText(AT_KEY) !== before) return seed;
+  }
+  return await maybeContributeTrial({ deadline: deadline2 }) || null;
+}
 
 // src/devices.js
 var TIMEOUT_MS = 4e3;

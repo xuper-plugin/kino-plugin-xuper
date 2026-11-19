@@ -1,10 +1,11 @@
 // The anonymous seed contribution (seed design §6, §9 test 23): the old kino-plugin-xuper's ten seedContrib cases,
 // ported onto this version's real path (src/seedContrib.js → src/sources/xuper.js mintAnonymous → the real-3DES fake portal).
-// Gates, the validate-before-send rule, the exact kino.seed payload, the 3 h window and the after-Home budgets.
+// Gates, the validate-before-send rule, the exact POST /seed payload, the 3 h window and the after-Home budgets.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { world, portalError, T0, BEARER } from "./helpers/seed-world.mjs";
+import { res } from "./helpers/fake-kino.mjs";
 
 globalThis.kino = { lang: "es", config: {} };
 const xmod = await import("../src/sources/xuper.js");
@@ -16,12 +17,11 @@ const C = await import("../src/seedContrib.js");
 const realNow = Date.now;
 test.afterEach(() => { Date.now = realNow; });
 
-/** A device right when its Home started (the call begins now), with kino.seed and the given settings. */
+/** A device right when its Home started (the call begins now), with the given settings. */
 async function device(opts = {}) {
   const w = await world(opts);
   await clearBearer();
   if (opts.bearer !== false) w.kino.storage.set("o2:bearer", BEARER);
-  if (opts.withSeed === false) delete w.kino.seed;
   const settings = opts.settings || {};
   w.kino.config = { get: (k) => settings[k] };
   xmod._resetSession();
@@ -30,11 +30,30 @@ async function device(opts = {}) {
   return w;
 }
 
-test("no kino.seed (a Kino older than 0.9.55): no mint, no event", async () => {
-  const w = await device({ withSeed: false });
+test("the seed goes to the backend: POST /seed {seed} with the stored Bearer, never kino.seed", async () => {
+  const w = await device();
+  const seed = await C.maybeContribute();
+  assert.ok(seed);
+  assert.equal(w.seeds.length, 1);
+  assert.deepEqual(w.seedAuth, ["Bearer " + BEARER]);
+  assert.ok(w.events.includes("contrib:201"));
+});
+
+test("a backend without the route (405) or down: null, never throws, the window stays stamped", async () => {
+  for (const [postAnswer, code] of [[() => res(405, "{}"), "405"], [() => new Error("net"), "network"], [() => res(500, "{}"), "500"]]) {
+    const w = await device({ postAnswer });
+    assert.equal(await C.maybeContribute(), null);
+    assert.equal(w.seeds.length, 0);
+    assert.equal(w.store.get(C.AT_KEY), String(T0), "one try per interval even when the send fails");
+    assert.ok(w.logs.includes("seed_contrib send ok=0 code=" + code), w.logs.join("\n"));
+  }
+});
+
+test("a 401 on POST /seed drops the Bearer and marks the screen's sign-in, as every endpoint", async () => {
+  const w = await device({ postAnswer: () => res(401, "{}") });
   assert.equal(await C.maybeContribute(), null);
-  assert.equal(w.portal.length, 0);
-  assert.equal(w.store.get(C.AT_KEY), undefined);
+  assert.equal(w.store.get("o2:bearer"), undefined);
+  assert.equal(w.store.get("o2:relogin"), "1");
 });
 
 test("the contributeSeeds setting off: nothing minted, nothing sent", async () => {

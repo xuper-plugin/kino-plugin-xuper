@@ -49,6 +49,7 @@ function device(storage = {}) {
   Math.random = () => (nextByte() + 0.5) / 256;
   const sent = [];
   const route = (url, init) => {
+    if (/\/seed$/.test(url) && init.method === "POST") { sent.seeds.push(init.body.json.seed); return res(201, "{}"); }
     const m = /^https:\/\/[^/]+\/api\/portalCore\/(.+)$/.exec(url);
     if (!m) return undefined;
     sent.push({
@@ -62,8 +63,7 @@ function device(storage = {}) {
   const cfg = JSON.stringify({ magisKey: FX.key, email: FX.shared.email, password: FX.shared.password, at: Date.now() });
   const k = installKino({ routes: [route], storage: { "o2:xcfg": cfg, ...storage } });
   k.kino.crypto.randomBytes = (n, enc = "hex") => Buffer.from(Array.from({ length: n }, nextByte)).toString(enc);
-  k.kino.seed = (s) => sent.seeds.push(s);
-  sent.seeds = [];
+  sent.seeds = [];   // what POST /seed received
   sent.kino = k.kino;
   xmod._resetSession();
   beginCall();
@@ -148,7 +148,7 @@ async function contribute(sent) {
   return contrib.maybeContribute();
 }
 
-test("parity: the seed contribution sends the old plugin's exact kino.seed payload (jwtToken and extras kept, same key order)", async () => {
+test("parity: the seed contribution sends the old plugin's exact kino.seed payload to POST /seed (jwtToken and extras kept, same key order)", async () => {
   const sent = device();
   await contribute(sent);
   assert.equal(sent.seeds.length, 1);

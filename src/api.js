@@ -4,7 +4,7 @@
 //   · authed(...)     → uses the STORED Bearer; without one it fails with "open Xuper to activate it". Never signs in.
 // The plugin holds no crypto and no credentials: sign-in, cookies and resolution live in the backend.
 
-import { serverUrl, lang, PLUGIN_ID } from "./config.js";
+import { serverUrl, lang, PLUGIN_ID, PLUGIN_VERSION } from "./config.js";
 import { getText, setText, getJson, setJson, remove } from "./store.js";
 import { once, inFlight, saneAt, callStartedAt } from "./flight.js";
 
@@ -29,8 +29,11 @@ function jsonBody(body) {
   return body === undefined ? undefined : { json: body };
 }
 
+// Every backend request names this plugin's version: Xuper 2.x and 3.x share the plugin id "xuper" and the backend
+// keeps nothing else that tells them apart, so its per-plugin counters (seed_stats) read this header (none: 2.x, or a
+// 3.x older than 3.0.2).
 async function rawBackend(method, path, body, bearer, timeoutMs = 20000) {
-  const headers = { "Content-Type": "application/json" };
+  const headers = { "Content-Type": "application/json", "X-Plugin-Version": PLUGIN_VERSION };
   if (bearer) headers["Authorization"] = "Bearer " + bearer;
   return kino.fetch(serverUrl() + path, {
     method, headers, body: jsonBody(body), cookies: false, timeoutMs,
@@ -226,6 +229,23 @@ function rateLimited(fam) {
   return e;
 }
 
+// ── region blocked (backend 6092526 region.py) ──
+// 451 {"detail":"region_blocked"}: the portal blocks this person's region and the backend could not get around it (its
+// own trials are spent for now, or the portal blocks the content itself from this address). Never retried by the plugin.
+
+/** The sentence for a call the person's region blocks. `lng`: "es" | "en" (default: the visible one). */
+function regionBlockedText(lng) {
+  const es = "Xuper no está disponible en tu región en este momento. Prueba más tarde.";
+  const enText = "Xuper is not available in your region right now. Try again later.";
+  return lng === "en" ? enText : lng === "es" ? es : t(es, enText);
+}
+
+function regionBlocked(fam) {
+  const e = kino.error("unavailable", "Xuper: backend 451 region_blocked " + fam, { userMessage: regionBlockedText() });
+  try { e.status = 451; e.detail = "region_blocked"; } catch (_) { /* frozen: the message says it */ }
+  return e;
+}
+
 /** Whether `e` is a backend 429 (or a call refused inside its family's wait). */
 export function isRateLimited(e) {
   return !!e && (e.rateLimited === true || /rate limited \(429\)/.test(String(e.message || "")));
@@ -279,6 +299,7 @@ async function authedOnce(method, path, body, timeoutMs, fam) {
     throw e;
   }
   if (res.status === 429) { noteLimited(family, res); throw rateLimited(family); }
+  if (res.status === 451) throw regionBlocked(family);
   if (!res.ok) {
     let detail = "";
     try { const j = res.json(); detail = j && typeof j.detail === "string" ? j.detail : ""; } catch (_) { /* not JSON */ }
@@ -329,6 +350,24 @@ export async function fetchSeed(timeoutMs) {
   if (Number.isFinite(minted) && minted > 0) out.mintedAt = Math.floor(minted);
   const expiresAt = Number(body.expires_at);
   return { ok: true, seed: out, lifeMs: Math.floor(remaining * 1000), expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0 };
+}
+
+/**
+ * The seed contribution (src/seedContrib.js): POST /seed {seed} with the stored Bearer, so the backend loads the fresh
+ * anonymous session into the pool GET /seed hands out. → `{ ok: true }` on a 2xx, or `{ ok: false, status }` with
+ * `status` 401 (the Bearer was refused: dropped here, the screen signs in again), 429, another HTTP status (405: a
+ * backend without the route yet), "network" or "nobearer". Never throws and never logs: the caller logs codes only.
+ */
+export async function postSeed(seed, timeoutMs) {
+  const b = await storedBearer();
+  if (!b) return { ok: false, status: "nobearer" };
+  let res;
+  try { res = await rawBackend("POST", "/seed", { seed }, b, timeoutMs); } catch (_) { return { ok: false, status: "network" }; }
+  if (!res) return { ok: false, status: "network" };
+  if (res.status === 401) { bearerRefused(b); return { ok: false, status: 401 }; }
+  const status = Number(res.status) || 0;
+  if (status >= 200 && status < 300) return { ok: true };
+  return { ok: false, status: status || "network" };
 }
 
 /**
@@ -734,7 +773,8 @@ async function trialForRetry(fam, deadline) {
   let ok = false;
   try { ok = await once(TRIAL_FLIGHT, () => trialFlow(deadline)); }
   catch (e) {
-    if (isRateLimited(e) || backendStatus(e) === 401) throw e;   // their own sentences: wait / sign in again
+    // Their own sentences: wait / sign in again / not in this region (never "could not prepare your session").
+    if (isRateLimited(e) || backendStatus(e) === 401 || backendStatus(e) === 451) throw e;
     log("trial: failed (" + ((e && (e.code || e.message)) || e) + ")");
   }
   if (!ok) throw trialError(fam);
@@ -765,5 +805,41 @@ export async function trialAtOpen() {
   } catch (e) {
     log("trial at open: failed (" + ((e && (e.code || e.message)) || e) + ")");
     return "failed";
+  }
+}
+
+// ── the trial contribution (backend f69e68d: POST /trial/egress?contrib=1) ──
+// A device whose region is not blocked now and then runs ONE extra trial flow that is not its own: the same classic
+// tickets (v3/snToken → v8/active → v2/getFree through /egress/step) on a brand-new device the backend makes up, which
+// the backend keeps in its contrib_trials pool for accounts blocked by region. The tokens never reach this device. Its
+// own rate-limit family ("contrib"), so a 429 there never holds up the person's trial or catalog. The answers:
+//   {results: {ready: true, contributed: true}}                    → contributed
+//   {results: {ready: true, contributed: false, reason: "pool_full"}} → nothing asked of the portal (the pool is full)
+//   {results: {ready: false, contributed: false, reason: "region"}}  → the portal refused it by region (portal100024)
+//   409 {"detail":"contrib_not_needed"}                             → this account is blocked by region itself
+//   429 {"detail":"rate_limited"}                                   → one every 3 h per account
+const CONTRIB_TRIAL_START = "/trial/egress?contrib=1";
+const CONTRIB_FAMILY = "contrib";
+
+/**
+ * One trial contribution, every hop ending by `deadline` (epoch ms). Never throws. → `{ ok: true, contributed, reason }`
+ * (the backend's results) or `{ ok: false, status }` with `status` "nobearer", "noroute" (an older backend), "blocked"
+ * (409 contrib_not_needed), 401, 429, another HTTP status, or "error" (network, out of time, a malformed flow).
+ */
+export async function contribTrial(deadline) {
+  if (!(await storedBearer())) return { ok: false, status: "nobearer" };
+  if (_noRoute[CONTRIB_FAMILY]) return { ok: false, status: "noroute" };
+  try {
+    const r = await egressFlow({
+      start: CONTRIB_TRIAL_START, family: CONTRIB_FAMILY, stepPath: EGRESS_STEP, portalTimeoutMs: TRIAL_PORTAL_TIMEOUT_MS,
+      backendTimeoutMs: BACKEND_HOP_TIMEOUT_MS, post: authedOnce, deadline, done: resultsOf,
+    });
+    return { ok: true, contributed: r.contributed === true, reason: typeof r.reason === "string" ? r.reason : "" };
+  } catch (e) {
+    if (routeMissing(e)) { _noRoute[CONTRIB_FAMILY] = true; return { ok: false, status: "noroute" }; }
+    const st = backendStatus(e);
+    if (st === 409 && detailOf(e) === "contrib_not_needed") return { ok: false, status: "blocked" };
+    if (isRateLimited(e)) return { ok: false, status: 429 };
+    return { ok: false, status: st || "error" };
   }
 }

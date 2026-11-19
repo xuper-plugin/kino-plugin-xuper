@@ -189,10 +189,10 @@ test("screen events: Cambiar semilla's toasts (changed, 503, this hour, offline,
 
 // ── 24: the manifest ──
 
-test("24. manifest: telemetry true, the contributeSeeds toggle (default on) with its ES and EN texts, version 3.0.1", () => {
+test("24. manifest: telemetry true, the contributeSeeds toggle (default on) with its ES and EN texts, version 3.0.2", () => {
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
-  assert.equal(m.version, "3.0.1");
-  assert.equal(m.telemetry, true, "kino.seed only sends with telemetry declared");
+  assert.equal(m.version, "3.0.2");
+  assert.equal(m.telemetry, true, "the error board reports (kino.log.report) need telemetry declared");
   const s = m.settings.find((x) => x.key === "contributeSeeds");
   assert.deepEqual(s, {
     key: "contributeSeeds", label: "Aportar una sesión anónima", labelEn: "Share an anonymous session", type: "toggle", default: true,
@@ -267,7 +267,7 @@ test("20. secrecy: no sn, userId, userToken or jwtToken value (seed's, own or sh
   await run({ handlers: { "v3/snToken": () => portalError("portal200001") } }, async () => { await tryAll("resolve", () => xuper.resolve("ch1")); });
   await run({ sn: "0f1e2d3c4b5a69788796a5b4c3d2e1f0", own: "OWNTOK-SECRET-old", handlers: { "v4/startPlayLive": () => portalError("aaa100028") } },
     async () => { await tryAll("resolve", () => xuper.resolve("ch1")); });
-  // the contribution: its seed goes ONLY to kino.seed
+  // the contribution: its seed goes ONLY to POST /seed
   await run({}, async (w) => {
     call("home");
     await C.maybeContribute();

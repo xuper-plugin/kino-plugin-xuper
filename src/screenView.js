@@ -755,8 +755,8 @@ function contribCard(c, now) {
     { type: "Switch", key: "contribSwitch", value: on,
       labelText: en() ? "Share an anonymous session" : "Aportar una sesión anónima", labelTextEn: "Share an anonymous session",
       onChanged: { event: "contrib" } },
-    both("cfgContribHelp", ["De vez en cuando comparte una sesión anónima nueva, creada solo para eso: nunca la tuya ni tus datos. Solo se envía si el diagnóstico de Kino está activado para este plugin.",
-      "Now and then it shares a new anonymous session, created only for that: never yours, never your data. It is only sent while Kino's diagnostics are on for this plugin."],
+    both("cfgContribHelp", ["De vez en cuando comparte una sesión anónima nueva, creada solo para eso: nunca la tuya ni tus datos. Se envía al servidor de Xuper con tu acceso.",
+      "Now and then it shares a new anonymous session, created only for that: never yours, never your data. It is sent to Xuper's server with your access."],
     { color: "muted", style: "caption" }),
     at ? both("cfgContribAt", [`Último aporte ${agoText(now - at, false)}`, `Last contribution ${agoText(now - at, true)}`], { color: "muted", style: "caption" })
       : both("cfgContribAt", ["Este aparato aún no ha aportado.", "This device has not contributed yet."], { color: "muted", style: "caption" }),

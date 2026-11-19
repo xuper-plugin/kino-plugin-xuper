@@ -1,6 +1,7 @@
 // A device for the seed tests (seed design §9): a fake Kino on a VIRTUAL clock (`Date.now` replaced; `kino.sleep`
-// advances it; storage honours `ttlMs` as Kino does; `kino.log.report` and `kino.seed` recorded), the Xuper backend
-// (/xuper/config, and GET /seed that POPS: every seed is served once, with scripted statuses) and the masnew portal
+// advances it; storage honours `ttlMs` as Kino does; `kino.log.report` recorded), the Xuper backend (/xuper/config,
+// GET /seed that POPS: every seed is served once, with scripted statuses, and POST /seed, the contribution, recorded in
+// `w.seeds`) and the masnew portal
 // speaking the real 3DES wire, whose per-path handlers see the decrypted bean.
 //
 // Every secret value the world hands out carries "SECRET" (tokens, ids, jwt) so a test can scan everything the plugin
@@ -76,10 +77,20 @@ export async function world(opts = {}) {
     beans: (path) => portal.filter((r) => r.path === path).map((r) => r.bean),
     advance: (ms) => { clock.now += ms; },
     reports: [],
-    seeds: [],
+    seeds: [],      // what POST /seed received (the contribution)
+    seedAuth: [],   // the Authorization header of each POST /seed
   };
   const routes = [async (url, init) => {
     if (/\/xuper\/config$/.test(url)) return json({ magisKey: KEY, email: SHARED.email, password: SHARED.password });
+    if (/\/seed$/.test(url) && init && init.method === "POST") {
+      // The contribution (src/api.js postSeed): recorded with the Bearer it carried; opts.postAnswer scripts a status.
+      const scripted = opts.postAnswer ? opts.postAnswer(w) : undefined;
+      if (scripted) { events.push("contrib:" + scripted.status); return scripted; }
+      w.seeds.push(init.body && init.body.json ? init.body.json.seed : undefined);
+      w.seedAuth.push(init.headers && init.headers.Authorization);
+      events.push("contrib:201");
+      return res(201, JSON.stringify({ ok: true }));
+    }
     if (/\/seed$/.test(url)) {
       gets++;
       const scripted = opts.seedAnswer ? opts.seedAnswer(gets, w) : undefined;
@@ -133,7 +144,7 @@ export async function world(opts = {}) {
   };
   k.kino.sleep = async (ms) => { clock.now += Math.max(0, Number(ms) || 0); };
   k.kino.log.report = (...a) => { w.reports.push(a.join(" ")); k.logs.push(a.join(" ")); };
-  k.kino.seed = (s) => { w.seeds.push(s); };
+  k.kino.seed = () => { throw new Error("kino.seed is no longer used: the contribution goes to POST /seed"); };
   k.kino.error = (code, msg, o) => Object.assign(new Error(msg), { code }, o && o.userMessage ? { userMessage: o.userMessage } : {});
   w.kino = k.kino;
   w.store = k.store;

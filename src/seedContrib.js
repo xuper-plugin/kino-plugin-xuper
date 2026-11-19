@@ -1,20 +1,21 @@
-// seedContrib.js — the anonymous seed contribution, ported 1:1 from the old kino-plugin-xuper (src/seedContrib.js,
-// seed design §6). A device that can create a WORKING anonymous masnew guest session now and then shares ONE fresh such
-// session through `kino.seed` (Kino 0.9.55+), which Kino sends to its error board as `seed:contrib` only while the
-// plugin's telemetry consent is on; the owner's collector loads it into the pool GET /seed hands out.
+// seedContrib.js — the anonymous seed contribution, ported from the old kino-plugin-xuper (src/seedContrib.js, seed
+// design §6). A device that can create a WORKING anonymous masnew guest session now and then shares ONE fresh such
+// session with the backend: POST /seed {seed} with the stored Bearer (src/api.js postSeed), which loads it into the
+// pool GET /seed hands out. (Until 3.0.1 it went through `kino.seed` to Kino's error board, under the telemetry consent.)
 //
 // The session carries NOTHING about the person: a brand-new anonymous device (its own fingerprint, sn ""), never the
 // person's own session or device, checked before it is sent (it must read a catalog column).
 //
 // Strictly gated, and bounded by the Home that pays for it (Kino hands Home's rows over only once every fetch started in
 // the call has settled, so the mint ends by HOME_CONTRIB_END_MS from Home's start and takes at most CONTRIB_WINDOW_MS):
-//   consent  — the plugin-telemetry consent (host side) AND the `contributeSeeds` setting (default on);
+//   consent  — the `contributeSeeds` setting (default on);
 //   rate     — at most one try per profile every CONTRIB_INTERVAL_MS (`o2:contribAt`, stamped before the mint);
 //   time     — not tried with less than MIN_WINDOW_MS left (and the window is not stamped);
 //   gate     — the Bearer and a STORED portal secret (src/sources/xuper.js portalReady); without them nothing is
 //              stamped either, and nothing is fetched: Home never waits on the backend for a contribution.
 // Never throws, never fails Home, never asks the backend for a seed or the portal secret.
 import { mintAnonymous, portalReady } from "./sources/xuper.js";
+import { postSeed, contribTrial } from "./api.js";
 import { within } from "./liveGate.js";
 import { getText, setText } from "./store.js";
 
@@ -29,7 +30,7 @@ const MIN_WINDOW_MS = 4_000;
 export const AT_KEY = "o2:contribAt";
 const CONTRIBUTE_SETTING = "contributeSeeds";
 
-// The anonymous-seed shape kino.seed accepts and the pool keeps. Required three plus jwtToken (the collector reads its
+// The anonymous-seed shape POST /seed accepts and the pool keeps. Required three plus jwtToken (the collector reads its
 // `exp`) and mintedAt; the portal's own extras ride along when present.
 const OPTIONAL_EXTRAS = ["customer", "activeTime", "availableTime"];
 
@@ -88,7 +89,6 @@ export async function maybeContribute({ deadline = Infinity } = {}) {
   if (running) return null;
   running = true;
   try {
-    if (typeof kino.seed !== "function") return null;
     if (!enabled()) { trace("skip", { why: "off" }); return null; }
     const now = Date.now();
     const last = readAt();
@@ -104,7 +104,10 @@ export async function maybeContribute({ deadline = Infinity } = {}) {
       // The hard gate: the fresh session must read the column; a geo-blocked or dead one never is contributed.
       if (!hasRealData(m.col)) { trace("validate", { ok: false, why: "empty" }); return null; }
       const seed = buildSeed(m.sn, m.act);
-      try { kino.seed(seed); } catch (_) { /* the pipe never fails a call */ }
+      const left = end - Date.now();
+      if (left < 500) { trace("send", { ok: false, why: "time" }); return null; }
+      const r = await postSeed(seed, Math.min(REQUEST_MS, left));
+      if (!r.ok) { trace("send", { ok: false, code: r.status }); return null; }
       trace("done", { ok: 1, jwt: seed.jwtToken ? 1 : 0 });
       return seed;
     });
@@ -115,7 +118,66 @@ export async function maybeContribute({ deadline = Infinity } = {}) {
   }
 }
 
-/** The opportunity after a Home that started at `homeStartedAt`: bounded by Home's own budget. */
-export const afterHome = (homeStartedAt) => maybeContribute({
-  deadline: Math.min(Date.now() + CONTRIB_WINDOW_MS, homeStartedAt + HOME_CONTRIB_END_MS),
-});
+// ── the trial contribution (the new Xuper's sessions: src/api.js contribTrial) ──
+// Same switch (`contributeSeeds`), same budget after Home, its own window: at most one try per profile every
+// CONTRIB_INTERVAL_MS (`o2:contribTrialAt`, stamped before the flow: the backend allows one every 3 h per account and
+// sends no Retry-After). An account the backend says is blocked by region itself (409 contrib_not_needed) is not asked
+// again for TRIAL_BLOCKED_MS (the backend keeps that mark 7 days). An older backend without the route: not for this runtime.
+export const TRIAL_AT_KEY = "o2:contribTrialAt";
+export const TRIAL_OFF_KEY = "o2:contribTrialOff";   // epoch ms until which this account is blocked by region
+export const TRIAL_BLOCKED_MS = 7 * 24 * 3600_000;
+const TRIAL_MIN_WINDOW_MS = 6_000;   // start + 3 portal calls + 3 steps: less than this is not worth starting
+
+const readStamp = (key) => { const v = Number(getText(key)); return Number.isFinite(v) && v > 0 ? v : null; };
+const trialDue = (now) => {
+  const last = readStamp(TRIAL_AT_KEY);
+  if (last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS) return false;
+  const off = readStamp(TRIAL_OFF_KEY);
+  return !(off !== null && now < off && off - now <= TRIAL_BLOCKED_MS);
+};
+const seedDue = (now) => { const last = readAt(); return !(last !== null && now - last >= 0 && now - last < CONTRIB_INTERVAL_MS); };
+
+/**
+ * One opportunity to contribute a trial session (the backend runs it on a made-up device and pools it), every hop ending
+ * by `deadline`. Best-effort, never throws. → true when the backend says it was contributed, else false.
+ */
+export async function maybeContributeTrial({ deadline = Infinity } = {}) {
+  if (running) return false;
+  running = true;
+  try {
+    if (!enabled()) { trace("trial_skip", { why: "off" }); return false; }
+    const now = Date.now();
+    if (!trialDue(now)) { trace("trial_skip", { why: "rate" }); return false; }
+    const end = Math.min(now + TOTAL_MS, Number.isFinite(deadline) ? deadline : Infinity);
+    if (end - now < TRIAL_MIN_WINDOW_MS) { trace("trial_skip", { why: "time" }); return false; }
+    setText(TRIAL_AT_KEY, String(now));
+    const r = await contribTrial(end);
+    if (!r.ok) {
+      if (r.status === "blocked") setText(TRIAL_OFF_KEY, String(now + TRIAL_BLOCKED_MS));
+      trace("trial_send", { ok: false, code: r.status });
+      return false;
+    }
+    trace("trial_done", { ok: r.contributed ? 1 : 0, why: r.reason || undefined });
+    return r.contributed;
+  } catch (_) {
+    return false;   // a contribution never throws into Home
+  } finally {
+    running = false;
+  }
+}
+
+/**
+ * The opportunity after a Home that started at `homeStartedAt`, bounded by Home's own budget: ONE contribution per Home,
+ * the masnew seed when its window is open, else the trial (each keeps its own 3 h window, so both happen as Homes come).
+ * A masnew seed that was not even tried (no portal secret stored yet, the switch off) leaves the time to the trial.
+ * → the masnew seed sent, true (a trial contributed), or null/false.
+ */
+export async function afterHome(homeStartedAt) {
+  const deadline = Math.min(Date.now() + CONTRIB_WINDOW_MS, homeStartedAt + HOME_CONTRIB_END_MS);
+  if (seedDue(Date.now())) {
+    const before = getText(AT_KEY);
+    const seed = await maybeContribute({ deadline });
+    if (seed || getText(AT_KEY) !== before) return seed;   // tried (sent or not): this Home's contribution is spent
+  }
+  return (await maybeContributeTrial({ deadline })) || null;
+}
