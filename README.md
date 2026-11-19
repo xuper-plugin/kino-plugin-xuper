@@ -5,6 +5,13 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.3
+
+- **Carátulas oficiales:** las películas y series muestran su portada vertical, también en la búsqueda, y se usa la
+  portada aunque venga como GIF (antes salía una imagen ancha que se veía rara).
+- **Donar desde la TV:** en el televisor, «Apoyar» muestra un código QR para escanear con el celular y donar, en vez de
+  un enlace que en la TV no lleva a ningún lado.
+
 ## Xuper 3.0.2
 
 - **Aportar, ahora al servidor de Xuper:** con «Aportar una sesión anónima» encendido, de vez en cuando se comparte una
@@ -60,6 +67,13 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.3
+
+- **Proper covers:** movies and series show their vertical poster, search included, and the cover is used even when it
+  comes as a GIF (before, a wide image showed up and looked off).
+- **Donate from the TV:** on a television, "Support" shows a QR code to scan with your phone and donate, instead of a
+  link that leads nowhere on a TV.
 
 ## Xuper 3.0.2
 

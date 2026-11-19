@@ -73,6 +73,22 @@ test("welcomeView: Scaffold + Activate press with a timeout for identity; tuteo,
   assert.ok(!/activá|Aceptá|reintentá/.test(txt));
 });
 
+const kofiGo = (v) => all(v, (n) => n.onPressed && n.onPressed.go && n.onPressed.go.url && /ko-fi\.com/.test(n.onPressed.go.url.href));
+
+test("support: on TV it is a QR to scan with the phone; on phone/desktop it stays a Ko-fi link", () => {
+  for (const make of [(d) => welcomeView({ device: d }), (d) => configView({ version: "1.0.44", device: d, now: T0 })]) {
+    const tv = make("tv");
+    const qr = byType(tv, "QrImage");
+    assert.equal(qr.length, 1, "TV shows one QR");
+    assert.match(qr[0].value, /ko-fi\.com/, "the QR encodes the Ko-fi link");
+    assert.equal(kofiGo(tv).length, 0, "TV never opens the link in place (nothing to click on a TV)");
+
+    const phone = make("phone");
+    assert.equal(byType(phone, "QrImage").length, 0, "phone shows no QR");
+    assert.equal(kofiGo(phone).length, 1, "phone keeps the Ko-fi button");
+  }
+});
+
 test("no view carries the 1 s tick; the only timers are the Fútbol clock and the live tabs' one-shot timers", () => {
   for (const v of everyView()) {
     if (v.every) assert.equal(v.every.event, "clock");

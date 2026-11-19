@@ -93,7 +93,20 @@ const scrollPage = (key, gap, children) => ({
  * «Apoyar» (the welcome screen and Ajustes): Xuper's Ko-fi page. `go.url` opens nothing by itself: Kino first shows its
  * own sheet (the host, this title; a QR code on a TV), and only from the person's own press.
  */
-export function supportButton(key, E) {
+export function supportButton(key, E, device) {
+  // On a TV there is no browser to pay in and no keyboard: show a QR to scan with the phone instead of a click-through
+  // link. Kino draws `QrImage` natively (it has no animated-GIF/anim cost); the Ko-fi URL is short, well under its cap.
+  if (device === "tv") {
+    return {
+      type: "Column", key, crossAxisAlignment: "center",
+      children: [
+        { type: "Text", key: key + "Cap", color: "muted", textAlign: "center",
+          text: E ? "Scan with your phone to support Xuper on Ko-fi" : "Escanea con tu celular para apoyar a Xuper en Ko-fi",
+          textEn: "Scan with your phone to support Xuper on Ko-fi" },
+        { type: "QrImage", key: key + "Qr", value: SUPPORT_URL, size: "large" },
+      ],
+    };
+  }
   return {
     type: "Button", variant: "secondary", key, icon: "heart",
     labelText: E ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aquí",
@@ -107,7 +120,7 @@ export function supportButton(key, E) {
  * The gate: Welcome + Activate. `error`: the last sign-in failed — `true` (identity refused or switched off: grant it
  * and try again) or `"update"` (identity answered without the gate token: only a newer Kino gives it to Xuper).
  */
-export function welcomeView({ error } = {}) {
+export function welcomeView({ error, device } = {}) {
   const E = en();
   const body = [
     { type: "Text", key: "wTitle", text: E ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
@@ -129,7 +142,7 @@ export function welcomeView({ error } = {}) {
     textEn: "Could not activate. Grant the permission and try again.",
   });
   // Below Activate (and below its error, which stays next to it); the TV's first focus stays on Activate.
-  body.push(supportButton("wSupport", E));
+  body.push(supportButton("wSupport", E, device));
   return {
     type: "Scaffold", appBar: appBar(),
     body: { type: "Column", key: "welcome", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
@@ -838,7 +851,7 @@ export function configView({ version, device = "phone", ages = null, now = Date.
         { type: "Text", key: "cfgSupHint", color: "muted",
           text: E ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
           textEn: "If you like Xuper, you can support it on Ko-fi." },
-        supportButton("cfgSupportBtn", E),
+        supportButton("cfgSupportBtn", E, device),
       ] },
       ...(devices ? [devicesCard(devices, now, device)] : []),
       xuperSessionCard(seeds),

@@ -133,3 +133,30 @@ test("pickPoster prefers a poster/stage fileType", () => {
   assert.equal(pickPoster([{ fileUrl: "a" }]), "a");
   assert.equal(pickPoster(null), undefined);
 });
+
+// Recommended posters: the vertical cover (the portal's `icon`) is what should be painted on a card, never the wide
+// `stage`/`poster` art (1920×1080 here). The wide art only rides along as `backdrop`.
+test("recommended poster: the vertical icon wins over the wide art", () => {
+  const it = toItem({ contentId: "A1", name: "x", type: "1", posterList: [
+    { fileType: "stage", fileUrl: "https://x/wide.jpg" },
+    { fileType: "icon", fileUrl: "https://x/cover.jpg" },
+  ] }, false, { poster: "recommended" });
+  assert.equal(it.poster, "https://x/cover.jpg");
+  assert.equal(it.backdrop, "https://x/wide.jpg");
+});
+
+test("recommended poster: a GIF cover is still used (Kino paints its first frame), never the wide art", () => {
+  const it = toItem({ contentId: "A2", name: "x", type: "1", posterList: [
+    { fileType: "stage", fileUrl: "https://x/wide.jpg" },
+    { fileType: "icon", fileUrl: "https://x/cover.gif" },
+  ] }, false, { poster: "recommended" });
+  assert.equal(it.poster, "https://x/cover.gif");
+});
+
+test("recommended poster: a static icon wins over a GIF icon when both exist", () => {
+  const it = toItem({ contentId: "A3", name: "x", type: "1", posterList: [
+    { fileType: "icon", fileUrl: "https://x/cover.gif" },
+    { fileType: "icon", fileUrl: "https://x/cover.jpg" },
+  ] }, false, { poster: "recommended" });
+  assert.equal(it.poster, "https://x/cover.jpg");
+});

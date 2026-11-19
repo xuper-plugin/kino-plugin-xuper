@@ -133,9 +133,9 @@ async function listProgress(cat) {
 
 export async function screen(arg) {
   const state = (arg && arg.state) || {};
-  // Never mints; only reads. A Bearer the backend refused keeps the app on screen while `open` signs in again.
-  if (!(await currentBearer()) && (state.actError || !reloginPending())) return welcomeView({ error: state.actError });
   const device = (arg && arg.device) || "phone";   // "phone" | "tv" | "desktop" (on TV the bottom bar is a TabBar)
+  // Never mints; only reads. A Bearer the backend refused keeps the app on screen while `open` signs in again.
+  if (!(await currentBearer()) && (state.actError || !reloginPending())) return welcomeView({ error: state.actError, device });
   const nav = navName(state.nav);
 
   if (nav === "config") {

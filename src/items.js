@@ -17,10 +17,14 @@ const ID_RX = /^[A-Za-z0-9._~-]{1,128}$/;          // Kino's item id pattern
 const okImage = (u) => !!u && isHttps(u) && String(u).length <= MAX_URL;
 const typeOf = (p) => String((p && p.fileType) || "").toLowerCase();
 
-/** The portrait art: the portal's `icon` entry (262×370), unless it is a GIF (animated grids cost CPU on TV boxes). */
+/** The portrait art Kino paints on a card: the portal's `icon` entry (262×370), the official cover. A static entry
+ *  wins over a GIF one when both exist, but a GIF is still used over no portrait at all: Kino's image loader has no
+ *  animated-GIF decoder, so it paints a GIF's first frame as a still — no animation, no TV-box CPU cost — and the real
+ *  cover beats falling back to the wide landscape art. */
 export function pickPortrait(posterList) {
   if (!Array.isArray(posterList)) return undefined;
-  const p = posterList.find((x) => x && x.fileUrl && typeOf(x) === "icon" && !isGif(x.fileUrl));
+  const icons = posterList.filter((x) => x && x.fileUrl && typeOf(x) === "icon");
+  const p = icons.find((x) => !isGif(x.fileUrl)) || icons[0];
   return p ? p.fileUrl : undefined;
 }
 

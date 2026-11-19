@@ -428,7 +428,7 @@ export async function search(query) {
     const arr = b && (b.list || b.assetList || b.resourceList);
     if (Array.isArray(arr)) cards.push(...arr);
   }
-  const items = toItems(cards);
+  const items = toItems(cards, false, { poster: "recommended" });   // the vertical cover, like Home and the categories
   _searchCache.delete(key);                 // inserted again at the end (an LRU by insertion order)
   _searchCache.set(key, { at: now, items });
   while (_searchCache.size > SEARCH_CACHE_MAX) _searchCache.delete(_searchCache.keys().next().value);

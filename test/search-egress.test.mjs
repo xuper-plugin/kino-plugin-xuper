@@ -44,6 +44,17 @@ test("a cached search answers at once: one POST /search/egress, no portal call",
   assert.equal(k.seen[0].init.method, "POST");
 });
 
+test("search paints the vertical cover (icon), not the wide art", async () => {
+  const withArt = { programResult: { list: [{ contentId: "77", name: "Dune", type: "1", posterList: [
+    { fileType: "stage", fileUrl: "https://x/wide.jpg" },
+    { fileType: "icon", fileUrl: "https://x/cover.jpg" },
+  ] }] } };
+  const k = await device((p) => (p.startsWith("/search/egress") ? json({ results: withArt }) : undefined));
+  const items = await catalog.search({ q: "Dune" });
+  assert.equal(items[0].poster, "https://x/cover.jpg", "the portrait icon, not the 1920×1080 stage");
+  assert.equal(items[0].backdrop, "https://x/wide.jpg");
+});
+
 test("an egress ticket: the device asks the portal (8 s, no cookies, the ticket's headers) and hands the raw answer to /search/step", async () => {
   const k = await device((p) => {
     if (p.startsWith("/search/egress")) return json(TICKET(1));

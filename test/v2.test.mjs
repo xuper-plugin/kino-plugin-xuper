@@ -37,7 +37,7 @@ test("legacy poster mode reproduces 1.0.43 exactly (golden from home.reduced.jso
   }
 });
 
-test("recommended mode: poster = portrait icon (non-GIF), backdrop = landscape stage|poster", () => {
+test("recommended mode: poster = portrait icon (GIF allowed, Kino paints its first frame), backdrop = landscape stage|poster", () => {
   const v2 = fromLegacyHome({ sections: { pelicula: { slider: [], rows: { recommendList: [{ name: "R", assetList: [
     { contentId: "A", name: "a", type: "1", posterList: [{ fileType: "icon", fileUrl: "https://i/a.jpg" }, { fileType: "poster", fileUrl: "https://i/a-wide.jpg" }] },
     { contentId: "B", name: "b", type: "1", posterList: [{ fileType: "icon", fileUrl: "https://i/b.gif" }, { fileType: "stage", fileUrl: "https://i/b-wide.jpg" }] },
@@ -46,8 +46,8 @@ test("recommended mode: poster = portrait icon (non-GIF), backdrop = landscape s
   const [a, b, c] = v2.items;
   assert.equal(a.poster, "https://i/a.jpg");
   assert.equal(a.backdrop, "https://i/a-wide.jpg");
-  assert.equal(b.poster, "https://i/b-wide.jpg", "a GIF icon falls back to the landscape art");
-  assert.equal(b.backdrop, undefined, "no backdrop equal to the poster");
+  assert.equal(b.poster, "https://i/b.gif", "a GIF icon is the cover now (Kino paints its first frame), not the landscape art");
+  assert.equal(b.backdrop, "https://i/b-wide.jpg", "the landscape art rides along as the backdrop");
   assert.equal(c.poster, undefined, "plain http is left out in recommended mode");
   assert.deepEqual(Object.keys(a), ["id", "ref", "title", "kind", "poster", "backdrop"]);
 });

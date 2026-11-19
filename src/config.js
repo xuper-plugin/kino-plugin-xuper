@@ -7,7 +7,7 @@
 export const DEFAULT_SERVER = "https://x.xkplugins.site";
 
 /** Must equal kino-plugin.json `version` (test/wiring.test.mjs checks it). */
-export const PLUGIN_VERSION = "3.0.2";
+export const PLUGIN_VERSION = "3.0.3";
 
 /**
  * «Apoyar» (the welcome screen and Ajustes): Kino opens it with `go.url`, after its own sheet (a QR code on a TV), and

@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.2";
+var PLUGIN_VERSION = "3.0.3";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -3325,7 +3325,8 @@ var okImage = (u) => !!u && isHttps(u) && String(u).length <= MAX_URL;
 var typeOf = (p) => String(p && p.fileType || "").toLowerCase();
 function pickPortrait(posterList) {
   if (!Array.isArray(posterList)) return void 0;
-  const p = posterList.find((x) => x && x.fileUrl && typeOf(x) === "icon" && !isGif(x.fileUrl));
+  const icons = posterList.filter((x) => x && x.fileUrl && typeOf(x) === "icon");
+  const p = icons.find((x) => !isGif(x.fileUrl)) || icons[0];
   return p ? p.fileUrl : void 0;
 }
 function pickBackdrop(posterList) {
@@ -10413,7 +10414,7 @@ async function search(query) {
     const arr = b && (b.list || b.assetList || b.resourceList);
     if (Array.isArray(arr)) cards.push(...arr);
   }
-  const items = toItems(cards);
+  const items = toItems(cards, false, { poster: "recommended" });
   _searchCache.delete(key);
   _searchCache.set(key, { at: now, items });
   while (_searchCache.size > SEARCH_CACHE_MAX) _searchCache.delete(_searchCache.keys().next().value);
@@ -10510,7 +10511,25 @@ var scrollPage = (key, gap, children) => ({
     }
   ]
 });
-function supportButton(key, E2) {
+function supportButton(key, E2, device) {
+  if (device === "tv") {
+    return {
+      type: "Column",
+      key,
+      crossAxisAlignment: "center",
+      children: [
+        {
+          type: "Text",
+          key: key + "Cap",
+          color: "muted",
+          textAlign: "center",
+          text: E2 ? "Scan with your phone to support Xuper on Ko-fi" : "Escanea con tu celular para apoyar a Xuper en Ko-fi",
+          textEn: "Scan with your phone to support Xuper on Ko-fi"
+        },
+        { type: "QrImage", key: key + "Qr", value: SUPPORT_URL, size: "large" }
+      ]
+    };
+  }
   return {
     type: "Button",
     variant: "secondary",
@@ -10521,7 +10540,7 @@ function supportButton(key, E2) {
     onPressed: { go: { url: { href: SUPPORT_URL, title: E2 ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } }
   };
 }
-function welcomeView({ error } = {}) {
+function welcomeView({ error, device } = {}) {
   const E2 = en5();
   const body = [
     { type: "Text", key: "wTitle", text: E2 ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
@@ -10555,7 +10574,7 @@ function welcomeView({ error } = {}) {
     text: E2 ? "Could not activate. Grant the permission and try again." : "No se pudo activar. Acepta el permiso y vuelve a intentarlo.",
     textEn: "Could not activate. Grant the permission and try again."
   });
-  body.push(supportButton("wSupport", E2));
+  body.push(supportButton("wSupport", E2, device));
   return {
     type: "Scaffold",
     appBar: appBar(),
@@ -11374,7 +11393,7 @@ function configView({ version, device = "phone", ages = null, now = Date.now(), 
           text: E2 ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
           textEn: "If you like Xuper, you can support it on Ko-fi."
         },
-        supportButton("cfgSupportBtn", E2)
+        supportButton("cfgSupportBtn", E2, device)
       ] },
       ...devices ? [devicesCard(devices, now, device)] : [],
       xuperSessionCard(seeds),
@@ -11408,7 +11427,7 @@ var CONTRIB_WINDOW_MS = 8e3;
 var MIN_WINDOW_MS = 4e3;
 var AT_KEY = "o2:contribAt";
 var CONTRIBUTE_SETTING = "contributeSeeds";
-var OPTIONAL_EXTRAS = ["customer", "activeTime", "availableTime"];
+var OPTIONAL_EXTRAS = ["customer"];
 var str4 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var WORD3 = /^[A-Za-z0-9_-]{1,24}$/;
 function trace(event, fields) {
@@ -11701,8 +11720,8 @@ async function listProgress(cat) {
 }
 async function screen(arg) {
   const state2 = arg && arg.state || {};
-  if (!await currentBearer() && (state2.actError || !reloginPending())) return welcomeView({ error: state2.actError });
   const device = arg && arg.device || "phone";
+  if (!await currentBearer() && (state2.actError || !reloginPending())) return welcomeView({ error: state2.actError, device });
   const nav = navName(state2.nav);
   if (nav === "config") {
     const view2 = configView({

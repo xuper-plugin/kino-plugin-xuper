@@ -148,11 +148,15 @@ async function contribute(sent) {
   return contrib.maybeContribute();
 }
 
-test("parity: the seed contribution sends the old plugin's exact kino.seed payload to POST /seed (jwtToken and extras kept, same key order)", async () => {
+// The old plugin's payload, minus the two extras nobody reads (3.0.3): `activeTime` (a date string the pool's float
+// field rejected with 422) and `availableTime`. `customer` and the key order stay.
+const liveSeed = (seed) => { const s = { ...seed }; delete s.activeTime; delete s.availableTime; return s; };
+
+test("parity: the seed contribution sends the old plugin's payload minus the dead extras (customer and key order kept)", async () => {
   const sent = device();
   await contribute(sent);
   assert.equal(sent.seeds.length, 1);
-  assert.equal(JSON.stringify(sent.seeds[0]), JSON.stringify(SFX.contribFresh.seed));
+  assert.equal(JSON.stringify(sent.seeds[0]), JSON.stringify(liveSeed(SFX.contribFresh.seed)));
   assertSame(only(sent, "v3/snToken")[0], SFX.contribFresh.mint, "contribution v3/snToken");
   assertSame(only(sent, "v8/active")[0], SFX.contribFresh.activate, "contribution v8/active");
   assertSame(only(sent, "getNextColumns")[0], SFX.contribFresh.validate, "contribution getNextColumns (masnew_movies)");
@@ -163,7 +167,7 @@ test("parity: on a device with its own stored sn, the contribution's mint still 
   await contribute(sent);
   assert.equal(JSON.parse(SFX.contribStored.mint.body).sn, FX.storedSn, "the old contribution sent the person's sn");
   assertSame(only(sent, "v3/snToken")[0], withFields(SFX.contribStored.mint, { sn: "" }), "v3/snToken");
-  assert.equal(JSON.stringify(sent.seeds[0]), JSON.stringify(SFX.contribStored.seed));
+  assert.equal(JSON.stringify(sent.seeds[0]), JSON.stringify(liveSeed(SFX.contribStored.seed)));
 });
 
 test("parity: a held seed is applied exactly as the old plugin applied one (getNextColumns, v4/startPlayLive, v14/getSlbInfo)", async () => {

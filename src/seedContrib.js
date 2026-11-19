@@ -31,8 +31,9 @@ export const AT_KEY = "o2:contribAt";
 const CONTRIBUTE_SETTING = "contributeSeeds";
 
 // The anonymous-seed shape POST /seed accepts and the pool keeps. Required three plus jwtToken (the collector reads its
-// `exp`) and mintedAt; the portal's own extras ride along when present.
-const OPTIONAL_EXTRAS = ["customer", "activeTime", "availableTime"];
+// `exp`) and mintedAt; `customer` (the account's tier) rides along when present. `activeTime`/`availableTime` are no
+// longer sent: nobody reads them, and `activeTime` came as a date string the pool's `float` field rejected (422).
+const OPTIONAL_EXTRAS = ["customer"];
 
 const str = (v) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
 const WORD = /^[A-Za-z0-9_-]{1,24}$/;

@@ -108,8 +108,8 @@ test("happy path: a brand-new device (sn \"\"), validated, sends the exact seed 
   assert.equal(w.seeds.length, 1);
   assert.equal(JSON.stringify(w.seeds[0]), JSON.stringify({
     sn: "device-sn-01", userId: "967000001", userToken: "uuid-tok-01", jwtToken: "j.w.t",
-    mintedAt: Math.floor(T0 / 1000), customer: "M-2", availableTime: 28800,
-  }));
+    mintedAt: Math.floor(T0 / 1000), customer: "M-2",
+  }), "only the fields the pool reads: no dead activeTime/availableTime");
   assert.equal(w.store.get(C.AT_KEY), String(T0));
   assert.equal(JSON.parse(w.store.get("o2:xsn")).sn, SN, "the person's device is kept");
   assert.equal(JSON.parse(w.store.get("o2:xsess")).userToken, "OWNTOK-SECRET-person", "and its session");
