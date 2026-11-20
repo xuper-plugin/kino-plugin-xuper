@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.4";
+var PLUGIN_VERSION = "3.0.5";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -3467,6 +3467,55 @@ function cleanSeriesTitle(title) {
   if (typeof title !== "string") return "";
   const t2 = title.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
   return t2.length >= 2 ? t2 : "";
+}
+var ENDS_IN_DIGIT = /[0-9]\s*$/;
+var tails = null;
+function tailRegexes() {
+  if (tails === null) {
+    const tags = `(?:${B}audio\\s+(?:latino|espa[\xF1n]ol|castellano)|${B}espa[\xF1n]ol(?:\\s+latino)?|${B}castellano|${B}subtitulad[oa]|${B}doblad[oa]|${B}hd|${B}4k|${B}\\d{3,4}p)${E2}`;
+    tails = {
+      tags: new RegExp(`(?:[\\s_.:;,|/\\\\-]*${tags})+[\\s_.:;,|/\\\\-]*$`, "iu"),
+      season: new RegExp(`(?:[\\s_.:;,|/\\\\-]*)${SEASON_SOURCE}\\s*$`, "iu")
+    };
+  }
+  return tails;
+}
+function displaySeriesTitle(title) {
+  if (typeof title !== "string") return "";
+  if (!ENDS_IN_DIGIT.test(title)) return title;
+  const { tags, season } = tailRegexes();
+  const m = season.exec(title);
+  if (!m) return title;
+  const rest = title.slice(0, m.index).replace(tags, "").replace(/[\s_.:;,|/\\-]+$/g, "").trim();
+  return rest.length >= 2 ? rest : title;
+}
+function seasonFromName(name) {
+  const m = new RegExp(SEASON_SOURCE, "iu").exec(typeof name === "string" ? name : "");
+  if (!m) return 1;
+  const digits = m.slice(1).find((g) => g !== void 0 && g.trim() !== "");
+  return digits === void 0 ? 1 : Number(digits);
+}
+var seriesKey = (name) => String(name).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function collapseSeasons(items, read2) {
+  const best = /* @__PURE__ */ new Map();
+  items.forEach((it, i) => {
+    const { title, series } = read2(it);
+    if (!series) return;
+    const shown = displaySeriesTitle(title);
+    if (shown === title) return;
+    const key = seriesKey(shown);
+    const season = seasonFromName(title);
+    const cur = best.get(key);
+    if (cur === void 0 || season < cur.season) best.set(key, { index: i, season });
+  });
+  if (best.size === 0) return items;
+  return items.filter((it, i) => {
+    const { title, series } = read2(it);
+    if (!series) return true;
+    const shown = displaySeriesTitle(title);
+    if (shown === title) return true;
+    return best.get(seriesKey(shown)).index === i;
+  });
 }
 
 // src/episodeEnrich.js
@@ -10441,7 +10490,7 @@ function toEpisodes(detail, seriesId, type) {
     episodes3.push(ep);
   });
   const series = {};
-  if (d.name) series.title = String(d.name);
+  if (d.name) series.title = displaySeriesTitle(String(d.name));
   const poster = pickPoster(d.posterList);
   if (poster) series.poster = poster;
   if (d.description) series.overview = String(d.description);
@@ -10740,7 +10789,12 @@ async function search(query) {
     const arr = b && (b.list || b.assetList || b.resourceList);
     if (Array.isArray(arr)) cards.push(...arr);
   }
-  const items = toItems(cards, false, { poster: "recommended" });
+  let items = toItems(cards, false, { poster: "recommended" });
+  items = collapseSeasons(items, (it) => ({ title: it.title, series: it.kind === "series" }));
+  for (const it of items) {
+    const clean = displaySeriesTitle(it.title);
+    if (clean && clean !== it.title) it.title = clean;
+  }
   _searchCache.delete(key);
   _searchCache.set(key, { at: now, items });
   while (_searchCache.size > SEARCH_CACHE_MAX) _searchCache.delete(_searchCache.keys().next().value);

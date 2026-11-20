@@ -5,6 +5,12 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.5
+
+- **Un solo resultado por serie en la búsqueda:** si una serie tiene varias temporadas, la búsqueda vuelve a mostrar un
+  único «Lupin» (antes salían «Lupin T1», «Lupin T2», «Lupin T3»); las demás temporadas están a un toque en el selector de
+  temporada dentro de la serie.
+
 ## Xuper 3.0.4
 
 - **Temporadas y episodios como antes:** las series con varias temporadas vuelven a mostrarse agrupadas por temporada, y
@@ -73,6 +79,11 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.5
+
+- **One result per series in search:** a series with several seasons shows a single "Lupin" in search again (it used to
+  list "Lupin T1", "Lupin T2", "Lupin T3"); the other seasons are one tap away in the season selector inside the title.
 
 ## Xuper 3.0.4
 

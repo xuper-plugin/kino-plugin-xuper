@@ -13,6 +13,7 @@ import { searchVod, resolveVod, chapterList, portalCodeOf } from "./sources/xupe
 import { chaptersOf, findChapter, episodesAnswer, migrate as migrateValue, parseSeasonList } from "./legacy.js";
 import { makeTmdb } from "./tmdb.js";
 import { rawDetail, enrich, isGenericTitle } from "./episodeEnrich.js";
+import { collapseSeasons, displaySeriesTitle } from "./titleClean.js";
 import { pickPoster, toItems } from "./items.js";
 import { catalog as storedCatalog, revalidate } from "./data.js";
 import { homeRows, browsePage, itemById, categoryTiles } from "./v2.js";
@@ -99,7 +100,7 @@ export function toEpisodes(detail, seriesId, type) {
     episodes.push(ep);
   });
   const series = {};
-  if (d.name) series.title = String(d.name);
+  if (d.name) series.title = displaySeriesTitle(String(d.name));   // "Lupin T1" -> "Lupin" (the season is in the chips)
   const poster = pickPoster(d.posterList);
   if (poster) series.poster = poster;
   if (d.description) series.overview = String(d.description);
@@ -499,7 +500,11 @@ export async function search(query) {
     const arr = b && (b.list || b.assetList || b.resourceList);
     if (Array.isArray(arr)) cards.push(...arr);
   }
-  const items = toItems(cards, false, { poster: "recommended" });   // the vertical cover, like Home and the categories
+  let items = toItems(cards, false, { poster: "recommended" });   // the vertical cover, like Home and the categories
+  // One entry per series: the portal lists each season as its own title ("Lupin T1/T2/T3") — show only the lowest, the rest
+  // are the season chips inside the detail (2.x's collapseSeasons). Then the shown name drops its season tag ("Lupin").
+  items = collapseSeasons(items, (it) => ({ title: it.title, series: it.kind === "series" }));
+  for (const it of items) { const clean = displaySeriesTitle(it.title); if (clean && clean !== it.title) it.title = clean; }
   _searchCache.delete(key);                 // inserted again at the end (an LRU by insertion order)
   _searchCache.set(key, { at: now, items });
   while (_searchCache.size > SEARCH_CACHE_MAX) _searchCache.delete(_searchCache.keys().next().value);
