@@ -154,6 +154,19 @@ export function reportActivate(e) {
   try { kino.log.report("activate_fail cause=" + activateCause(e)); } catch (_) { /* telemetry off, or an older Kino */ }
 }
 
+/**
+ * Which welcome banner an activation failure deserves, so the message matches the real problem:
+ *   "update"  → an older Kino answered without the gate token.
+ *   "consent" → the identity permission is off / not approved (kino.identity rejects and never re-prompts; the person must
+ *               turn it on in Kino's settings — "Acepta el permiso y vuelve a intentarlo" is misleading here).
+ *   "server"  → the backend refused, the challenge failed, or anything else (a retry later, not a permission).
+ */
+export function activateBanner(e) {
+  if (isTokenMissing(e)) return "update";
+  if (e && e.code === "permission_denied") return "consent";
+  return "server";
+}
+
 /** The stored Bearer (or null), never signing in: whether the screen is already connected. */
 export async function currentBearer() { return storedBearer(); }
 

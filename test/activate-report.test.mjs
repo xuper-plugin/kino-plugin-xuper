@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 const reports = [];
 globalThis.kino = { lang: "es", log: Object.assign(() => {}, { report: (line) => reports.push(line) }) };
-const { activateCause, reportActivate } = await import("../src/api.js");
+const { activateCause, reportActivate, activateBanner } = await import("../src/api.js");
 
 test("activateCause: consent, identity, update, and the mint-attached causes", () => {
   assert.equal(activateCause({ noToken: true }), "update_needed");                      // identity answered without the gate token
@@ -18,6 +18,14 @@ test("activateCause: consent, identity, update, and the mint-attached causes", (
   assert.equal(activateCause({ actCause: "no_session" }), "no_session");
   assert.equal(activateCause({ code: "weird_thing" }), "err_weird_thing");
   assert.equal(activateCause({}), "unknown");
+});
+
+test("activateBanner: the welcome banner matches the cause (consent → settings, not a retry)", () => {
+  assert.equal(activateBanner({ noToken: true }), "update");               // older Kino
+  assert.equal(activateBanner({ code: "permission_denied" }), "consent");  // identity off → point at the settings toggle
+  assert.equal(activateBanner({ code: "not_available" }), "server");
+  assert.equal(activateBanner({ actCause: "session_401" }), "server");     // the backend refused → retry later, not a permission
+  assert.equal(activateBanner({}), "server");
 });
 
 test("reportActivate: one clean line to the error board, never throws", () => {

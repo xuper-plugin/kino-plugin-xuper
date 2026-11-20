@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.8";
+var PLUGIN_VERSION = "3.0.9";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -274,6 +274,11 @@ function reportActivate(e) {
     kino.log.report("activate_fail cause=" + activateCause(e));
   } catch (_) {
   }
+}
+function activateBanner(e) {
+  if (isTokenMissing(e)) return "update";
+  if (e && e.code === "permission_denied") return "consent";
+  return "server";
 }
 async function currentBearer() {
   return storedBearer();
@@ -11004,12 +11009,21 @@ function welcomeView({ error, device } = {}) {
     text: E3 ? "To activate Xuper you need the latest version of Kino. Update Kino and try again." : "Para activar Xuper necesitas la versi\xF3n m\xE1s reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
     textEn: "To activate Xuper you need the latest version of Kino. Update Kino and try again."
   });
+  else if (error === "consent") body.push({
+    // kino.identity rejects and never re-prompts when the identity permission is off: a retry does nothing, so point the
+    // person at the toggle in Kino's settings instead of "grant the permission and try again".
+    type: "MaterialBanner",
+    key: "wErrId",
+    role: "error",
+    text: E3 ? "Xuper needs your Kino identity, and it is off. Turn it on in Kino \u25B8 Settings \u25B8 Plugins \u25B8 Xuper (the identity permission), then open Xuper again." : "Xuper necesita tu identidad de Kino y ahora est\xE1 apagada. Act\xEDvala en Kino \u25B8 Ajustes \u25B8 Plugins \u25B8 Xuper (el permiso de identidad), y vuelve a abrir Xuper.",
+    textEn: "Xuper needs your Kino identity, and it is off. Turn it on in Kino \u25B8 Settings \u25B8 Plugins \u25B8 Xuper (the identity permission), then open Xuper again."
+  });
   else if (error) body.push({
     type: "MaterialBanner",
     key: "wErr",
     role: "error",
-    text: E3 ? "Could not activate. Grant the permission and try again." : "No se pudo activar. Acepta el permiso y vuelve a intentarlo.",
-    textEn: "Could not activate. Grant the permission and try again."
+    text: E3 ? "Could not reach Xuper's server. Try again in a moment." : "No se pudo conectar con el servidor de Xuper. Int\xE9ntalo de nuevo en un momento.",
+    textEn: "Could not reach Xuper's server. Try again in a moment."
   });
   body.push(supportButton("wSupport", E3, device));
   return {
@@ -12251,7 +12265,7 @@ async function relogin() {
     if (code === "permission_denied" || code === "not_available" || code === "bad_request") {
       forgetRelogin();
       reportActivate(e);
-      return { actError: true };
+      return { actError: activateBanner(e) };
     }
     return {};
   }
@@ -12279,7 +12293,7 @@ async function onEvent(e, val, state2) {
         return { state: { actError: null } };
       } catch (e2) {
         reportActivate(e2);
-        return { state: { actError: isTokenMissing(e2) ? "update" : true } };
+        return { state: { actError: activateBanner(e2) } };
       }
     case "disconnect":
       try {

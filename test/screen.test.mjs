@@ -69,8 +69,17 @@ test("welcomeView: Scaffold + Activate press with a timeout for identity; tuteo,
   assert.ok(btn.onPressed.timeoutMs >= 20_000);
   assert.ok(byType(v, "MaterialBanner").length === 1);
   const txt = JSON.stringify(v);
-  assert.ok(/activa tu acceso/.test(txt) && /Acepta el permiso/.test(txt));
+  assert.ok(/activa tu acceso/.test(txt) && /Inténtalo de nuevo/.test(txt));   // error:true → the generic "server" banner
   assert.ok(!/activá|Aceptá|reintentá/.test(txt));
+});
+
+test("welcomeView: a banner per cause — consent points at the settings toggle, not a useless retry", () => {
+  const txt = (error) => JSON.stringify(welcomeView({ error }));
+  assert.match(txt("update"), /Actualiza Kino/);
+  assert.match(txt("consent"), /permiso de identidad/);        // the identity toggle in Kino's settings
+  assert.doesNotMatch(txt("consent"), /Acepta el permiso/);    // not the old misleading "retry"
+  assert.match(txt("server"), /servidor de Xuper/);
+  assert.match(txt(true), /servidor de Xuper/);                // a legacy truthy actError still reads as "server"
 });
 
 const kofiGo = (v) => all(v, (n) => n.onPressed && n.onPressed.go && n.onPressed.go.url && /ko-fi\.com/.test(n.onPressed.go.url.href));

@@ -5,6 +5,12 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.9
+
+- **Mensaje claro cuando falla «Activar»:** si tu permiso de identidad está apagado, Xuper ahora te dice exactamente
+  dónde encenderlo (Kino ▸ Ajustes ▸ Plugins ▸ Xuper), en vez del genérico «acepta el permiso» que no ayudaba. Y si el
+  problema es del servidor, lo dice claro en vez de culpar al permiso.
+
 ## Xuper 3.0.8
 
 - **Diagnóstico de activación más completo:** cuando falla «Activar», se anota el motivo exacto en todos los pasos (de
@@ -95,6 +101,12 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.9
+
+- **A clear message when "Activate" fails:** if your identity permission is off, Xuper now tells you exactly where to turn
+  it on (Kino ▸ Settings ▸ Plugins ▸ Xuper) instead of the generic "grant the permission" that didn't help. And when the
+  problem is the server, it says so instead of blaming the permission.
 
 ## Xuper 3.0.8
 

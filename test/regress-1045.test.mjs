@@ -138,9 +138,9 @@ test("BUG-1: the person's identity says no → the welcome view with its error, 
   await assert.rejects(P.resolve("v:ABC123:1"));
   const out = await P.screenEvent({ name: "open", state: {} });
   assert.equal(asked, 1);
-  assert.equal(out.state.actError, true);
+  assert.equal(out.state.actError, "consent");   // identity off/denied → the "turn it on in settings" banner, not a retry
   const v = await P.screen({ state: out.state });
-  assert.ok(byKey(v, "activate") && byKey(v, "wErr"), "welcome with the error banner");
+  assert.ok(byKey(v, "activate") && byKey(v, "wErrId"), "welcome with the identity banner");
   await P.screenEvent({ name: "open", state: {} });
   assert.equal(asked, 1, "not asked again by itself: the person presses Activar");
 });

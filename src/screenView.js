@@ -136,10 +136,18 @@ export function welcomeView({ error, device } = {}) {
     text: E ? "To activate Xuper you need the latest version of Kino. Update Kino and try again." : "Para activar Xuper necesitas la versión más reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
     textEn: "To activate Xuper you need the latest version of Kino. Update Kino and try again.",
   });
+  else if (error === "consent") body.push({
+    // kino.identity rejects and never re-prompts when the identity permission is off: a retry does nothing, so point the
+    // person at the toggle in Kino's settings instead of "grant the permission and try again".
+    type: "MaterialBanner", key: "wErrId", role: "error",
+    text: E ? "Xuper needs your Kino identity, and it is off. Turn it on in Kino ▸ Settings ▸ Plugins ▸ Xuper (the identity permission), then open Xuper again."
+      : "Xuper necesita tu identidad de Kino y ahora está apagada. Actívala en Kino ▸ Ajustes ▸ Plugins ▸ Xuper (el permiso de identidad), y vuelve a abrir Xuper.",
+    textEn: "Xuper needs your Kino identity, and it is off. Turn it on in Kino ▸ Settings ▸ Plugins ▸ Xuper (the identity permission), then open Xuper again.",
+  });
   else if (error) body.push({
     type: "MaterialBanner", key: "wErr", role: "error",
-    text: E ? "Could not activate. Grant the permission and try again." : "No se pudo activar. Acepta el permiso y vuelve a intentarlo.",
-    textEn: "Could not activate. Grant the permission and try again.",
+    text: E ? "Could not reach Xuper's server. Try again in a moment." : "No se pudo conectar con el servidor de Xuper. Inténtalo de nuevo en un momento.",
+    textEn: "Could not reach Xuper's server. Try again in a moment.",
   });
   // Below Activate (and below its error, which stays next to it); the TV's first focus stays on Activate.
   body.push(supportButton("wSupport", E, device));
