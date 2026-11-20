@@ -18,6 +18,10 @@
 //   - at least GET_MIN_MS of the call is left: a GET cut by the call's own deadline would still cost a one-use seed;
 //   - no other runtime of the plugin is asking right now (`o2:xseedLease`, 15 s), and no other caller of this runtime
 //     (`inflight`: a renewal and a replacement in one call share one GET).
+// The GET is bare (the backend's sticky assignment: cheap, and it keeps harvesters out) except when a seed is to be
+// told apart from the one this account holds: after the portal geo-blocked a seed (`fresh` in the state, until a seed
+// lands) and on "Cambiar semilla". Those go out as GET /seed?fresh=1 (the backend gives a different seed and releases
+// the old one; it counts against the account's 20 an hour like any GET).
 // A person's "Cambiar semilla" tap has its own budget: one GET per 10 min, two per UTC hour, and never the hour's last
 // of the three (kept for the automatic path, so taps never lock it out).
 // Every limit here lives in kino.storage, and kino.storage is per profile (Kino keeps one plugin store per profile): a
@@ -30,7 +34,7 @@ import { timeoutFor, remaining } from "./liveGate.js";
 import { lang } from "./config.js";
 
 export const SEED_KEY = "o2:xseed";        // secret: { v, sn, userId, userToken, gotAt, lifeMs, expiresAt, mintedAt }
-export const STATE_KEY = "o2:xseedSt";     // { need, needAt, back, hour, man, n503, lastOkAt, okGot, doa, renewAt, manualAt }
+export const STATE_KEY = "o2:xseedSt";     // { need, needAt, back, hour, man, n503, lastOkAt, okGot, doa, renewAt, manualAt, fresh }
 export const LEASE_KEY = "o2:xseedLease";  // { id, at }: another runtime is asking
 
 const MIN = 60_000;
@@ -247,18 +251,19 @@ async function ask(mode, replacing = null) {
   try { timeoutMs = timeoutFor(GET_MS); } catch (_) { dropLease(); return skip("time"); }
   bumpCall();
   if (manual) writeState({ manualAt: now });
+  const fresh = manual || readState().fresh === true;
   const flight = (async () => {
     let r;
-    try { r = await fetchSeed(timeoutMs); } catch (_) { r = { ok: false, status: "network" }; }
+    try { r = await fetchSeed(timeoutMs, fresh); } catch (_) { r = { ok: false, status: "network" }; }
     dropLease();
-    return landed(r, manual);
+    return landed(r, manual, fresh);
   })();
   inflight = flight;
   try { return await flight; } finally { if (inflight === flight) inflight = null; }
 }
 
 /** Stores what GET /seed answered and sets the backoff. */
-function landed(r, manual) {
+function landed(r, manual, fresh) {
   const now = Date.now();
   const st = readState();
   if (r && r.ok) {
@@ -266,8 +271,8 @@ function landed(r, manual) {
       v: 1, sn: r.seed.sn, userId: r.seed.userId, userToken: r.seed.userToken,
       gotAt: now, lifeMs: r.lifeMs, expiresAt: r.expiresAt || 0, ...(r.seed.mintedAt ? { mintedAt: r.seed.mintedAt } : {}),
     }, { ttlMs: r.lifeMs });
-    writeState({ back: null, n503: 0, lastOkAt: now, ...counted(st, now, manual) });
-    log("seed:get ok life_min=" + Math.round(r.lifeMs / MIN) + (manual ? " manual=1" : ""), true);
+    writeState({ back: null, n503: 0, lastOkAt: now, fresh: false, ...counted(st, now, manual) });
+    log("seed:get ok life_min=" + Math.round(r.lifeMs / MIN) + (manual ? " manual=1" : "") + (fresh ? " fresh=1" : ""), true);
     const s = readSeed();
     return s ? { seed: s } : { seed: null, why: "bad", min: 0 };   // storage refused it: nothing to use
   }
@@ -294,7 +299,7 @@ function landed(r, manual) {
   }
   writeState({ ...patch, ...(back ? { back } : {}) });
   const min = back ? Math.ceil((back.until - now) / MIN) : 0;
-  log("seed:get fail status=" + word(status) + (min ? " back_min=" + min : "") + (manual ? " manual=1" : ""), true);
+  log("seed:get fail status=" + word(status) + (min ? " back_min=" + min : "") + (manual ? " manual=1" : "") + (fresh ? " fresh=1" : ""), true);
   return { seed: null, why, min };
 }
 
@@ -355,6 +360,7 @@ export function drop(s, why) {
   const st = readState();
   const doa = st.okGot !== s.gotAt;
   if (doa) writeState({ doa: (Number(st.doa) || 0) + 1 });
+  if (why === "geo") writeState({ fresh: true });
   log("seed:drop why=" + word(why) + " doa=" + (doa ? 1 : 0), doa);
   return true;
 }

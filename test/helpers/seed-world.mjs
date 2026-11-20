@@ -79,6 +79,7 @@ export async function world(opts = {}) {
     reports: [],
     seeds: [],      // what POST /seed received (the contribution)
     seedAuth: [],   // the Authorization header of each POST /seed
+    getUrls: [],    // the URL of each GET /seed (a "?fresh=1" shows here)
   };
   const routes = [async (url, init) => {
     if (/\/xuper\/config$/.test(url)) return json({ magisKey: KEY, email: SHARED.email, password: SHARED.password });
@@ -91,8 +92,9 @@ export async function world(opts = {}) {
       events.push("contrib:201");
       return res(201, JSON.stringify({ ok: true }));
     }
-    if (/\/seed$/.test(url)) {
+    if (/\/seed(\?[^/]*)?$/.test(url)) {
       gets++;
+      w.getUrls.push(url);
       const scripted = opts.seedAnswer ? opts.seedAnswer(gets, w) : undefined;
       if (scripted) { events.push("seed:" + scripted.status); return scripted; }
       const next = pool.shift();

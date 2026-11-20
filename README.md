@@ -5,6 +5,11 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.1.4
+
+- **Cambiar de sesión de respaldo cuando una está bloqueada por región:** si Xuper bloquea la sesión de respaldo que
+  tenías, ahora se pide una distinta en vez de recibir la misma otra vez. "Cambiar semilla" también te da una distinta.
+
 ## Xuper 3.1.3
 
 - **Series largas en la búsqueda:** las series con muchas temporadas (como realities de 40+ temporadas) vuelven a mostrar
@@ -136,6 +141,11 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.1.4
+
+- **A different backup session when one is region-blocked:** if Xuper blocks the backup session you had, a different one
+  is now requested instead of getting the same one back. "Change seed" also gives you a different one.
 
 ## Xuper 3.1.3
 

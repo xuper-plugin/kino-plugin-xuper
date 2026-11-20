@@ -477,12 +477,14 @@ const seedField = (v) => (typeof v === "string" ? v.trim() : typeof v === "numbe
  * 401 (the Bearer was refused: dropped here, the screen signs in again), 429 (this hour's quota is spent), 503 (no seed
  * free), another HTTP status, "bad" (an answer that is not a usable seed), "network" (no answer) or "nobearer". Never
  * throws and never logs: the caller logs codes only.
+ * `fresh`: `GET /seed?fresh=1` skips the backend's sticky assignment and hands out a seed other than the one this
+ * account was given (releasing that one): for a seed the portal geo-blocked, and for the person's "Cambiar semilla".
  */
-export async function fetchSeed(timeoutMs) {
+export async function fetchSeed(timeoutMs, fresh = false) {
   const b = await storedBearer();
   if (!b) return { ok: false, status: "nobearer" };
   let res;
-  try { res = await rawBackend("GET", "/seed", undefined, b, timeoutMs); } catch (_) { return { ok: false, status: "network" }; }
+  try { res = await rawBackend("GET", fresh ? "/seed?fresh=1" : "/seed", undefined, b, timeoutMs); } catch (_) { return { ok: false, status: "network" }; }
   if (!res) return { ok: false, status: "network" };
   if (res.status === 401) { bearerRefused(b); return { ok: false, status: 401 }; }
   if (res.status === 403) { try { const j = res.json(); if (j && j.detail === "not_member") markNotMember(); } catch (_) { /* not JSON */ } return { ok: false, status: 403 }; }

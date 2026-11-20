@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.3";
+var PLUGIN_VERSION = "3.1.4";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -520,12 +520,12 @@ function backendStatus(e) {
 }
 var SEED_MIN_REMAINING_S = 120;
 var seedField = (v) => typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
-async function fetchSeed(timeoutMs) {
+async function fetchSeed(timeoutMs, fresh = false) {
   const b = await storedBearer();
   if (!b) return { ok: false, status: "nobearer" };
   let res;
   try {
-    res = await rawBackend("GET", "/seed", void 0, b, timeoutMs);
+    res = await rawBackend("GET", fresh ? "/seed?fresh=1" : "/seed", void 0, b, timeoutMs);
   } catch (_) {
     return { ok: false, status: "network" };
   }
@@ -2298,15 +2298,16 @@ async function ask(mode, replacing = null) {
   }
   bumpCall();
   if (manual) writeState({ manualAt: now });
+  const fresh = manual || readState().fresh === true;
   const flight = (async () => {
     let r;
     try {
-      r = await fetchSeed(timeoutMs);
+      r = await fetchSeed(timeoutMs, fresh);
     } catch (_) {
       r = { ok: false, status: "network" };
     }
     dropLease();
-    return landed(r, manual);
+    return landed(r, manual, fresh);
   })();
   inflight = flight;
   try {
@@ -2315,7 +2316,7 @@ async function ask(mode, replacing = null) {
     if (inflight === flight) inflight = null;
   }
 }
-function landed(r, manual) {
+function landed(r, manual, fresh) {
   const now = Date.now();
   const st = readState();
   if (r && r.ok) {
@@ -2329,8 +2330,8 @@ function landed(r, manual) {
       expiresAt: r.expiresAt || 0,
       ...r.seed.mintedAt ? { mintedAt: r.seed.mintedAt } : {}
     }, { ttlMs: r.lifeMs });
-    writeState({ back: null, n503: 0, lastOkAt: now, ...counted(st, now, manual) });
-    log3("seed:get ok life_min=" + Math.round(r.lifeMs / MIN) + (manual ? " manual=1" : ""), true);
+    writeState({ back: null, n503: 0, lastOkAt: now, fresh: false, ...counted(st, now, manual) });
+    log3("seed:get ok life_min=" + Math.round(r.lifeMs / MIN) + (manual ? " manual=1" : "") + (fresh ? " fresh=1" : ""), true);
     const s = readSeed();
     return s ? { seed: s } : { seed: null, why: "bad", min: 0 };
   }
@@ -2357,7 +2358,7 @@ function landed(r, manual) {
   }
   writeState({ ...patch, ...back ? { back } : {} });
   const min = back ? Math.ceil((back.until - now) / MIN) : 0;
-  log3("seed:get fail status=" + word(status2) + (min ? " back_min=" + min : "") + (manual ? " manual=1" : ""), true);
+  log3("seed:get fail status=" + word(status2) + (min ? " back_min=" + min : "") + (manual ? " manual=1" : "") + (fresh ? " fresh=1" : ""), true);
   return { seed: null, why: why4, min };
 }
 var endingNow = (h) => !!h && ending.seq === callSeq() && ending.gotAt === h.gotAt;
@@ -2396,6 +2397,7 @@ function drop(s, why4) {
   const st = readState();
   const doa = st.okGot !== s.gotAt;
   if (doa) writeState({ doa: (Number(st.doa) || 0) + 1 });
+  if (why4 === "geo") writeState({ fresh: true });
   log3("seed:drop why=" + word(why4) + " doa=" + (doa ? 1 : 0), doa);
   return true;
 }
