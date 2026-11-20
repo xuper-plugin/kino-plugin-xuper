@@ -5,6 +5,11 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.10
+
+- **Arreglo de reproducción:** vuelven a reproducirse las películas y series. (Se habían bloqueado porque el servidor de
+  video cambió a direcciones que Kino, por seguridad, no dejaba reproducir; ahora están autorizadas.)
+
 ## Xuper 3.0.9
 
 - **Mensaje claro cuando falla «Activar»:** si tu permiso de identidad está apagado, Xuper ahora te dice exactamente
@@ -101,6 +106,11 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.10
+
+- **Playback fix:** movies and series play again. (They had stopped because the video server moved to addresses Kino would
+  not play for safety; those addresses are now authorised.)
 
 ## Xuper 3.0.9
 

@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "3.0.9",
+  "version": "3.0.10",
   "apiVersion": 27,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -217,6 +217,14 @@
     {
       "host": "xvisnet.xyz",
       "insecureHttp": true
+    },
+    {
+      "host": "goovdme.967sd1f.homes",
+      "insecureHttp": true
+    },
+    {
+      "host": "asneig.nxekojpzl.com",
+      "insecureHttp": true
     }
   ],
   "settings": [
@@ -239,6 +247,6 @@
   },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "5e57eafef5b6ecc880e084e0a9797e88de7812bfc3eec6fb7c5c1ed11e98ddb14b9503a5d754472c41a54c95b461e474593e48c12e8f57db716ec2cfb9934000"
+    "value": "a7ce805f56eb20d577b44ef7a1bf91f0583fc686cdb95cbf51b1f2cf2b618fed627c1d49762b0c36fc412cde44f0adbbc47aae84e76d7aefeae5e8fb3012ba0e"
   }
 }
