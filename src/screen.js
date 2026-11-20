@@ -31,7 +31,7 @@
 // one-shot `devices` timer, src/devices.js), the Xuper session (own, a backup seed and its time left, none) and the Aportar switch; its
 // `seedChange` event is the person's "Cambiar semilla" (one GET /seed per tap, src/seeds.js) and `contrib` writes the
 // `contributeSeeds` setting. Neither the screen nor its timers ever ask for a seed on their own.
-import { ensureBearer, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner } from "./api.js";
+import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner } from "./api.js";
 import { screenCategories, screenList, loadList, fillScreenCategories, exposedIdOf, TICK_BOUNDS, TICK_LOAD_BOUNDS, PICK_BOUNDS } from "./live.js";
 import { welcomeView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
 import { SECTIONS, PLUGIN_VERSION, lang } from "./config.js";
@@ -229,6 +229,12 @@ async function onEvent(e, val, state) {
     case "activate":
       try { await ensureBearer(); return { state: { actError: null } }; }   // identity HERE (a press)
       catch (e) { reportActivate(e); return { state: { actError: activateBanner(e) } }; }   // "update" | "consent" | "server"
+    case "reauth":
+      // Ajustes ▸ "Reautenticar": mint a FRESH session with the current Kino identity, replacing the stored one only
+      // once the new one is in hand (a failed mint never disconnects: the working session stays). On failure the toast
+      // points the person at re-linking their Telegram identity in Kino; on success Xuper stays connected.
+      try { await reauth(); return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY }; }
+      catch (e) { reportActivate(e); return { toast: reauthToast(false, e), ui: HIDE_BUSY }; }
     case "disconnect":
       try { await clearBearer(); } catch (_) { /* best-effort */ }
       return { state: {} };
@@ -368,6 +374,25 @@ async function onEvent(e, val, state) {
     }
     default: return {};
   }
+}
+
+/**
+ * The toast after "Reautenticar" (ES + EN). On success Xuper stays connected with a fresh session. On failure the
+ * message matches the cause: "update" (old Kino), "server" (retry later), or — the common one — the identity being off
+ * or unlinked, where the person must re-link their Telegram in Kino's identity settings.
+ */
+function reauthToast(ok, e) {
+  if (ok) return { text: lang() === "en" ? "Access re-authenticated" : "Acceso reautenticado", textEn: "Access re-authenticated", role: "success" };
+  const banner = activateBanner(e);   // "update" | "consent" | "server"
+  const [text, textEn] = banner === "update"
+    ? ["Para reautenticar necesitas la versión más reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
+      "To re-authenticate you need the latest version of Kino. Update Kino and try again."]
+    : banner === "server"
+      ? ["No se pudo reautenticar ahora. Inténtalo de nuevo en un momento.",
+        "Could not re-authenticate now. Try again in a moment."]
+      : ["No se pudo reautenticar. Revincula tu Telegram en Kino: Ajustes ▸ Plugins ▸ Xuper (el permiso de identidad), y vuelve a intentarlo.",
+        "Could not re-authenticate. Re-link your Telegram in Kino: Settings ▸ Plugins ▸ Xuper (the identity permission), then try again."];
+  return { text: lang() === "en" ? textEn : text, textEn, role: "error" };
 }
 
 /** The toast after "Cambiar semilla" (ES + EN). */

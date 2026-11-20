@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.10";
+var PLUGIN_VERSION = "3.1.0";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -303,6 +303,22 @@ var _minting = null;
 async function ensureBearer() {
   const b = await storedBearer();
   if (b) return b;
+  if (_minting) return _minting;
+  _minting = (async () => {
+    try {
+      const bearer = await mintSession();
+      _bearer = bearer;
+      setText(BEARER_KEY, String(bearer));
+      remove(RELOGIN_KEY);
+      remove(TRIAL_KEY);
+      return bearer;
+    } finally {
+      _minting = null;
+    }
+  })();
+  return _minting;
+}
+async function reauth() {
   if (_minting) return _minting;
   _minting = (async () => {
     try {
@@ -11821,11 +11837,19 @@ function configView({ version, device = "phone", ages = null, now = Date.now(), 
           type: "Text",
           key: "cfgAccHint",
           color: "muted",
-          text: E3 ? "Disconnect to activate again with your identity." : "Descon\xE9ctate para volver a activar con tu identidad.",
-          textEn: "Disconnect to activate again with your identity."
+          text: E3 ? "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate." : "Si Xuper dej\xF3 de reconocer tu identidad, reautent\xEDcate (sin desconectar). Desconectarte te lleva de vuelta a \xABActivar\xBB.",
+          textEn: "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate."
         },
         {
           type: "ElevatedButton",
+          key: "reauth",
+          icon: "refresh",
+          labelText: E3 ? "Re-authenticate" : "Reautenticar",
+          labelTextEn: "Re-authenticate",
+          onPressed: { event: "reauth", timeoutMs: PRESS_MS }
+        },
+        {
+          type: "TextButton",
           key: "disconnect",
           icon: "lock",
           labelText: E3 ? "Disconnect" : "Desconectar",
@@ -12295,6 +12319,14 @@ async function onEvent(e, val, state2) {
         reportActivate(e2);
         return { state: { actError: activateBanner(e2) } };
       }
+    case "reauth":
+      try {
+        await reauth();
+        return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY };
+      } catch (e2) {
+        reportActivate(e2);
+        return { toast: reauthToast(false, e2), ui: HIDE_BUSY };
+      }
     case "disconnect":
       try {
         await clearBearer();
@@ -12425,6 +12457,21 @@ async function onEvent(e, val, state2) {
     default:
       return {};
   }
+}
+function reauthToast(ok, e) {
+  if (ok) return { text: lang() === "en" ? "Access re-authenticated" : "Acceso reautenticado", textEn: "Access re-authenticated", role: "success" };
+  const banner = activateBanner(e);
+  const [text2, textEn] = banner === "update" ? [
+    "Para reautenticar necesitas la versi\xF3n m\xE1s reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
+    "To re-authenticate you need the latest version of Kino. Update Kino and try again."
+  ] : banner === "server" ? [
+    "No se pudo reautenticar ahora. Int\xE9ntalo de nuevo en un momento.",
+    "Could not re-authenticate now. Try again in a moment."
+  ] : [
+    "No se pudo reautenticar. Revincula tu Telegram en Kino: Ajustes \u25B8 Plugins \u25B8 Xuper (el permiso de identidad), y vuelve a intentarlo.",
+    "Could not re-authenticate. Re-link your Telegram in Kino: Settings \u25B8 Plugins \u25B8 Xuper (the identity permission), then try again."
+  ];
+  return { text: lang() === "en" ? textEn : text2, textEn, role: "error" };
 }
 function seedChangeToast(r) {
   const result = r && r.result;

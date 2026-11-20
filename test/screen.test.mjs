@@ -203,11 +203,13 @@ test("configView: Disconnect press, version, and data ages in ES and EN", () => 
   assert.equal(v.bottomNavigationBar.value, "config");
   const disc = byKey(v, "disconnect");
   assert.ok(disc.onPressed.event === "disconnect" && disc.onPressed.timeoutMs >= 20_000);
+  const re = byKey(v, "reauth");
+  assert.ok(re.onPressed.event === "reauth" && re.onPressed.timeoutMs >= 20_000, "reauth button emits reauth with a consent-length window");
   assert.ok(byKey(v, "cfgVer").text.includes("1.0.44"));
   assert.equal(byKey(v, "cfgAge0").text, "Catálogo: revisado hace 5 min · publicado hace 3 h");
   assert.equal(byKey(v, "cfgAge0").textEn, "Catalog: checked 5 min ago · published 3 h ago");
   assert.equal(byKey(v, "cfgAge1").text, "Partidos: sin datos todavía");
-  assert.ok(/Desconéctate/.test(JSON.stringify(v)));
+  assert.ok(/Reautentícate|Reautenticar/.test(JSON.stringify(v)));
 });
 
 test("vivoView: category dropdown (busy on change) + channel grid; loading → skeleton; failed → Retry; offline note", () => {

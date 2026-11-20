@@ -847,9 +847,13 @@ export function configView({ version, device = "phone", ages = null, now = Date.
       { type: "Card", key: "cfgAccount", children: [
         { type: "Text", key: "cfgAccTitle", style: "h4", text: E ? "Account" : "Cuenta", textEn: "Account" },
         { type: "Text", key: "cfgAccHint", color: "muted",
-          text: E ? "Disconnect to activate again with your identity." : "Desconéctate para volver a activar con tu identidad.",
-          textEn: "Disconnect to activate again with your identity." },
-        { type: "ElevatedButton", key: "disconnect", icon: "lock",
+          text: E ? "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate."
+            : "Si Xuper dejó de reconocer tu identidad, reautentícate (sin desconectar). Desconectarte te lleva de vuelta a «Activar».",
+          textEn: "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate." },
+        { type: "ElevatedButton", key: "reauth", icon: "refresh",
+          labelText: E ? "Re-authenticate" : "Reautenticar", labelTextEn: "Re-authenticate",
+          onPressed: { event: "reauth", timeoutMs: PRESS_MS } },
+        { type: "TextButton", key: "disconnect", icon: "lock",
           labelText: E ? "Disconnect" : "Desconectar", labelTextEn: "Disconnect",
           confirm: E ? "Disconnect Xuper?" : "¿Desconectar Xuper?", confirmEn: "Disconnect Xuper?",
           onPressed: { event: "disconnect", timeoutMs: PRESS_MS } },

@@ -212,6 +212,30 @@ export async function ensureBearer() {
   return _minting;
 }
 
+/**
+ * Ajustes ▸ "Reautenticar": forces a FRESH session through kino.identity, for when the backend still trusts the person
+ * but this device's session went stale (the real-world fix of a reinstall + re-link, without the reinstall). Unlike
+ * [ensureBearer] it never returns the session already stored — it always mints a new one. The new session replaces the
+ * old ONLY once it is in hand: a failed mint throws and leaves the working session untouched, so a failure never
+ * disconnects the person. Coalesced like ensureBearer (quick taps never open several consent sheets).
+ */
+export async function reauth() {
+  if (_minting) return _minting;
+  _minting = (async () => {
+    try {
+      const bearer = await mintSession();
+      _bearer = bearer;
+      setText(BEARER_KEY, String(bearer));
+      remove(RELOGIN_KEY);
+      remove(TRIAL_KEY);   // a new session: the next `open` prepares its trial
+      return bearer;
+    } finally {
+      _minting = null;
+    }
+  })();
+  return _minting;
+}
+
 /** The sentence for a Bearer the backend refused (401): the screen's next opening signs in again. `lng`: "es" | "en" (default: the visible one). */
 export function sessionExpiredText(lng) {
   const es = "La sesión venció. Abre la pantalla de Xuper para reconectarte.";

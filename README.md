@@ -5,6 +5,15 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.1.0
+
+- **Botón «Reautenticar»:** en Ajustes de Xuper hay un botón para volver a conectar tu acceso con tu identidad de Kino,
+  sin desconectarte. Sirve cuando Xuper dejó de reconocer tu identidad (lo que antes solo se arreglaba reinstalando). Si
+  falla, te dice que revincules tu Telegram en Kino, en vez de dejarte sin saber qué pasó. Una reautenticación que falla
+  nunca te desconecta: tu sesión actual se conserva.
+- **Descargas otra vez:** vuelve a poder descargarse el contenido (se había perdido esa función). Al actualizar, Kino te
+  pide aprobar de nuevo el permiso de descarga.
+
 ## Xuper 3.0.10
 
 - **Arreglo de reproducción:** vuelven a reproducirse las películas y series. (Se habían bloqueado porque el servidor de
@@ -106,6 +115,15 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.1.0
+
+- **"Re-authenticate" button:** Xuper's Settings now has a button to reconnect your access with your Kino identity,
+  without disconnecting. It helps when Xuper stopped recognizing your identity (which used to be fixable only by
+  reinstalling). If it fails, it tells you to re-link your Telegram in Kino instead of leaving you guessing. A failed
+  re-authentication never disconnects you: your current session is kept.
+- **Downloads again:** content can be downloaded once more (the feature had been dropped). On update, Kino asks you to
+  approve the download permission again.
 
 ## Xuper 3.0.10
 
