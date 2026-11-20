@@ -8,6 +8,7 @@
 import * as catalog from "./catalog.js";
 import * as live from "./live.js";
 import * as scr from "./screen.js";
+import * as reauthNotice from "./reauthNotice.js";
 import { beginCall, callFor } from "./flight.js";
 import { afterHome } from "./seedContrib.js";
 import { upgradeOnce } from "./upgrade.js";
@@ -58,3 +59,8 @@ export async function migrate(input) { await begin("migrate"); return catalog.mi
 // stored; the first ever is bounded at 12 s), channels from the stored lists in pages of 500.
 export async function liveCategories() { await begin("liveCategories"); return live.liveCategories(); }
 export async function liveChannels(arg) { await begin("liveChannels"); return live.liveChannels(arg); }
+
+// Scheduled job (capability "schedule", manifest `jobs`): the only background work. It keeps the Home-bell
+// "Reautentícate" reminder in step with the stored flag, so a stuck access reaches the person WITHOUT opening Xuper. A
+// job cannot call kino.identity and never mints here: it only posts or clears the notice (its answer is never read).
+export async function job() { beginCall(); return reauthNotice.syncReauthNotice(); }

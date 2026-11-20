@@ -31,7 +31,8 @@
 // one-shot `devices` timer, src/devices.js), the Xuper session (own, a backup seed and its time left, none) and the Aportar switch; its
 // `seedChange` event is the person's "Cambiar semilla" (one GET /seed per tap, src/seeds.js) and `contrib` writes the
 // `contributeSeeds` setting. Neither the screen nor its timers ever ask for a seed on their own.
-import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner } from "./api.js";
+import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, markReauthNeeded } from "./api.js";
+import { syncReauthNotice } from "./reauthNotice.js";
 import { screenCategories, screenList, loadList, fillScreenCategories, exposedIdOf, TICK_BOUNDS, TICK_LOAD_BOUNDS, PICK_BOUNDS } from "./live.js";
 import { welcomeView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
 import { SECTIONS, PLUGIN_VERSION, lang } from "./config.js";
@@ -191,6 +192,7 @@ async function relogin() {
   if ((await currentBearer()) || !reloginPending()) return {};
   try {
     await ensureBearer();
+    await syncReauthNotice();   // signed in: clears any Home-bell "Reautentícate" reminder
     return { auth: Date.now(), actError: null };
   } catch (e) {
     const code = e && e.code;
@@ -198,12 +200,17 @@ async function relogin() {
     if (isTokenMissing(e)) {
       forgetRelogin();
       reportActivate(e);
+      markReauthNeeded("update");
+      await syncReauthNotice();
       return { actError: "update" };
     }
     if (code === "permission_denied" || code === "not_available" || code === "bad_request") {
       forgetRelogin();
       reportActivate(e);
-      return { actError: activateBanner(e) };   // "consent" (identity off) or "server"
+      const banner = activateBanner(e);
+      markReauthNeeded(banner);   // "consent" sets the reminder; "server" does not
+      await syncReauthNotice();
+      return { actError: banner };   // "consent" (identity off) or "server"
     }
     return {};
   }
@@ -227,14 +234,14 @@ async function onEvent(e, val, state) {
       return Object.keys(patch).length ? { state: patch } : {};
     }
     case "activate":
-      try { await ensureBearer(); return { state: { actError: null } }; }   // identity HERE (a press)
-      catch (e) { reportActivate(e); return { state: { actError: activateBanner(e) } }; }   // "update" | "consent" | "server"
+      try { await ensureBearer(); await syncReauthNotice(); return { state: { actError: null } }; }   // identity HERE (a press)
+      catch (e) { reportActivate(e); const b = activateBanner(e); markReauthNeeded(b); await syncReauthNotice(); return { state: { actError: b } }; }   // "update" | "consent" | "server"
     case "reauth":
       // Ajustes ▸ "Reautenticar": mint a FRESH session with the current Kino identity, replacing the stored one only
       // once the new one is in hand (a failed mint never disconnects: the working session stays). On failure the toast
       // points the person at re-linking their Telegram identity in Kino; on success Xuper stays connected.
-      try { await reauth(); return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY }; }
-      catch (e) { reportActivate(e); return { toast: reauthToast(false, e), ui: HIDE_BUSY }; }
+      try { await reauth(); await syncReauthNotice(); return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY }; }
+      catch (e) { reportActivate(e); markReauthNeeded(activateBanner(e)); await syncReauthNotice(); return { toast: reauthToast(false, e), ui: HIDE_BUSY }; }
     case "disconnect":
       try { await clearBearer(); } catch (_) { /* best-effort */ }
       return { state: {} };

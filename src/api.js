@@ -22,6 +22,12 @@ export const BEARER_KEY = "o2:bearer";
 // "Desconectar" clears it.
 const RELOGIN_KEY = "o2:relogin";
 
+// Set only when a re-activation genuinely FAILED with a cause the person must act on (identity off / needs re-link / an
+// old Kino), never on a routine session expiry (which the screen's `open` re-signs in silently). The scheduled job
+// (src/reauthNotice.js) mirrors it to the Home bell so the person is told to reautenticate without opening Xuper first.
+// Cleared the moment a session mints again.
+const REAUTH_KEY = "o2:reauth";
+
 function log(m) { try { kino.log("" + m); } catch (_) { /* ignore */ } }
 const t = (es, en) => (lang() === "en" ? en : es);
 
@@ -180,6 +186,16 @@ export function reloginPending() { return getText(RELOGIN_KEY) === "1"; }
 export function forgetRelogin() { remove(RELOGIN_KEY); }
 
 /**
+ * The re-authenticate reminder (`REAUTH_KEY`): the scheduled job (src/reauthNotice.js) reads it to post or clear the Home
+ * bell notice. Marked only when `activateBanner` is a cause the PERSON must act on ("consent" = identity off / needs
+ * re-link, "update" = an old Kino) — never a transient server error, and never a routine expiry (that re-signs in by
+ * itself). Cleared on a fresh sign-in (the mint paths above) or when the welcome succeeds.
+ */
+export function markReauthNeeded(banner) { if (banner === "consent" || banner === "update") setText(REAUTH_KEY, "1"); }
+export function clearReauthNeeded() { remove(REAUTH_KEY); }
+export function reauthNeeded() { return getText(REAUTH_KEY) === "1"; }
+
+/**
  * After an update from Xuper 2.x (src/upgrade.js): with no Bearer stored, the screen's next `open` signs in with no tap,
  * as after a 401. → whether it was marked.
  */
@@ -204,6 +220,7 @@ export async function ensureBearer() {
       setText(BEARER_KEY, String(bearer));
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);   // a new session: the next `open` prepares its trial
+      remove(REAUTH_KEY);  // signed in again: the re-authenticate reminder (if any) no longer applies
       return bearer;
     } finally {
       _minting = null;
@@ -228,6 +245,7 @@ export async function reauth() {
       setText(BEARER_KEY, String(bearer));
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);   // a new session: the next `open` prepares its trial
+      remove(REAUTH_KEY);  // signed in again: the re-authenticate reminder (if any) no longer applies
       return bearer;
     } finally {
       _minting = null;

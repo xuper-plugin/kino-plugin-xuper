@@ -1,4 +1,4 @@
-// Ajustes ▸ "Reautenticar" (3.1.0): a fresh session with the current Kino identity, for a device the backend still
+// Ajustes ▸ "Reautenticar" (3.1.1): a fresh session with the current Kino identity, for a device the backend still
 // trusts but whose session went stale — the real-world fix of a reinstall + re-link, without the reinstall. Written
 // against the entry points only, so it also runs against a built bundle:
 //   XUPER_PLUGIN=/abs/path/plugin.js node --test test/reauth.test.mjs

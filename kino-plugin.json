@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "apiVersion": 27,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -17,7 +17,22 @@
     "channels",
     "browse",
     "migrate",
-    "storageLarge"
+    "storageLarge",
+    "notifications",
+    "schedule"
+  ],
+  "jobs": [
+    {
+      "id": "reauth-check",
+      "label": {
+        "es": "Aviso de reautenticación",
+        "en": "Re-authentication reminder"
+      },
+      "everyMin": 240,
+      "everyOptions": [
+        240
+      ]
+    }
   ],
   "telemetry": true,
   "categories": [
@@ -248,6 +263,6 @@
   },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "a54fd3d167ae47f2f222b409a22dbb5d4ee235819487eae146aac27e08075519af3ef6c77e2e0bbfd1c5ba5674fdd95a420576cdd8521e59ece0f23181e87f0c"
+    "value": "e9d1c2005bad569308bec0ba464c630ca1a55a7c41a5c29584613e8ecddf91233f433886d5f5035cbe3965824c469b075da27bf23de65f4ef6ef4c014751970e"
   }
 }

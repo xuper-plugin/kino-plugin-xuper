@@ -5,6 +5,13 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.1.1
+
+- **Aviso cuando hay que reautenticar:** si Xuper deja de reconocer tu acceso, ahora te deja un aviso en la campanita de
+  Inicio de Kino («Reautentícate en Xuper») que al tocarlo te lleva a Xuper, en vez de dejarte descubrirlo solo. Al
+  actualizar, Kino te pide aprobar dos permisos nuevos: avisos en la campanita y una tarea en segundo plano (puedes
+  dejarla apagada; el aviso igual aparece cuando abres Xuper).
+
 ## Xuper 3.1.0
 
 - **Botón «Reautenticar»:** en Ajustes de Xuper hay un botón para volver a conectar tu acceso con tu identidad de Kino,
@@ -115,6 +122,13 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.1.1
+
+- **A reminder when you need to re-authenticate:** if Xuper stops recognizing your access, it now leaves a notice in
+  Kino's Home bell ("Re-authenticate in Xuper") that opens Xuper on a tap, instead of leaving you to find out on your
+  own. On update, Kino asks you to approve two new permissions: Home-bell notices and a background task (you can leave it
+  off; the notice still appears when you open Xuper).
 
 ## Xuper 3.1.0
 

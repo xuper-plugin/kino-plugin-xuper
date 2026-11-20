@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.0";
+var PLUGIN_VERSION = "3.1.1";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -156,6 +156,7 @@ function callName() {
 var _bearer = null;
 var BEARER_KEY = "o2:bearer";
 var RELOGIN_KEY = "o2:relogin";
+var REAUTH_KEY = "o2:reauth";
 function log2(m) {
   try {
     kino.log("" + m);
@@ -294,6 +295,12 @@ function reloginPending() {
 function forgetRelogin() {
   remove(RELOGIN_KEY);
 }
+function markReauthNeeded(banner) {
+  if (banner === "consent" || banner === "update") setText(REAUTH_KEY, "1");
+}
+function reauthNeeded() {
+  return getText(REAUTH_KEY) === "1";
+}
 async function markRelogin() {
   if (await storedBearer()) return false;
   setText(RELOGIN_KEY, "1");
@@ -311,6 +318,7 @@ async function ensureBearer() {
       setText(BEARER_KEY, String(bearer));
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);
+      remove(REAUTH_KEY);
       return bearer;
     } finally {
       _minting = null;
@@ -327,6 +335,7 @@ async function reauth() {
       setText(BEARER_KEY, String(bearer));
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);
+      remove(REAUTH_KEY);
       return bearer;
     } finally {
       _minting = null;
@@ -10879,6 +10888,30 @@ async function search(query) {
   return items;
 }
 
+// src/reauthNotice.js
+var NOTICE_ID = "reauth";
+function hasNotifications() {
+  return typeof kino !== "undefined" && kino && kino.notifications && typeof kino.notifications.post === "function" && typeof kino.notifications.clear === "function";
+}
+async function syncReauthNotice() {
+  if (!hasNotifications()) return;
+  try {
+    if (reauthNeeded()) {
+      await kino.notifications.post({
+        id: NOTICE_ID,
+        title: "Reautent\xEDcate en Xuper",
+        titleEn: "Re-authenticate in Xuper",
+        text: "Xuper dej\xF3 de reconocer tu acceso. \xC1brelo y toca \xABReautenticar\xBB.",
+        textEn: 'Xuper lost your access. Open it and tap "Re-authenticate".',
+        go: { screen: {} }
+      });
+    } else {
+      await kino.notifications.clear(NOTICE_ID);
+    }
+  } catch (_) {
+  }
+}
+
 // src/logo.js
 var X_LOGO_DATA = "data:image/png;base64,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";
 
@@ -12274,6 +12307,7 @@ async function relogin() {
   if (await currentBearer() || !reloginPending()) return {};
   try {
     await ensureBearer();
+    await syncReauthNotice();
     return { auth: Date.now(), actError: null };
   } catch (e) {
     const code = e && e.code;
@@ -12284,12 +12318,17 @@ async function relogin() {
     if (isTokenMissing(e)) {
       forgetRelogin();
       reportActivate(e);
+      markReauthNeeded("update");
+      await syncReauthNotice();
       return { actError: "update" };
     }
     if (code === "permission_denied" || code === "not_available" || code === "bad_request") {
       forgetRelogin();
       reportActivate(e);
-      return { actError: activateBanner(e) };
+      const banner = activateBanner(e);
+      markReauthNeeded(banner);
+      await syncReauthNotice();
+      return { actError: banner };
     }
     return {};
   }
@@ -12314,17 +12353,24 @@ async function onEvent(e, val, state2) {
     case "activate":
       try {
         await ensureBearer();
+        await syncReauthNotice();
         return { state: { actError: null } };
       } catch (e2) {
         reportActivate(e2);
-        return { state: { actError: activateBanner(e2) } };
+        const b = activateBanner(e2);
+        markReauthNeeded(b);
+        await syncReauthNotice();
+        return { state: { actError: b } };
       }
     case "reauth":
       try {
         await reauth();
+        await syncReauthNotice();
         return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY };
       } catch (e2) {
         reportActivate(e2);
+        markReauthNeeded(activateBanner(e2));
+        await syncReauthNotice();
         return { toast: reauthToast(false, e2), ui: HIDE_BUSY };
       }
     case "disconnect":
@@ -12597,12 +12643,17 @@ async function liveChannels2(arg) {
   await begin("liveChannels");
   return liveChannels(arg);
 }
+async function job() {
+  beginCall();
+  return syncReauthNotice();
+}
 export {
   browse2 as browse,
   categories3 as categories,
   details2 as details,
   episodes2 as episodes,
   home2 as home,
+  job,
   liveCategories2 as liveCategories,
   liveChannels2 as liveChannels,
   migrate3 as migrate,
