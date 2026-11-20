@@ -68,13 +68,22 @@ export function seasonFromName(name) {
 const seriesKey = (name) => String(name).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 /**
+ * A series shown once in search collapses up to this many DISTINCT seasons into its lowest one (the rest are the detail's
+ * chips). A long-running show with MORE distinct seasons than this stays fully listed instead, so a person can still find
+ * a given season from search (a 40-season Survivor collapsed to one entry hid the other 39 — reported 2026-11). Counted in
+ * DISTINCT seasons, so a short series with many dub duplicates ("Lupin T1 latino/castellano", "Lupin T2 …") still collapses.
+ */
+export const COLLAPSE_SEASON_LIMIT = 8;
+
+/**
  * One entry per series: the portal lists every season as its own title ("Lupin T1", "Lupin T2"), which reads as the same
- * series several times. For every SERIES whose title carries a season tag, only the LOWEST season stays (at its own place);
- * the others are one tap away in the detail's season chips. No-season titles (single-season series, movies) are never
- * grouped. `read(item)` → `{ title, series }` (series = it is a series, not a movie).
+ * series several times. For a SERIES whose title carries a season tag and that has at most [COLLAPSE_SEASON_LIMIT] distinct
+ * seasons here, only the LOWEST season stays (the others are one tap away in the detail's season chips). A long-running
+ * show (more distinct seasons than that) is left fully listed, so its seasons stay findable in search. No-season titles
+ * (single-season series, movies) are never grouped. `read(item)` → `{ title, series }` (series = it is a series).
  */
 export function collapseSeasons(items, read) {
-  const best = new Map();   // series key -> { index, season }
+  const groups = new Map();   // series key -> { index (of the lowest season), season, seasons: Set }
   items.forEach((it, i) => {
     const { title, series } = read(it);
     if (!series) return;
@@ -82,15 +91,19 @@ export function collapseSeasons(items, read) {
     if (shown === title) return;   // no season tag: a series of its own
     const key = seriesKey(shown);
     const season = seasonFromName(title);
-    const cur = best.get(key);
-    if (cur === undefined || season < cur.season) best.set(key, { index: i, season });
+    let g = groups.get(key);
+    if (g === undefined) { g = { index: i, season, seasons: new Set() }; groups.set(key, g); }
+    g.seasons.add(season);
+    if (season < g.season) { g.season = season; g.index = i; }
   });
-  if (best.size === 0) return items;
+  if (groups.size === 0) return items;
   return items.filter((it, i) => {
     const { title, series } = read(it);
     if (!series) return true;
     const shown = displaySeriesTitle(title);
     if (shown === title) return true;
-    return best.get(seriesKey(shown)).index === i;
+    const g = groups.get(seriesKey(shown));
+    if (g.seasons.size > COLLAPSE_SEASON_LIMIT) return true;   // a long-running show: keep every season findable in search
+    return g.index === i;
   });
 }

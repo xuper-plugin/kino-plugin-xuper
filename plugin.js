@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.2";
+var PLUGIN_VERSION = "3.1.3";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -1073,6 +1073,7 @@ function legacyLiveCode(ref) {
   if (!CHANNEL_CODE.test(ref) || ref.startsWith("~") || decodeMagis(ref) !== null) return null;
   return ref;
 }
+var MAX_SEASON_CHIPS = 200;
 function parseSeasonList(list, ownId) {
   let own = null;
   const all = [];
@@ -1128,7 +1129,7 @@ function episodesAnswer(m, raw, english) {
   });
   const out = { episodes: episodes3 };
   if (raw.seasons.length > 0) {
-    out.seasons = raw.seasons.slice(0, 50).map((s) => ({
+    out.seasons = raw.seasons.slice(0, MAX_SEASON_CHIPS).map((s) => ({
       id: s.id,
       // A season is a portal title of the same kind: its ref is what 2.x's search gave it.
       ref: encodeMagis({ contentId: s.id, programType: m.programType, episode: 0 }),
@@ -3614,8 +3615,9 @@ function seasonFromName(name) {
   return digits === void 0 ? 1 : Number(digits);
 }
 var seriesKey = (name) => String(name).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+var COLLAPSE_SEASON_LIMIT = 8;
 function collapseSeasons(items, read2) {
-  const best = /* @__PURE__ */ new Map();
+  const groups = /* @__PURE__ */ new Map();
   items.forEach((it, i) => {
     const { title, series } = read2(it);
     if (!series) return;
@@ -3623,16 +3625,26 @@ function collapseSeasons(items, read2) {
     if (shown === title) return;
     const key = seriesKey(shown);
     const season = seasonFromName(title);
-    const cur = best.get(key);
-    if (cur === void 0 || season < cur.season) best.set(key, { index: i, season });
+    let g = groups.get(key);
+    if (g === void 0) {
+      g = { index: i, season, seasons: /* @__PURE__ */ new Set() };
+      groups.set(key, g);
+    }
+    g.seasons.add(season);
+    if (season < g.season) {
+      g.season = season;
+      g.index = i;
+    }
   });
-  if (best.size === 0) return items;
+  if (groups.size === 0) return items;
   return items.filter((it, i) => {
     const { title, series } = read2(it);
     if (!series) return true;
     const shown = displaySeriesTitle(title);
     if (shown === title) return true;
-    return best.get(seriesKey(shown)).index === i;
+    const g = groups.get(seriesKey(shown));
+    if (g.seasons.size > COLLAPSE_SEASON_LIMIT) return true;
+    return g.index === i;
   });
 }
 
@@ -10614,7 +10626,7 @@ function toEpisodes(detail, seriesId, type) {
   if (d.description) series.overview = String(d.description);
   const out = { series, episodes: episodes3 };
   if (seasonList.all.length > 0) {
-    out.seasons = seasonList.all.slice(0, 50).map((s) => ({
+    out.seasons = seasonList.all.slice(0, MAX_SEASON_CHIPS).map((s) => ({
       id: s.id,
       // A season IS a portal title of the same type: its ref is what a listing gave it.
       ref: itemRef(s.id, type == null ? "" : type),

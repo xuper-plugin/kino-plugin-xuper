@@ -5,6 +5,12 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.1.3
+
+- **Series largas en la búsqueda:** las series con muchas temporadas (como realities de 40+ temporadas) vuelven a mostrar
+  todas sus temporadas en la búsqueda, en vez de aparecer como una sola entrada. Las series cortas se siguen mostrando
+  como una entrada, con sus temporadas en el selector del detalle.
+
 ## Xuper 3.1.2
 
 - **Solo para miembros del grupo de Kino:** si dejas de estar en el grupo de Kino en Telegram, Xuper te muestra una
@@ -130,6 +136,12 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.1.3
+
+- **Long-running shows in search:** shows with many seasons (like 40-season reality series) again list all their seasons
+  in search, instead of showing as a single entry. Short series still show as one entry, with their seasons in the
+  detail's season selector.
 
 ## Xuper 3.1.2
 

@@ -10,7 +10,7 @@ import {
 } from "./api.js";
 import { episodeRef, itemRef, decodeRef, withQuality, liveRef } from "./refs.js";
 import { searchVod, resolveVod, chapterList, portalCodeOf } from "./sources/xuper.js";   // masnew: the title fallback, 2.x's titles
-import { chaptersOf, findChapter, episodesAnswer, migrate as migrateValue, parseSeasonList } from "./legacy.js";
+import { chaptersOf, findChapter, episodesAnswer, migrate as migrateValue, parseSeasonList, MAX_SEASON_CHIPS } from "./legacy.js";
 import { makeTmdb } from "./tmdb.js";
 import { rawDetail, enrich, isGenericTitle } from "./episodeEnrich.js";
 import { collapseSeasons, displaySeriesTitle } from "./titleClean.js";
@@ -106,7 +106,7 @@ export function toEpisodes(detail, seriesId, type) {
   if (d.description) series.overview = String(d.description);
   const out = { series, episodes };
   if (seasonList.all.length > 0) {
-    out.seasons = seasonList.all.slice(0, 50).map((s) => ({
+    out.seasons = seasonList.all.slice(0, MAX_SEASON_CHIPS).map((s) => ({
       id: s.id,
       // A season IS a portal title of the same type: its ref is what a listing gave it.
       ref: itemRef(s.id, type == null ? "" : type),

@@ -136,6 +136,11 @@ export function legacyLiveCode(ref) {
 
 // ---- a season's chapter list (masnew v4/getItemData's assetData) ----
 
+// The most season chips a series shows. Was 50, which cut long-running shows (Survivor is ~47+ seasons and, with the
+// portal's specials/other versions in `sameSeasonSeriesList`, can pass 50 → the last seasons became unreachable). 200
+// covers any real series and stays cheap (a chip is id/ref/title/number).
+export const MAX_SEASON_CHIPS = 200;
+
 /**
  * What a series detail's `sameSeasonSeriesList` says about season `ownId` (2.x's parseSeasonList): `own` is this
  * season's number (null when the list carries seasons but not this one) and `all` every season with a usable id and
@@ -213,7 +218,7 @@ export function episodesAnswer(m, raw, english) {
   });
   const out = { episodes };
   if (raw.seasons.length > 0) {
-    out.seasons = raw.seasons.slice(0, 50).map((s) => ({
+    out.seasons = raw.seasons.slice(0, MAX_SEASON_CHIPS).map((s) => ({
       id: s.id,
       // A season is a portal title of the same kind: its ref is what 2.x's search gave it.
       ref: encodeMagis({ contentId: s.id, programType: m.programType, episode: 0 }),
