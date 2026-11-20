@@ -10,7 +10,9 @@ import {
 } from "./api.js";
 import { episodeRef, itemRef, decodeRef, withQuality, liveRef } from "./refs.js";
 import { searchVod, resolveVod, chapterList, portalCodeOf } from "./sources/xuper.js";   // masnew: the title fallback, 2.x's titles
-import { chaptersOf, findChapter, episodesAnswer, migrate as migrateValue } from "./legacy.js";
+import { chaptersOf, findChapter, episodesAnswer, migrate as migrateValue, parseSeasonList } from "./legacy.js";
+import { makeTmdb } from "./tmdb.js";
+import { rawDetail, enrich, isGenericTitle } from "./episodeEnrich.js";
 import { pickPoster, toItems } from "./items.js";
 import { catalog as storedCatalog, revalidate } from "./data.js";
 import { homeRows, browsePage, itemById, categoryTiles } from "./v2.js";
@@ -62,18 +64,38 @@ export function subtitlesOf(list) {
   return out;
 }
 
-export function toEpisodes(detail, seriesId) {
+const EP_INT = /^[+-]?\d+$/;
+const toEpInt = (v) => {
+  const t = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+  return t !== null && EP_INT.test(t.trim()) ? (Number(t.trim()) || 0) : null;
+};
+
+/**
+ * Kino's `episodes` answer from a masnew detail: the chapter list, the sibling seasons (the season chips, from the portal's
+ * `sameSeasonSeriesList`) and each episode's own season. `seriesId`/`type` are this title's ref parts (a sibling season is a
+ * title of the same type). The TMDB stills/names/synopses are added later, best-effort, by [enrichEpisodes].
+ */
+export function toEpisodes(detail, seriesId, type) {
   const d = detail || {};
   const programs = d.simpleProgramList || d.programList || [];
+  const E = lang() === "en";
+  const chapterN = (n) => (E ? "Episode " : "Capítulo ") + n;
+  const seasonN = (n) => (E ? "Season " : "Temporada ") + n;
+  const seasonList = parseSeasonList(d.sameSeasonSeriesList, seriesId);
   const episodes = [];
   programs.forEach((p, idx) => {
     const cid = p.contentId || p.programContentId;
     if (!cid) return;
-    const ep = { number: Number(p.programIndex || p.episodeNumber || idx + 1), ref: episodeRef(cid, seriesId) };
-    if (p.name || p.title) ep.title = String(p.name || p.title);
+    // The chapter's own number within its season (`seriesNumber`): what TMDB is crossed by. programIndex/index as fallbacks.
+    const number = toEpInt(p.seriesNumber) ?? toEpInt(p.programIndex) ?? toEpInt(p.episodeNumber) ?? idx + 1;
+    const name = p.name || p.title ? String(p.name || p.title) : "";
+    // The portal's "<series>_<n>" ("One Piece T1_8") is a file name, not a title: it reads "Capítulo N" unless TMDB has the real one.
+    const numbered = number > 0 && name.includes("_") && isGenericTitle(name);
+    const ep = { number, title: name.trim() !== "" && !numbered ? name : chapterN(number), ref: episodeRef(cid, seriesId) };
     const still = pickPoster(p.posterList);
     if (still) ep.still = still;
     if (p.description) ep.overview = String(p.description);
+    if (seasonList.own !== null) ep.season = seasonList.own;
     episodes.push(ep);
   });
   const series = {};
@@ -81,7 +103,53 @@ export function toEpisodes(detail, seriesId) {
   const poster = pickPoster(d.posterList);
   if (poster) series.poster = poster;
   if (d.description) series.overview = String(d.description);
-  return { series, episodes };
+  const out = { series, episodes };
+  if (seasonList.all.length > 0) {
+    out.seasons = seasonList.all.slice(0, 50).map((s) => ({
+      id: s.id,
+      // A season IS a portal title of the same type: its ref is what a listing gave it.
+      ref: itemRef(s.id, type == null ? "" : type),
+      title: seasonN(s.number),
+      number: s.number,
+      current: s.id === seriesId,
+    }));
+  }
+  return out;
+}
+
+const ENRICH_DEADLINE_MS = 15_000;   // TMDB enrichment ends by this into the call, 5 s before Kino's 20 s
+const IMDB_ID = /^tt\d{7,}$/;
+
+/** TMDB stills, real names, synopses, air dates and runtimes onto `answer.episodes`, plus the series' ids. Best-effort: a
+ *  failure (no key, no match, no time) leaves the episodes exactly as the portal gave them. Mutates `answer`, never throws. */
+async function enrichEpisodes(answer, detail, seriesId) {
+  try {
+    if (!answer || !Array.isArray(answer.episodes) || answer.episodes.length === 0) return;
+    const raw = rawDetail(detail, seriesId);
+    const started = callStartedAt();
+    const deadline = (Number.isFinite(started) ? started : Date.now()) + ENRICH_DEADLINE_MS;
+    const { extra, series } = await enrich(raw, makeTmdb(), deadline);
+    for (const ep of answer.episodes) {
+      const t = extra.get(ep.number);
+      if (!t) continue;
+      if (t.title && isGenericTitle(ep.title)) ep.title = t.title;   // TMDB's name only where the portal just numbers the chapter
+      if (t.still && !ep.still) ep.still = t.still;
+      if (t.overview && !ep.overview) ep.overview = t.overview;
+      if (t.airDate) ep.airDate = t.airDate;
+      if (t.runtimeMinutes) ep.runtimeMinutes = t.runtimeMinutes;
+    }
+    const imdb = IMDB_ID.test(raw.imdb || "") ? raw.imdb : "";
+    if (series && series.tmdbId > 0) {
+      answer.series = answer.series || {};
+      answer.series.ids = imdb ? { imdb, tmdb: series.tmdbId } : { tmdb: series.tmdbId };
+      if (!answer.series.title && series.title) answer.series.title = series.title;
+      if (!answer.series.poster && series.poster) answer.series.poster = series.poster;
+      if (series.backdrop) answer.series.backdrop = series.backdrop;
+    } else if (imdb) {
+      answer.series = answer.series || {};
+      answer.series.ids = { imdb };
+    }
+  } catch (_) { /* enrichment never fails the episodes list */ }
 }
 
 export function expiresIn(expiresAt) {
@@ -191,7 +259,10 @@ export async function episodes(ref) {
   }
   if ((r.kind !== "item" && r.kind !== "episode") || !r.id) throw notFound("no series behind this ref");
   const data = await itemData(r.id, r.type);
-  return toEpisodes(data && data.detail, r.id);
+  const detail = data && data.detail;
+  const answer = toEpisodes(detail, r.id, r.type);
+  await enrichEpisodes(answer, detail, r.id);   // TMDB stills/names/seasons, best-effort; never fails the list
+  return answer;
 }
 
 // ── Xuper 2.x's titles (src/legacy.js): masnew's own ids, played and listed on masnew as 2.x did ──

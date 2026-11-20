@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.3";
+var PLUGIN_VERSION = "3.0.4";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -67,13 +67,13 @@ function getJson(key) {
     return null;
   }
 }
-function setText(key, text, opts) {
-  if (typeof text !== "string") throw new TypeError("store.setText(" + key + "): the value must be a string");
+function setText(key, text2, opts) {
+  if (typeof text2 !== "string") throw new TypeError("store.setText(" + key + "): the value must be a string");
   const s = storage();
   if (!s) return false;
   try {
-    if (opts && opts.ttlMs) s.set(key, text, { ttlMs: opts.ttlMs });
-    else s.set(key, text);
+    if (opts && opts.ttlMs) s.set(key, text2, { ttlMs: opts.ttlMs });
+    else s.set(key, text2);
     return true;
   } catch (e) {
     log("set " + key + " failed: " + (e && (e.code || e.message) || e));
@@ -849,9 +849,9 @@ var str = (v) => v === null || v === void 0 ? "" : typeof v === "string" ? v : S
 var blank = (v) => typeof v !== "string" || v.trim() === "";
 var isObj2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 function toIntOrNull(v) {
-  const text = typeof v === "string" ? v : typeof v === "number" && Number.isFinite(v) ? String(v) : null;
-  if (text === null || !INT.test(text)) return null;
-  const n = Number(text);
+  const text2 = typeof v === "string" ? v : typeof v === "number" && Number.isFinite(v) ? String(v) : null;
+  if (text2 === null || !INT.test(text2)) return null;
+  const n = Number(text2);
   return n >= -2147483648 && n <= 2147483647 ? n || 0 : null;
 }
 var make = (contentId, programType, episode) => ({ contentId, programType, episode, isSeries: SERIES.has(programType) });
@@ -924,10 +924,10 @@ function optInt(v) {
 function fromGatewayRef(ref) {
   const dot = ref.indexOf(".");
   if (dot <= 0) return null;
-  const text = base64UrlToText(ref.slice(0, dot));
+  const text2 = base64UrlToText(ref.slice(0, dot));
   let json;
   try {
-    json = text === null ? null : JSON.parse(text);
+    json = text2 === null ? null : JSON.parse(text2);
   } catch (_) {
     return null;
   }
@@ -1277,8 +1277,8 @@ function limitedTimeout(e) {
 // src/sources/xuper-crypto.js
 var _enc = new TextEncoder();
 var _dec = new TextDecoder("utf-8", { fatal: false });
-function utf8Bytes(str5) {
-  return _enc.encode(str5);
+function utf8Bytes(str6) {
+  return _enc.encode(str6);
 }
 function bytesToUtf8(bytes) {
   return _dec.decode(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
@@ -1298,9 +1298,9 @@ function bytesToHex(bytes) {
   for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, "0");
   return out;
 }
-function asciiToHex(str5) {
+function asciiToHex(str6) {
   let out = "";
-  for (let i = 0; i < str5.length; i++) out += (str5.charCodeAt(i) & 255).toString(16).padStart(2, "0");
+  for (let i = 0; i < str6.length; i++) out += (str6.charCodeAt(i) & 255).toString(16).padStart(2, "0");
   return out;
 }
 function hexToAscii(hex) {
@@ -1507,31 +1507,31 @@ function md5Bytes(bytes) {
       const p = off + j * 4;
       M3[j] = msg[p] | msg[p + 1] << 8 | msg[p + 2] << 16 | msg[p + 3] << 24;
     }
-    let A = a0, B2 = b0, C = c0, D3 = d0;
+    let A = a0, B3 = b0, C = c0, D3 = d0;
     for (let i = 0; i < 64; i++) {
       let f, g;
       if (i < 16) {
-        f = B2 & C | ~B2 & D3;
+        f = B3 & C | ~B3 & D3;
         g = i;
       } else if (i < 32) {
-        f = D3 & B2 | ~D3 & C;
+        f = D3 & B3 | ~D3 & C;
         g = 5 * i + 1 & 15;
       } else if (i < 48) {
-        f = B2 ^ C ^ D3;
+        f = B3 ^ C ^ D3;
         g = 3 * i + 5 & 15;
       } else {
-        f = C ^ (B2 | ~D3);
+        f = C ^ (B3 | ~D3);
         g = 7 * i & 15;
       }
       const tmp = D3;
       D3 = C;
-      C = B2;
+      C = B3;
       const sum = A + f + K3[i] + M3[g] | 0;
-      B2 = B2 + rotl2(sum, S2[i]) | 0;
+      B3 = B3 + rotl2(sum, S2[i]) | 0;
       A = tmp;
     }
     a0 = a0 + A | 0;
-    b0 = b0 + B2 | 0;
+    b0 = b0 + B3 | 0;
     c0 = c0 + C | 0;
     d0 = d0 + D3 | 0;
   }
@@ -2685,8 +2685,8 @@ async function viaSeed(reason, cause) {
     return seedSession(r.seed);
   }
   const err = cause || new PortalError(reason === "geo" ? GEO : "no_session", "xuper: no session and no backup session");
-  const text = noSeedText(reason, r);
-  if (text) err.userMessage = text;
+  const text2 = noSeedText(reason, r);
+  if (text2) err.userMessage = text2;
   throw explain(err);
 }
 async function acquire2() {
@@ -3310,6 +3310,274 @@ var xuper = {
 };
 var xuper_default = xuper;
 
+// src/seasonRuns.js
+function parseSeasonCounts(body) {
+  const o = typeof body === "string" ? safeParse(body) : body;
+  if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
+  const seasons = Array.isArray(o.seasons) ? o.seasons : [];
+  const out = [];
+  for (const s of seasons) {
+    if (s === null || typeof s !== "object") continue;
+    const season = Number(s.season_number);
+    const count = Number(s.episode_count);
+    if (Number.isInteger(season) && season >= 1 && Number.isInteger(count) && count > 0) out.push({ season, count });
+  }
+  out.sort((a, b) => a.season - b.season);
+  return out;
+}
+function safeParse(text2) {
+  try {
+    return JSON.parse(text2);
+  } catch (_) {
+    return null;
+  }
+}
+function pickSeasonRun(counts, total, portalSeason) {
+  if (!Array.isArray(counts) || counts.length === 0 || !Number.isInteger(total) || total <= 0) return null;
+  const runs = [];
+  const starts = portalSeason === 1 ? [0] : counts.map((_, i) => i);
+  for (const from of starts) {
+    let sum = 0;
+    for (let i = from; i < counts.length; i++) {
+      sum += counts[i].count;
+      if (sum === total) {
+        runs.push(counts.slice(from, i + 1));
+        break;
+      }
+      if (sum > total) break;
+    }
+  }
+  return runs.length === 1 ? runs[0] : null;
+}
+
+// src/tmdb.js
+var TMDB_LANGUAGE = "es-MX";
+var MIN_LEFT_MS2 = 500;
+var IMG = "https://image.tmdb.org/t/p";
+var IMDB_ID = /^tt\d{7,}$/;
+var AIR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+var INT3 = /^[+-]?\d+$/;
+var MIN_RUNTIME = 1;
+var MAX_RUNTIME = 1e3;
+var isObj5 = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
+var text = (v) => typeof v === "string" ? v : "";
+var blank3 = (s) => s.trim() === "";
+function optInt2(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string" && INT3.test(v.trim())) return Number(v.trim());
+  return 0;
+}
+var imageUrl = (path, size) => typeof path !== "string" || blank3(path) || path === "null" ? "" : `${IMG}/${size}${path}`;
+var plainWords = (t2) => String(t2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function parseSeriesByImdb(body) {
+  const o = isObj5(body) ? body : null;
+  const tv = o && Array.isArray(o.tv_results) && isObj5(o.tv_results[0]) ? o.tv_results[0] : null;
+  if (tv === null) return null;
+  const tmdbId = optInt2(tv.id);
+  if (tmdbId <= 0) return null;
+  return { tmdbId, title: text(tv.name), poster: imageUrl(tv.poster_path, "w500"), backdrop: imageUrl(tv.backdrop_path, "w1280") };
+}
+function pickSeriesByTitle(body, title) {
+  const o = isObj5(body) ? body : null;
+  const want = plainWords(title);
+  if (!o || !Array.isArray(o.results) || want === "") return null;
+  const hits = o.results.filter((r2) => isObj5(r2) && optInt2(r2.id) > 0).slice(0, 10);
+  const forms2 = (r2) => [plainWords(text(r2.name)), plainWords(text(r2.original_name))];
+  const exact = hits.filter((r2) => forms2(r2).includes(want));
+  let r = null;
+  if (exact.length === 1) r = exact[0];
+  else if (exact.length === 0) {
+    const words = want.split(" ");
+    const holding = hits.filter((h) => forms2(h).some((f) => {
+      const fw = f.split(" ");
+      return words.every((w) => fw.includes(w));
+    }));
+    if (holding.length === 1) r = holding[0];
+    else if (holding.length > 1) {
+      const ranked = holding.slice().sort((a, b) => (Number(b.popularity) || 0) - (Number(a.popularity) || 0));
+      if ((Number(ranked[0].popularity) || 0) >= 2 * (Number(ranked[1].popularity) || 0) && (Number(ranked[0].popularity) || 0) > 0) r = ranked[0];
+    }
+  }
+  return r === null ? null : { tmdbId: optInt2(r.id), title: text(r.name), poster: imageUrl(r.poster_path, "w500"), backdrop: imageUrl(r.backdrop_path, "w1280") };
+}
+function parseSeasonEpisodes(body) {
+  const o = isObj5(body) ? body : null;
+  if (!o) return null;
+  const list = Array.isArray(o.episodes) ? o.episodes : [];
+  return list.filter(isObj5).map((e) => {
+    const episode = optInt2(e.episode_number);
+    const name = text(e.name);
+    const airDate = text(e.air_date).trim();
+    const runtime = optInt2(e.runtime);
+    return {
+      episode,
+      name: blank3(name) ? `Episodio ${episode}` : name,
+      overview: text(e.overview),
+      still: imageUrl(e.still_path, "w300"),
+      airDate: AIR_DATE.test(airDate) ? airDate : "",
+      runtimeMinutes: runtime >= MIN_RUNTIME && runtime <= MAX_RUNTIME ? runtime : 0
+    };
+  });
+}
+function makeTmdb({ now = () => Date.now() } = {}) {
+  async function read2(path, params, deadline2) {
+    try {
+      if (typeof deadline2 === "number" && deadline2 - now() < MIN_LEFT_MS2) return null;
+      if (typeof kino.tmdb !== "function") return null;
+      const body = await kino.tmdb(path, { ...params });
+      return isObj5(body) ? body : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  async function seriesByImdb(imdbId, deadline2) {
+    if (typeof imdbId !== "string" || !IMDB_ID.test(imdbId)) return null;
+    const body = await read2(`/find/${imdbId}`, { external_source: "imdb_id", language: TMDB_LANGUAGE }, deadline2);
+    return body === null ? null : parseSeriesByImdb(body);
+  }
+  async function seriesByTitle(title, deadline2) {
+    if (typeof title !== "string" || title.trim() === "") return null;
+    const body = await read2("/search/tv", { query: title.trim(), language: TMDB_LANGUAGE }, deadline2);
+    return body === null ? null : pickSeriesByTitle(body, title);
+  }
+  async function seriesSeasons(tvId, deadline2) {
+    if (!Number.isInteger(tvId) || tvId <= 0) return null;
+    const body = await read2(`/tv/${tvId}`, { language: TMDB_LANGUAGE }, deadline2);
+    return body === null ? null : parseSeasonCounts(body);
+  }
+  async function seasonEpisodes(tvId, season, language = TMDB_LANGUAGE, deadline2) {
+    if (!Number.isInteger(tvId) || tvId <= 0 || !Number.isInteger(season)) return null;
+    const body = await read2(`/tv/${tvId}/season/${season}`, { language }, deadline2);
+    return body === null ? null : parseSeasonEpisodes(body);
+  }
+  return { seriesByImdb, seriesByTitle, seriesSeasons, seasonEpisodes };
+}
+
+// src/titleClean.js
+var B = "(?<![\\p{L}\\p{N}_])";
+var E2 = "(?![\\p{L}\\p{N}_])";
+var SEASON_SOURCE = `(?:${B}T\\s?([0-9]{1,2})${E2}|${B}Temp\\.?\\s?([0-9]{1,2})${E2}|${B}Temporada\\s?([0-9]{1,2})${E2}|${B}S([0-9]{1,2})${E2})`;
+var LANGUAGE = new RegExp(
+  `${B}(?:audio\\s+)?(?:espa[\xF1n]ol(?:\\s+latino)?|castellano|latino|latam|subtitulad[oa]|doblad[oa]|dual|sub(?:\\s+esp)?|hd|4k|\\d{3,4}p)${E2}`,
+  "giu"
+);
+var SEASON = new RegExp(SEASON_SOURCE, "giu");
+var BRACKETS = /[([{][^)\]}]*[)\]}]/g;
+function cleanSeriesTitle(title) {
+  if (typeof title !== "string") return "";
+  const t2 = title.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
+  return t2.length >= 2 ? t2 : "";
+}
+
+// src/episodeEnrich.js
+var IMDB = /^tt\d{7,}$/;
+var INT4 = /^[+-]?\d+$/;
+var GENERIC_TITLE2 = /^(?:(?:capitulo|episodio|chapter|episode|cap|ep|e)\.?\s*#?\s*)?\d*$/;
+var TRAILING_NUMBER2 = /[\s._-]*\d+$/;
+var plainTitle2 = (s) => s.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
+function isGenericTitle2(s) {
+  if (typeof s !== "string") return true;
+  const t2 = plainTitle2(s);
+  if (GENERIC_TITLE2.test(t2)) return true;
+  const cut = t2.lastIndexOf("_");
+  if (cut < 0) return false;
+  const series = t2.slice(0, cut).trim();
+  const rest = t2.slice(cut + 1).trim();
+  return GENERIC_TITLE2.test(rest) || TRAILING_NUMBER2.test(rest) && rest.replace(TRAILING_NUMBER2, "").trim() === series;
+}
+var str4 = (v) => typeof v === "string" ? v : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
+function toIntOrNull2(v) {
+  const t2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+  if (t2 === null || !INT4.test(t2.trim())) return null;
+  const n = Number(t2.trim());
+  return n >= -2147483648 && n <= 2147483647 ? n || 0 : null;
+}
+function rawDetail(detail, seriesId) {
+  const d = detail && typeof detail === "object" ? detail : {};
+  const programs = Array.isArray(d.simpleProgramList) ? d.simpleProgramList : Array.isArray(d.programList) ? d.programList : [];
+  const items = programs.filter((x) => x && typeof x === "object").map((it) => ({
+    seriesNumber: typeof it.seriesNumber === "string" ? it.seriesNumber : typeof it.seriesNumber === "number" ? String(it.seriesNumber) : null,
+    contentId: str4(it.contentId || it.programContentId),
+    name: str4(it.name || it.title)
+  }));
+  const s = parseSeasonList(d.sameSeasonSeriesList, seriesId);
+  const title = [d.name, d.viewPoint, d.alias].find((v) => typeof v === "string" && v.trim() !== "") ?? "";
+  return { items, imdb: str4(d.keyWords), season: s.own, declared: toIntOrNull2(d.volumnCount), seasons: s.all, title };
+}
+async function acrossTmdbSeasons(tmdb, tvId, portalSeason, expected, deadline2) {
+  if (typeof tmdb.seriesSeasons !== "function") return null;
+  try {
+    const all = await tmdb.seriesSeasons(tvId, deadline2);
+    const run = pickSeasonRun(all, expected, portalSeason);
+    if (run === null) return null;
+    const out = [];
+    for (const s of run) {
+      const eps = await tmdb.seasonEpisodes(tvId, s.season, void 0, deadline2);
+      if (!eps || eps.length !== s.count) return null;
+      for (const e of eps) out.push({ ...e, episode: out.length + 1 });
+    }
+    return out.length === expected ? out : null;
+  } catch (_) {
+    return null;
+  }
+}
+async function enrich(raw, tmdb, deadline2) {
+  const none = { extra: /* @__PURE__ */ new Map(), series: null };
+  if (!tmdb || !raw || raw.season === null || raw.season === void 0) return none;
+  const viaImdb = IMDB.test(raw.imdb || "");
+  let byTitle = null;
+  if (!viaImdb && typeof tmdb.seriesByTitle === "function") {
+    const clean = cleanSeriesTitle(raw.title);
+    if (clean !== "") {
+      try {
+        byTitle = await tmdb.seriesByTitle(clean, deadline2);
+      } catch (_) {
+        byTitle = null;
+      }
+    }
+  }
+  if (!viaImdb && !byTitle) return none;
+  try {
+    const series = viaImdb ? await tmdb.seriesByImdb(raw.imdb, deadline2) : byTitle;
+    if (!series) return none;
+    let fromTmdb = await tmdb.seasonEpisodes(series.tmdbId, raw.season, void 0, deadline2);
+    if (!fromTmdb) return { extra: /* @__PURE__ */ new Map(), series };
+    let acrossSeasons = false;
+    const expected = raw.declared !== null && raw.declared > 0 ? raw.declared : raw.items.length;
+    if (expected !== fromTmdb.length) {
+      const merged = fromTmdb.length < expected ? await acrossTmdbSeasons(tmdb, series.tmdbId, raw.season, expected, deadline2) : null;
+      if (merged === null) return { extra: /* @__PURE__ */ new Map(), series };
+      fromTmdb = merged;
+      acrossSeasons = true;
+    }
+    const rows = /* @__PURE__ */ new Map();
+    for (const c of fromTmdb) {
+      const row = {
+        still: c.still.trim() !== "" ? c.still : null,
+        title: !isGenericTitle2(c.name) ? c.name : null,
+        overview: c.overview.trim() !== "" ? c.overview : null,
+        airDate: c.airDate || null,
+        runtimeMinutes: c.runtimeMinutes > 0 ? c.runtimeMinutes : null
+      };
+      if (Object.values(row).some((v) => v !== null)) rows.set(c.episode, row);
+    }
+    const missing = new Set([...rows].filter(([, r]) => r.overview === null).map(([n]) => n));
+    if (missing.size === 0 || acrossSeasons) return { extra: rows, series };
+    let inEnglish = [];
+    try {
+      inEnglish = await tmdb.seasonEpisodes(series.tmdbId, raw.season, "en-US", deadline2) ?? [];
+    } catch (_) {
+      inEnglish = [];
+    }
+    for (const c of inEnglish) {
+      if (missing.has(c.episode) && c.overview.trim() !== "") rows.set(c.episode, { ...rows.get(c.episode), overview: c.overview });
+    }
+    return { extra: rows, series };
+  } catch (_) {
+    return none;
+  }
+}
+
 // src/items.js
 function pickPoster(posterList) {
   if (!Array.isArray(posterList)) return void 0;
@@ -3435,13 +3703,13 @@ async function condGet(url, opts) {
   const h = r && r.headers || {};
   if (r.status === 304) return { status: 304, etag: h.etag || o.etag || "", lm: h["last-modified"] || o.lm || "" };
   if (!r.ok) return { status: "err", code: r.status };
-  let text;
+  let text2;
   try {
-    text = bodyText(r);
+    text2 = bodyText(r);
   } catch (e) {
     return { status: "err", code: "decode" };
   }
-  return { status: 200, text, etag: h.etag || "", lm: h["last-modified"] || "" };
+  return { status: 200, text: text2, etag: h.etag || "", lm: h["last-modified"] || "" };
 }
 
 // src/v2.js
@@ -3477,14 +3745,14 @@ function slidesOf(sliderCards, httpsOnly = false, clean = false) {
     if (!image || clean && image.length > 2048) continue;
     seen.add(String(c.contentId));
     const type = String(c.type == null ? "" : c.type);
-    const text = typeof c.description === "string" ? c.description.trim() : "";
+    const text2 = typeof c.description === "string" ? c.description.trim() : "";
     out.push({
       id: String(c.contentId),
       ref: itemRef(c.contentId, type),
       kind: type === "0" ? "series" : "movie",
       title: clean ? String(c.name || "").trim().slice(0, 200) || "\u2014" : String(c.name || "\u2014"),
       image,
-      text: text.length > SLIDE_TEXT ? `${text.slice(0, SLIDE_TEXT - 1).trimEnd()}\u2026` : text
+      text: text2.length > SLIDE_TEXT ? `${text2.slice(0, SLIDE_TEXT - 1).trimEnd()}\u2026` : text2
     });
   }
   return out;
@@ -3986,11 +4254,11 @@ function versionLe(a, b) {
   }
   return true;
 }
-function parseIndex(text) {
-  if (typeof text !== "string" || !text) return null;
+function parseIndex(text2) {
+  if (typeof text2 !== "string" || !text2) return null;
   let j;
   try {
-    j = JSON.parse(text);
+    j = JSON.parse(text2);
   } catch (_) {
     return null;
   }
@@ -4131,7 +4399,7 @@ function patchMeta(name, fn) {
   const next = fn(cur);
   if (next) setJson(p.meta, next);
 }
-function commit(name, text, v, fields, authoritative) {
+function commit(name, text2, v, fields, authoritative) {
   const p = PARTS[name];
   const now = Date.now();
   const cur = getJson(p.meta) || {};
@@ -4144,7 +4412,7 @@ function commit(name, text, v, fields, authoritative) {
   }
   const have = read(name);
   const same2 = !!have && have.hash === v.hash;
-  if (!same2 && !setText(p.key, text)) {
+  if (!same2 && !setText(p.key, text2)) {
     if (!have) L0[name] = { h: v.hash, v };
     return "text not stored (storage refused it; " + (have ? "the stored copy stays" : "kept in memory only") + ")";
   }
@@ -4250,8 +4518,8 @@ function extHttp(v, into) {
   if (!o || typeof o !== "object") return;
   for (const k of Object.keys(o)) if (typeof o[k] === "string") putHeader(into, k, o[k]);
 }
-function parseM3U(text) {
-  const lines = String(text || "").split(/\r?\n/);
+function parseM3U(text2) {
+  const lines = String(text2 || "").split(/\r?\n/);
   const chans = [];
   let cur = null;
   let pending = {};
@@ -5013,8 +5281,8 @@ var SPORT_CC = new Set(SPORT_CCS.map((c) => c[0]));
 var COUNTRY_IDS = /* @__PURE__ */ new Set([...LATAM.map((c) => c[0]), ...WORLD.map((c) => c[0]), "cam", "latam"]);
 var PREFIX = /^\s*[[(┃|]?\s*([a-z]{2,6})\s*(?:[┃▎|:\])]|-\s)/;
 var BRACKET = /[[(]\s*([a-z]{2,4})\s*[)\]]/;
-function flagCountry(text) {
-  const cps = Array.from(String(text == null ? "" : text));
+function flagCountry(text2) {
+  const cps = Array.from(String(text2 == null ? "" : text2));
   for (let i = 0; i + 1 < cps.length; i++) {
     const a = cps[i].codePointAt(0), b = cps[i + 1].codePointAt(0);
     if (a >= 127462 && a <= 127487 && b >= 127462 && b <= 127487) {
@@ -5298,21 +5566,21 @@ function readSketch(s) {
 function overlap(a, b) {
   const tau = Math.min(a.tau, b.tau);
   let i = 0, ma = 0, mb = 0, x = 0, y = 0;
-  const A = a.h, B2 = b.h;
+  const A = a.h, B3 = b.h;
   while (x < A.length && A[x] <= tau) {
     ma++;
     x++;
   }
-  while (y < B2.length && B2[y] <= tau) {
+  while (y < B3.length && B3[y] <= tau) {
     mb++;
     y++;
   }
   for (let p = 0, q = 0; p < ma && q < mb; ) {
-    if (A[p] === B2[q]) {
+    if (A[p] === B3[q]) {
       i++;
       p++;
       q++;
-    } else if (A[p] < B2[q]) p++;
+    } else if (A[p] < B3[q]) p++;
     else q++;
   }
   return { m: Math.min(ma, mb), i };
@@ -5410,10 +5678,10 @@ function parseServerLine(line) {
     return null;
   }
 }
-function parseServers(text) {
+function parseServers(text2) {
   const out = [];
   const seen = /* @__PURE__ */ new Set();
-  for (const line of String(text).split(/\r?\n/)) {
+  for (const line of String(text2).split(/\r?\n/)) {
     const t2 = line.trim();
     if (!t2 || t2.startsWith("#")) continue;
     const s = parseServerLine(t2);
@@ -6200,8 +6468,8 @@ var SKINS = ["1", "2", "3"];
 var PLAYER_HEADERS = { Referer: BASE2 + "/", "Sec-Fetch-Dest": "iframe" };
 var TVP_KEY = "o2:tvp";
 var TVP_TTL_MS = 30 * 24 * 3600 * 1e3;
-function manifestIn(text) {
-  const s = String(text || "");
+function manifestIn(text2) {
+  const s = String(text2 || "");
   for (let i = s.indexOf(TOKEN_MARK); i >= 0; i = s.indexOf(TOKEN_MARK, i + TOKEN_MARK.length)) {
     const m = MANIFEST.exec(s.slice(Math.max(0, i - 400), i + TOKEN_MARK.length + 160).replace(/\\\//g, "/"));
     if (m) return m[0];
@@ -6495,7 +6763,7 @@ var PRIMARY = "https://futbollibregol.org";
 var BACKUP1 = "https://verfutbol.pro";
 var BACKUP2 = "https://futbol-libre.app";
 var AGENDA_API = "https://api.wqxag.com/diaries.json";
-var IMG = "https://img.wqxag.com";
+var IMG2 = "https://img.wqxag.com";
 var HOUR = 36e5;
 var AGENDA_BUDGET_MS = 1e4;
 var VERIFY_TIMEOUT_MS = 2500;
@@ -6514,9 +6782,9 @@ function hash(s) {
   return (h >>> 0).toString(36);
 }
 function splitTitle(raw) {
-  const text = entities(raw);
-  const m = /^([^:]{2,80}):\s*(.+)$/.exec(text);
-  return m ? { league: m[1].trim(), title: m[2].trim() } : { league: "", title: text };
+  const text2 = entities(raw);
+  const m = /^([^:]{2,80}):\s*(.+)$/.exec(text2);
+  return m ? { league: m[1].trim(), title: m[2].trim() } : { league: "", title: text2 };
 }
 function b64(s) {
   let x = String(s).replace(/-/g, "+").replace(/_/g, "/");
@@ -6580,7 +6848,7 @@ async function agendaPrimary(ms) {
       const tok = tokenOf2(m ? b64(decodeURIComponent(m[1])) : frame);
       if (tok && !tokens.includes(tok)) tokens.push(tok);
     }
-    const ev = makeEvent("primary", limaMs(a.date_diary, a.diary_hour), league || c && c.name || "", title, img ? IMG + img : void 0, tokens);
+    const ev = makeEvent("primary", limaMs(a.date_diary, a.diary_hour), league || c && c.name || "", title, img ? IMG2 + img : void 0, tokens);
     if (ev) out.push(ev);
   }
   return out;
@@ -7343,12 +7611,12 @@ var B64_VAL = (() => {
   return t2;
 })();
 function b64Text(s) {
-  const str5 = String(s || "");
+  const str6 = String(s || "");
   const bytes = [];
   let acc = 0;
   let bits = 0;
-  for (let i = 0; i < str5.length; i++) {
-    const c = str5.charCodeAt(i);
+  for (let i = 0; i < str6.length; i++) {
+    const c = str6.charCodeAt(i);
     if (c === 61) break;
     const v = c < 128 ? B64_VAL[c] : -1;
     if (v < 0) return null;
@@ -7370,13 +7638,13 @@ function b64Text(s) {
 function decodeEventId(rawId) {
   const s = String(rawId || "");
   if (!s.startsWith("cnc:")) return null;
-  const text = b64Text(s.slice(4));
-  if (!text) return null;
-  const i = text.indexOf("::");
+  const text2 = b64Text(s.slice(4));
+  if (!text2) return null;
+  const i = text2.indexOf("::");
   if (i <= 0) return null;
   try {
-    const ev = JSON.parse(text.slice(i + 2));
-    return ev && typeof ev === "object" ? { provider: text.slice(0, i), ev } : null;
+    const ev = JSON.parse(text2.slice(i + 2));
+    return ev && typeof ev === "object" ? { provider: text2.slice(0, i), ev } : null;
   } catch (_) {
     return null;
   }
@@ -7671,13 +7939,13 @@ function readText(key) {
   }
   return getText(LIST_PREFIX + key);
 }
-function writeText(key, text, ttlMs, h) {
+function writeText(key, text2, ttlMs, h) {
   if (deferring()) {
-    pendingTexts.set(key, { text, ttlMs, h });
+    pendingTexts.set(key, { text: text2, ttlMs, h });
     return true;
   }
   pendingTexts.delete(key);
-  return setText(LIST_PREFIX + key, text, { ttlMs });
+  return setText(LIST_PREFIX + key, text2, { ttlMs });
 }
 function removeText(key) {
   if (deferring()) {
@@ -7715,28 +7983,28 @@ function getList(key) {
   const m = listMeta(key);
   const hit = l0Get(key);
   if (hit && (!m || !m.h || m.h === hit.h)) return { items: hit.items, at: m ? m.at : 0, h: hit.h };
-  const text = readText(key);
-  if (text === null) {
+  const text2 = readText(key);
+  if (text2 === null) {
     l0Drop(key);
     return null;
   }
   let items;
   try {
-    items = JSON.parse(text);
+    items = JSON.parse(text2);
   } catch (_) {
     items = null;
   }
   if (!Array.isArray(items)) return null;
-  const h = m && m.h || sha1(text);
-  l0Put(key, items, text.length, h);
+  const h = m && m.h || sha1(text2);
+  l0Put(key, items, text2.length, h);
   return { items, at: m ? m.at : 0, h };
 }
 function putList(key, items, opts) {
   const o = opts || {};
   const now = Date.now();
   const at2 = o.partial ? Math.max(1, now - Math.max(0, Number(o.freshMs) || 0) - 1) : now;
-  const text = JSON.stringify(items);
-  const h = sha1(text);
+  const text2 = JSON.stringify(items);
+  const h = sha1(text2);
   const m = listMeta(key);
   if (newerElsewhere("l", key)) {
     const cur = getList(key);
@@ -7750,16 +8018,16 @@ function putList(key, items, opts) {
   const have = m && m.h === h && (l0 && l0.h === h || readText(key) !== null);
   let w = m ? m.w : 0;
   if (!have || renewDue(m, ttlMs, now)) {
-    if (writeText(key, text, ttlMs, h)) w = now;
+    if (writeText(key, text2, ttlMs, h)) w = now;
     else {
-      log8(key + ": list not stored (" + text.length + " chars), kept in memory only");
+      log8(key + ": list not stored (" + text2.length + " chars), kept in memory only");
       if (!have) {
         removeText(key);
         w = 0;
       }
     }
   }
-  l0Put(key, items, text.length, h);
+  l0Put(key, items, text2.length, h);
   touch("l", key, { at: at2, h, n: items.length, w, failAt: 0, failN: 0, ...o.partial ? { p: 1 } : {} });
   return { items, h, at: at2, changed: !have };
 }
@@ -7771,8 +8039,8 @@ function touchList(key, opts) {
   if (opts && opts.maxStaleMs > 0) {
     const ttlMs = ttlOf(opts.maxStaleMs);
     if (renewDue(m, ttlMs, now)) {
-      const text = readText(key);
-      if (text !== null && writeText(key, text, ttlMs, m.h)) w = now;
+      const text2 = readText(key);
+      if (text2 !== null && writeText(key, text2, ttlMs, m.h)) w = now;
     }
   }
   touch("l", key, { at: now, h: m.h, n: m.n, w, failAt: 0, failN: 0 });
@@ -8165,18 +8433,18 @@ function tagOf(token, strong) {
   return null;
 }
 var esc = (s) => s.replace(/[\\\]^-]/g, "\\$&");
-var B = "[" + esc(BARS) + "]";
+var B2 = "[" + esc(BARS) + "]";
 var TOK = "([A-Za-z0-9][A-Za-z0-9.+&]{0,7})";
-var WRAPPED = new RegExp("(" + B + "|!)\\s*" + TOK + "\\s*(" + B + "|!)", "gu");
-var LEAD_BAR = new RegExp("^\\s*[[(]?\\s*" + TOK + "\\s*[\\])]?\\s*(" + B + ")\\s*(?=\\S)", "u");
-var LEAD_WRAPPED = new RegExp("^\\s*(" + B + "|!)\\s*" + TOK + "\\s*(" + B + "|!)\\s*(?=\\S)", "u");
-var OPENS_WRAP = new RegExp("^[A-Za-z0-9][A-Za-z0-9.+&]{0,7}\\s*(?:" + B + "|!)", "u");
+var WRAPPED = new RegExp("(" + B2 + "|!)\\s*" + TOK + "\\s*(" + B2 + "|!)", "gu");
+var LEAD_BAR = new RegExp("^\\s*[[(]?\\s*" + TOK + "\\s*[\\])]?\\s*(" + B2 + ")\\s*(?=\\S)", "u");
+var LEAD_WRAPPED = new RegExp("^\\s*(" + B2 + "|!)\\s*" + TOK + "\\s*(" + B2 + "|!)\\s*(?=\\S)", "u");
+var OPENS_WRAP = new RegExp("^[A-Za-z0-9][A-Za-z0-9.+&]{0,7}\\s*(?:" + B2 + "|!)", "u");
 var LEAD_MARK = /^\s*([A-Z][A-Z.]{1,5})\s*(?:[:•·]\s*|\s[-–—]\s+)(?=\S)/u;
-var LEAD_BRACKET = new RegExp("^\\s*[[(]\\s*([A-Za-z][A-Za-z. ]{1,6}?)\\s*[\\])]\\s*(?:(?:" + B + "|[:\u2022\xB7]|[-\u2013\u2014](?=\\s))\\s*)?(?=\\S)", "u");
-var TRAIL_BAR = new RegExp("\\s*(" + B + ")\\s*([A-Z][A-Z.]{1,5})\\s*(?:" + B + ")?\\s*$", "u");
+var LEAD_BRACKET = new RegExp("^\\s*[[(]\\s*([A-Za-z][A-Za-z. ]{1,6}?)\\s*[\\])]\\s*(?:(?:" + B2 + "|[:\u2022\xB7]|[-\u2013\u2014](?=\\s))\\s*)?(?=\\S)", "u");
+var TRAIL_BAR = new RegExp("\\s*(" + B2 + ")\\s*([A-Z][A-Z.]{1,5})\\s*(?:" + B2 + ")?\\s*$", "u");
 var BRACKETED = /\s*[[(]\s*([A-Za-z0-9][A-Za-z0-9. ]{0,6}?)\s*[\])]/gu;
-var EDGE_START = new RegExp("^\\s*(?:" + B + "\\s*|[-\u2013\u2014\u2022\xB7:]\\s+)+", "u");
-var EDGE_END = new RegExp("(?:\\s*" + B + "|\\s+[-\u2013\u2014\u2022\xB7])+\\s*$", "u");
+var EDGE_START = new RegExp("^\\s*(?:" + B2 + "\\s*|[-\u2013\u2014\u2022\xB7:]\\s+)+", "u");
+var EDGE_END = new RegExp("(?:\\s*" + B2 + "|\\s+[-\u2013\u2014\u2022\xB7])+\\s*$", "u");
 var MAYBE = new RegExp("[" + esc(BARS) + "!\\[(:\u2022\xB7\u2013\u2014-]", "u");
 var CACHE_MAX2 = 2e4;
 var cache2 = /* @__PURE__ */ new Map();
@@ -8854,8 +9122,8 @@ function hexDec(h) {
 }
 function hashId(s) {
   let h = 5381;
-  const str5 = String(s == null ? "" : s);
-  for (let i = 0; i < str5.length; i++) h = (h * 33 ^ str5.charCodeAt(i)) >>> 0;
+  const str6 = String(s == null ? "" : s);
+  for (let i = 0; i < str6.length; i++) h = (h * 33 ^ str6.charCodeAt(i)) >>> 0;
   return h.toString(36);
 }
 function listKey(srcId, rawCat) {
@@ -9617,13 +9885,13 @@ async function probeStream(out, opts) {
     }
     return refusal2(st) ? "dead" : "unknown";
   }
-  let text = "";
+  let text2 = "";
   try {
-    text = String(bodyText(r) || "");
+    text2 = String(bodyText(r) || "");
   } catch (_) {
     return "unknown";
   }
-  return /^\s*#EXTM3U/.test(text) ? "ok" : "dead";
+  return /^\s*#EXTM3U/.test(text2) ? "ok" : "dead";
 }
 var BLOCK_PAGE = /(?:^|\.)coljuegos\.gov\.co$/i;
 function blockPage(r) {
@@ -10016,10 +10284,10 @@ async function playCandidates(refs, tag, suspect, byId, refusedAcct, more, again
     steps.push(c.src.id + " ok in " + (Date.now() - t0) + " ms (" + (c.i + 1) + " of " + cands.length + ")");
     log9("resolve " + tag + " (" + cands.length + " members): " + steps.join("; "));
     const others = list.filter((x) => x.ref !== c.ref).slice(0, ALTERNATIVES_MAX);
-    const E3 = en4();
+    const E4 = en4();
     const seenLabels = /* @__PURE__ */ new Map();
     const label = (x) => {
-      const base = memberLabel(x.src.name, memberTitles.get(x.ref) || "", E3);
+      const base = memberLabel(x.src.name, memberTitles.get(x.ref) || "", E4);
       const n2 = (seenLabels.get(base) || 0) + 1;
       seenLabels.set(base, n2);
       return n2 === 1 ? base : base.slice(0, 44) + " \xB7 " + n2;
@@ -10033,11 +10301,11 @@ async function playCandidates(refs, tag, suspect, byId, refusedAcct, more, again
   await settle();
   const n = cands.length;
   log9("resolve " + tag + " (" + n + " members): " + (steps.join("; ") || "nothing tried"));
-  const E2 = en4();
+  const E3 = en4();
   throw kino.error(
     "unavailable",
-    E2 ? "Xuper: none of the channel's " + n + " servers worked" : "Xuper: ninguno de los " + n + " servidores del canal funcion\xF3",
-    { userMessage: userMessage || (E2 ? "None of this channel's servers works right now. Try another channel or come back in a few minutes." : "Ning\xFAn servidor de este canal funciona ahora mismo. Prueba otro canal o vuelve en unos minutos.") }
+    E3 ? "Xuper: none of the channel's " + n + " servers worked" : "Xuper: ninguno de los " + n + " servidores del canal funcion\xF3",
+    { userMessage: userMessage || (E3 ? "None of this channel's servers works right now. Try another channel or come back in a few minutes." : "Ning\xFAn servidor de este canal funciona ahora mismo. Prueba otro canal o vuelve en unos minutos.") }
   );
 }
 async function resolveLive(ref, siblings) {
@@ -10146,18 +10414,30 @@ function subtitlesOf(list) {
   }
   return out;
 }
-function toEpisodes(detail, seriesId) {
+var EP_INT = /^[+-]?\d+$/;
+var toEpInt = (v) => {
+  const t2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+  return t2 !== null && EP_INT.test(t2.trim()) ? Number(t2.trim()) || 0 : null;
+};
+function toEpisodes(detail, seriesId, type) {
   const d = detail || {};
   const programs = d.simpleProgramList || d.programList || [];
+  const E3 = lang() === "en";
+  const chapterN = (n) => (E3 ? "Episode " : "Cap\xEDtulo ") + n;
+  const seasonN = (n) => (E3 ? "Season " : "Temporada ") + n;
+  const seasonList = parseSeasonList(d.sameSeasonSeriesList, seriesId);
   const episodes3 = [];
   programs.forEach((p, idx) => {
     const cid = p.contentId || p.programContentId;
     if (!cid) return;
-    const ep = { number: Number(p.programIndex || p.episodeNumber || idx + 1), ref: episodeRef(cid, seriesId) };
-    if (p.name || p.title) ep.title = String(p.name || p.title);
+    const number = toEpInt(p.seriesNumber) ?? toEpInt(p.programIndex) ?? toEpInt(p.episodeNumber) ?? idx + 1;
+    const name = p.name || p.title ? String(p.name || p.title) : "";
+    const numbered = number > 0 && name.includes("_") && isGenericTitle2(name);
+    const ep = { number, title: name.trim() !== "" && !numbered ? name : chapterN(number), ref: episodeRef(cid, seriesId) };
     const still = pickPoster(p.posterList);
     if (still) ep.still = still;
     if (p.description) ep.overview = String(p.description);
+    if (seasonList.own !== null) ep.season = seasonList.own;
     episodes3.push(ep);
   });
   const series = {};
@@ -10165,7 +10445,50 @@ function toEpisodes(detail, seriesId) {
   const poster = pickPoster(d.posterList);
   if (poster) series.poster = poster;
   if (d.description) series.overview = String(d.description);
-  return { series, episodes: episodes3 };
+  const out = { series, episodes: episodes3 };
+  if (seasonList.all.length > 0) {
+    out.seasons = seasonList.all.slice(0, 50).map((s) => ({
+      id: s.id,
+      // A season IS a portal title of the same type: its ref is what a listing gave it.
+      ref: itemRef(s.id, type == null ? "" : type),
+      title: seasonN(s.number),
+      number: s.number,
+      current: s.id === seriesId
+    }));
+  }
+  return out;
+}
+var ENRICH_DEADLINE_MS = 15e3;
+var IMDB_ID2 = /^tt\d{7,}$/;
+async function enrichEpisodes(answer, detail, seriesId) {
+  try {
+    if (!answer || !Array.isArray(answer.episodes) || answer.episodes.length === 0) return;
+    const raw = rawDetail(detail, seriesId);
+    const started = callStartedAt();
+    const deadline2 = (Number.isFinite(started) ? started : Date.now()) + ENRICH_DEADLINE_MS;
+    const { extra, series } = await enrich(raw, makeTmdb(), deadline2);
+    for (const ep of answer.episodes) {
+      const t2 = extra.get(ep.number);
+      if (!t2) continue;
+      if (t2.title && isGenericTitle2(ep.title)) ep.title = t2.title;
+      if (t2.still && !ep.still) ep.still = t2.still;
+      if (t2.overview && !ep.overview) ep.overview = t2.overview;
+      if (t2.airDate) ep.airDate = t2.airDate;
+      if (t2.runtimeMinutes) ep.runtimeMinutes = t2.runtimeMinutes;
+    }
+    const imdb = IMDB_ID2.test(raw.imdb || "") ? raw.imdb : "";
+    if (series && series.tmdbId > 0) {
+      answer.series = answer.series || {};
+      answer.series.ids = imdb ? { imdb, tmdb: series.tmdbId } : { tmdb: series.tmdbId };
+      if (!answer.series.title && series.title) answer.series.title = series.title;
+      if (!answer.series.poster && series.poster) answer.series.poster = series.poster;
+      if (series.backdrop) answer.series.backdrop = series.backdrop;
+    } else if (imdb) {
+      answer.series = answer.series || {};
+      answer.series.ids = { imdb };
+    }
+  } catch (_) {
+  }
 }
 function expiresIn(expiresAt) {
   const e = Number(expiresAt) || 0;
@@ -10238,7 +10561,10 @@ async function episodes(ref) {
   }
   if (r.kind !== "item" && r.kind !== "episode" || !r.id) throw notFound("no series behind this ref");
   const data = await itemData(r.id, r.type);
-  return toEpisodes(data && data.detail, r.id);
+  const detail = data && data.detail;
+  const answer = toEpisodes(detail, r.id, r.type);
+  await enrichEpisodes(answer, detail, r.id);
+  return answer;
 }
 var CHAPTERS_TTL_MS = 30 * 6e4;
 var CHAPTERS_MAX = 8;
@@ -10511,7 +10837,7 @@ var scrollPage = (key, gap, children) => ({
     }
   ]
 });
-function supportButton(key, E2, device) {
+function supportButton(key, E3, device) {
   if (device === "tv") {
     return {
       type: "Column",
@@ -10523,7 +10849,7 @@ function supportButton(key, E2, device) {
           key: key + "Cap",
           color: "muted",
           textAlign: "center",
-          text: E2 ? "Scan with your phone to support Xuper on Ko-fi" : "Escanea con tu celular para apoyar a Xuper en Ko-fi",
+          text: E3 ? "Scan with your phone to support Xuper on Ko-fi" : "Escanea con tu celular para apoyar a Xuper en Ko-fi",
           textEn: "Scan with your phone to support Xuper on Ko-fi"
         },
         { type: "QrImage", key: key + "Qr", value: SUPPORT_URL, size: "large" }
@@ -10535,27 +10861,27 @@ function supportButton(key, E2, device) {
     variant: "secondary",
     key,
     icon: "heart",
-    labelText: E2 ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aqu\xED",
+    labelText: E3 ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aqu\xED",
     labelTextEn: "If you want to support me, click here",
-    onPressed: { go: { url: { href: SUPPORT_URL, title: E2 ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } }
+    onPressed: { go: { url: { href: SUPPORT_URL, title: E3 ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } }
   };
 }
 function welcomeView({ error, device } = {}) {
-  const E2 = en5();
+  const E3 = en5();
   const body = [
-    { type: "Text", key: "wTitle", text: E2 ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
+    { type: "Text", key: "wTitle", text: E3 ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
     {
       type: "Text",
       key: "wHint",
       color: "muted",
       textAlign: "center",
-      text: E2 ? "To get in, activate your access with your Kino identity." : "Para entrar, activa tu acceso con tu identidad de Kino.",
+      text: E3 ? "To get in, activate your access with your Kino identity." : "Para entrar, activa tu acceso con tu identidad de Kino.",
       textEn: "To get in, activate your access with your Kino identity."
     },
     {
       type: "ElevatedButton",
       key: "activate",
-      labelText: E2 ? "Activate" : "Activar",
+      labelText: E3 ? "Activate" : "Activar",
       labelTextEn: "Activate",
       onPressed: { event: "activate", timeoutMs: PRESS_MS }
     }
@@ -10564,17 +10890,17 @@ function welcomeView({ error, device } = {}) {
     type: "MaterialBanner",
     key: "wErrUpd",
     role: "error",
-    text: E2 ? "To activate Xuper you need the latest version of Kino. Update Kino and try again." : "Para activar Xuper necesitas la versi\xF3n m\xE1s reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
+    text: E3 ? "To activate Xuper you need the latest version of Kino. Update Kino and try again." : "Para activar Xuper necesitas la versi\xF3n m\xE1s reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
     textEn: "To activate Xuper you need the latest version of Kino. Update Kino and try again."
   });
   else if (error) body.push({
     type: "MaterialBanner",
     key: "wErr",
     role: "error",
-    text: E2 ? "Could not activate. Grant the permission and try again." : "No se pudo activar. Acepta el permiso y vuelve a intentarlo.",
+    text: E3 ? "Could not activate. Grant the permission and try again." : "No se pudo activar. Acepta el permiso y vuelve a intentarlo.",
     textEn: "Could not activate. Grant the permission and try again."
   });
-  body.push(supportButton("wSupport", E2, device));
+  body.push(supportButton("wSupport", E3, device));
   return {
     type: "Scaffold",
     appBar: appBar(),
@@ -10654,11 +10980,11 @@ function genreLabels(g) {
   return hit ? hit : [String(g), String(g)];
 }
 function filterSheet(genres, fTag) {
-  const E2 = en5();
+  const E3 = en5();
   const tile = (key, es, enLabel, val, sel) => ({
     type: "ListTile",
     key,
-    title: E2 ? enLabel : es,
+    title: E3 ? enLabel : es,
     titleEn: enLabel,
     dense: true,
     ...sel ? { selected: true, trailing: { type: "Icon", name: "check" } } : {},
@@ -10667,7 +10993,7 @@ function filterSheet(genres, fTag) {
   return {
     type: "BottomSheet",
     key: "filterSheet",
-    title: E2 ? "Genre" : "G\xE9nero",
+    title: E3 ? "Genre" : "G\xE9nero",
     titleEn: "Genre",
     children: [{ type: "ListView", key: "filterList", items: [
       tile("f-all", "Todos", "All", "", !fTag),
@@ -10681,21 +11007,21 @@ function filterSheet(genres, fTag) {
 var railNode = (r, i) => ({ type: "titleRail", key: "rail-" + i, ...r.title ? { title: r.title, titleEn: r.title } : {}, ...r.ref ? { ref: r.ref } : {}, items: r.items, size: "medium" });
 var SEARCH_FIELD = "sq";
 function searchSheet() {
-  const E2 = en5();
+  const E3 = en5();
   return {
     type: "BottomSheet",
     key: "searchSheet",
-    title: E2 ? "Search" : "Buscar",
+    title: E3 ? "Search" : "Buscar",
     titleEn: "Search",
     children: [{
       type: "TextField",
       key: SEARCH_FIELD,
       kind: "search",
       maxLength: 200,
-      labelText: E2 ? "Movies and series" : "Pel\xEDculas y series",
+      labelText: E3 ? "Movies and series" : "Pel\xEDculas y series",
       labelTextEn: "Movies and series",
       trailingIcon: "search",
-      trailingLabel: E2 ? "Search" : "Buscar",
+      trailingLabel: E3 ? "Search" : "Buscar",
       trailingLabelEn: "Search",
       onSubmitted: { event: "search" },
       onTrailingTap: { event: "search" }
@@ -10703,8 +11029,8 @@ function searchSheet() {
   };
 }
 function catalogView({ tab, view, fTag = "", device = "phone", failed = false }) {
-  const E2 = en5();
-  const tabs = SECTIONS.map((s) => ({ value: s.name, label: E2 ? s.titleEn : s.title, labelEn: s.titleEn }));
+  const E3 = en5();
+  const tabs = SECTIONS.map((s) => ({ value: s.name, label: E3 ? s.titleEn : s.title, labelEn: s.titleEn }));
   const body = [];
   let genres = [];
   if (!view && failed) {
@@ -10712,9 +11038,9 @@ function catalogView({ tab, view, fTag = "", device = "phone", failed = false })
       type: "MaterialBanner",
       key: "failed",
       role: "error",
-      text: E2 ? "Could not load. Check your connection." : "No se pudo cargar. Revisa la conexi\xF3n.",
+      text: E3 ? "Could not load. Check your connection." : "No se pudo cargar. Revisa la conexi\xF3n.",
       textEn: "Could not load. Check your connection.",
-      action: { label: E2 ? "Retry" : "Reintentar", labelEn: "Retry", onTap: busyEvent("reload") }
+      action: { label: E3 ? "Retry" : "Reintentar", labelEn: "Retry", onTap: busyEvent("reload") }
     });
   } else if (!view) {
     body.push(
@@ -10729,23 +11055,23 @@ function catalogView({ tab, view, fTag = "", device = "phone", failed = false })
     if (fTag) {
       const [es, enL] = genreLabels(fTag);
       body.push({ type: "Row", key: "fChip", gap: 8, crossAxisAlignment: "center", children: [
-        { type: "Text", key: "fLabel", text: E2 ? `Genre: ${enL}` : `G\xE9nero: ${es}`, textEn: `Genre: ${enL}`, style: "caption", color: "primary", flex: 1, maxLines: 1 },
-        { type: "TextButton", key: "fClear", labelText: E2 ? "Clear" : "Quitar", labelTextEn: "Clear", onPressed: { event: "fTag", arg: "" } }
+        { type: "Text", key: "fLabel", text: E3 ? `Genre: ${enL}` : `G\xE9nero: ${es}`, textEn: `Genre: ${enL}`, style: "caption", color: "primary", flex: 1, maxLines: 1 },
+        { type: "TextButton", key: "fClear", labelText: E3 ? "Clear" : "Quitar", labelTextEn: "Clear", onPressed: { event: "fTag", arg: "" } }
       ] });
       const filtered = (view.all || []).filter((it) => (it.genres || []).includes(fTag));
-      body.push(filtered.length ? { type: "titleGrid", key: "fGrid", columns: { compact: 3, expanded: 6 }, items: filtered.slice(0, 60) } : { type: "Text", key: "fEmpty", color: "muted", text: E2 ? "No results" : "Sin resultados", textEn: "No results" });
+      body.push(filtered.length ? { type: "titleGrid", key: "fGrid", columns: { compact: 3, expanded: 6 }, items: filtered.slice(0, 60) } : { type: "Text", key: "fEmpty", color: "muted", text: E3 ? "No results" : "Sin resultados", textEn: "No results" });
     } else {
       if (!adult && view.slides && view.slides.length) body.push(hero(view.slides));
       const rails = (view.rails || []).map(railNode);
       if (rails.length) body.push(...rails);
-      else body.push({ type: "Text", key: "empty", color: "muted", text: E2 ? "No content" : "Sin contenido", textEn: "No content" });
+      else body.push({ type: "Text", key: "empty", color: "muted", text: E3 ? "No content" : "Sin contenido", textEn: "No content" });
     }
   }
-  const searchBtn = { type: "IconButton", key: "search", icon: "search", labelText: E2 ? "Search" : "Buscar", labelTextEn: "Search", tooltip: E2 ? "Search" : "Buscar", tooltipEn: "Search", onPressed: { ui: [{ open: "searchSheet" }] } };
+  const searchBtn = { type: "IconButton", key: "search", icon: "search", labelText: E3 ? "Search" : "Buscar", labelTextEn: "Search", tooltip: E3 ? "Search" : "Buscar", tooltipEn: "Search", onPressed: { ui: [{ open: "searchSheet" }] } };
   const actions = [searchBtn];
   const sheets = [searchSheet()];
   if (genres.length) {
-    actions.push({ type: "IconButton", key: "filter", icon: "tune", labelText: E2 ? "Filter" : "Filtros", labelTextEn: "Filter", tooltip: E2 ? "Filter" : "Filtros", tooltipEn: "Filter", onPressed: { ui: [{ open: "filterSheet" }] } });
+    actions.push({ type: "IconButton", key: "filter", icon: "tune", labelText: E3 ? "Filter" : "Filtros", labelTextEn: "Filter", tooltip: E3 ? "Filter" : "Filtros", tooltipEn: "Filter", onPressed: { ui: [{ open: "filterSheet" }] } });
     sheets.push(filterSheet(genres, fTag));
   }
   return {
@@ -10804,12 +11130,12 @@ var teamCell = (t2, n, side) => {
   };
 };
 function matchCard(m, n, now) {
-  const E2 = en5();
+  const E3 = en5();
   const live = isLiveMatch(m, now);
   const hasTeams = !!(m.a && m.b);
   const titleFull = hasTeams ? `${teamName(m.a)} vs ${teamName(m.b)}` : String(m.title || "?").slice(0, 80);
   const centerKids = live ? [
-    { type: "Badge", key: "lb-" + n, text: E2 ? "LIVE" : "EN VIVO", textEn: "LIVE", color: "error" },
+    { type: "Badge", key: "lb-" + n, text: E3 ? "LIVE" : "EN VIVO", textEn: "LIVE", color: "error" },
     { type: "Icon", key: "pl-" + n, name: "play" }
   ] : [
     { type: "Text", key: "tm-" + n, text: hhmm(m), textEn: hhmm(m), style: "h4", color: "primary" },
@@ -10821,7 +11147,7 @@ function matchCard(m, n, now) {
     center
   ] };
   const ch = m.ch ? String(m.ch) : "";
-  const foot = live ? ch ? `\u25B6 ${ch.slice(0, 34)}` : E2 ? "Watch now" : "Mira ahora" : `${E2 ? "Upcoming" : "Pr\xF3ximamente"}${ch ? ` \xB7 ${ch.slice(0, 26)}` : ""}`;
+  const foot = live ? ch ? `\u25B6 ${ch.slice(0, 34)}` : E3 ? "Watch now" : "Mira ahora" : `${E3 ? "Upcoming" : "Pr\xF3ximamente"}${ch ? ` \xB7 ${ch.slice(0, 26)}` : ""}`;
   const footEn = live ? ch ? `\u25B6 ${ch.slice(0, 34)}` : "Watch now" : `Upcoming${ch ? ` \xB7 ${ch.slice(0, 26)}` : ""}`;
   return {
     type: "Card",
@@ -10839,13 +11165,13 @@ var matchDate = (m) => {
 };
 var DAYS_ES = ["Dom", "Lun", "Mar", "Mi\xE9", "Jue", "Vie", "S\xE1b"];
 var DAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-function dateLabel(d, today, E2) {
-  if (d === today) return E2 ? "Today" : "Hoy";
+function dateLabel(d, today, E3) {
+  if (d === today) return E3 ? "Today" : "Hoy";
   const [y, m, day] = d.split("-").map(Number);
   let dow = "";
   try {
     const g = new Date(y, m - 1, day).getDay();
-    if (g >= 0 && g <= 6) dow = (E2 ? DAYS_EN : DAYS_ES)[g] + " ";
+    if (g >= 0 && g <= 6) dow = (E3 ? DAYS_EN : DAYS_ES)[g] + " ";
   } catch (_) {
   }
   return `${dow}${String(day).padStart(2, "0")}/${String(m).padStart(2, "0")}`;
@@ -10897,7 +11223,7 @@ function deportesView({
   shown = LV_STEP,
   page = 0
 }) {
-  const E2 = en5();
+  const E3 = en5();
   const tab = depTab === "canales" ? "canales" : "partidos";
   const body = [];
   body.push({
@@ -10907,7 +11233,7 @@ function deportesView({
     margin: { top: 8, bottom: 8 },
     value: tab,
     onChanged: busyEvent("depTab"),
-    tabs: [{ value: "partidos", label: E2 ? "Matches" : "Partidos", labelEn: "Matches" }, { value: "canales", label: E2 ? "Channels" : "Canales", labelEn: "Channels" }]
+    tabs: [{ value: "partidos", label: E3 ? "Matches" : "Partidos", labelEn: "Matches" }, { value: "canales", label: E3 ? "Channels" : "Canales", labelEn: "Channels" }]
   });
   let every = null;
   if (tab === "canales") {
@@ -10924,9 +11250,9 @@ function deportesView({
       type: "MaterialBanner",
       key: "depFail",
       role: "error",
-      text: E2 ? "Could not load matches." : "No se pudieron cargar los partidos.",
+      text: E3 ? "Could not load matches." : "No se pudieron cargar los partidos.",
       textEn: "Could not load matches.",
-      action: { label: E2 ? "Retry" : "Reintentar", labelEn: "Retry", onTap: busyEvent("reloadDep") }
+      action: { label: E3 ? "Retry" : "Reintentar", labelEn: "Retry", onTap: busyEvent("reloadDep") }
     });
   } else if (!matches2) {
     body.push(skeletonRail(1), skeletonRail(2));
@@ -10934,7 +11260,7 @@ function deportesView({
     const list = visibleMatches(matches2, now);
     every = { ms: clockMs(matches2, now), event: "clock" };
     if (!list.length) {
-      body.push({ type: "Text", key: "depEmpty", color: "muted", text: E2 ? "No matches" : "Sin partidos", textEn: "No matches" });
+      body.push({ type: "Text", key: "depEmpty", color: "muted", text: E3 ? "No matches" : "Sin partidos", textEn: "No matches" });
     } else {
       const view = depView === "todos" ? "todos" : "ligas";
       body.push({
@@ -10943,7 +11269,7 @@ function deportesView({
         divider: false,
         value: view,
         onChanged: "depView",
-        tabs: [{ value: "ligas", label: E2 ? "Leagues" : "Ligas", labelEn: "Leagues" }, { value: "todos", label: E2 ? "All" : "Todos", labelEn: "All" }]
+        tabs: [{ value: "ligas", label: E3 ? "Leagues" : "Ligas", labelEn: "Leagues" }, { value: "todos", label: E3 ? "All" : "Todos", labelEn: "All" }]
       });
       const dates = Array.from(new Set(list.map(matchDate).filter(Boolean))).sort();
       const sel = depDate && dates.includes(depDate) ? depDate : dates.includes(today) ? today : dates[0] || "";
@@ -10953,7 +11279,7 @@ function deportesView({
             type: d === sel ? "ElevatedButton" : "TextButton",
             key: "date-" + i,
             radius: "full",
-            labelText: dateLabel(d, today, E2),
+            labelText: dateLabel(d, today, E3),
             labelTextEn: dateLabel(d, today, true),
             onPressed: { event: "depDate", arg: d }
           })) }
@@ -10961,7 +11287,7 @@ function deportesView({
       }
       const day = sel ? list.filter((m) => matchDate(m) === sel) : list;
       if (!day.length) {
-        body.push({ type: "Text", key: "depDayEmpty", color: "muted", text: E2 ? "No matches this day" : "Sin partidos ese d\xEDa", textEn: "No matches this day" });
+        body.push({ type: "Text", key: "depDayEmpty", color: "muted", text: E3 ? "No matches this day" : "Sin partidos ese d\xEDa", textEn: "No matches this day" });
       } else if (view === "todos") {
         let n = 0;
         for (const m of day) body.push(matchCard(m, n++, now));
@@ -10982,12 +11308,12 @@ function deportesView({
   };
 }
 function categoryPicker(key, cats, cat) {
-  const E2 = en5();
+  const E3 = en5();
   return {
     type: "DropdownButton",
     key,
     value: cat || cats[0] && cats[0].id,
-    labelText: E2 ? "Category" : "Categor\xEDa",
+    labelText: E3 ? "Category" : "Categor\xEDa",
     labelTextEn: "Category",
     onChanged: busyEvent(key),
     // Kino's DropdownButton takes 1 to 500 options (src/live.js screenCategories already stops there).
@@ -10995,13 +11321,13 @@ function categoryPicker(key, cats, cat) {
   };
 }
 function pageRow(p, page, pages2, total) {
-  const E2 = en5();
+  const E3 = en5();
   const from = page * LV_PAGE + 1, to = Math.min(total, (page + 1) * LV_PAGE);
   const where = (enL) => enL ? `${from}\u2013${to} of ${total}` : `${from}\u2013${to} de ${total}`;
   const kids = [];
-  if (page > 0) kids.push({ type: "TextButton", key: p + "Prev", icon: "arrow_back", labelText: E2 ? `Previous ${LV_PAGE}` : `Anteriores ${LV_PAGE}`, labelTextEn: `Previous ${LV_PAGE}`, onPressed: busyEvent("lvPage", String(page - 1)) });
-  kids.push({ type: "Text", key: p + "Where", text: where(E2), textEn: where(true), style: "caption", color: "muted", flex: 1, textAlign: "center", maxLines: 1 });
-  if (page + 1 < pages2) kids.push({ type: "TextButton", key: p + "Next", icon: "arrow_forward", labelText: E2 ? `Next ${LV_PAGE}` : `Siguientes ${LV_PAGE}`, labelTextEn: `Next ${LV_PAGE}`, onPressed: busyEvent("lvPage", String(page + 1)) });
+  if (page > 0) kids.push({ type: "TextButton", key: p + "Prev", icon: "arrow_back", labelText: E3 ? `Previous ${LV_PAGE}` : `Anteriores ${LV_PAGE}`, labelTextEn: `Previous ${LV_PAGE}`, onPressed: busyEvent("lvPage", String(page - 1)) });
+  kids.push({ type: "Text", key: p + "Where", text: where(E3), textEn: where(true), style: "caption", color: "muted", flex: 1, textAlign: "center", maxLines: 1 });
+  if (page + 1 < pages2) kids.push({ type: "TextButton", key: p + "Next", icon: "arrow_forward", labelText: E3 ? `Next ${LV_PAGE}` : `Siguientes ${LV_PAGE}`, labelTextEn: `Next ${LV_PAGE}`, onPressed: busyEvent("lvPage", String(page + 1)) });
   return { type: "Row", key: p + "Pages", gap: 8, crossAxisAlignment: "center", children: kids };
 }
 var KINO_ID = /^[A-Za-z0-9._~-]{1,128}$/;
@@ -11032,7 +11358,7 @@ function channelGridKey(p, cat, page = 0) {
   return p + "Grid" + (cat ? "-" + catTag(cat) : "") + (page > 0 ? "-p" + page : "");
 }
 function channelTile(it, key, device, httpOk2) {
-  const E2 = en5();
+  const E3 = en5();
   const initials = channelInitials(it.title);
   const logo = it.poster && (HTTPS2.test(it.poster) || httpOk2 && HTTP2.test(it.poster)) ? it.poster : null;
   return {
@@ -11041,7 +11367,7 @@ function channelTile(it, key, device, httpOk2) {
     flush: true,
     background: "surfaceVariant",
     gap: 4,
-    badge: { text: E2 ? "LIVE" : "EN VIVO", textEn: "LIVE", color: "error" },
+    badge: { text: E3 ? "LIVE" : "EN VIVO", textEn: "LIVE", color: "error" },
     onTap: { go: { play: { ref: it.ref, kind: "live", id: it.id, title: it.title } } },
     children: [
       {
@@ -11084,7 +11410,7 @@ function channelTiles(p, items, from, device) {
   });
 }
 function channelBody(p, { channels: channels2, loading, failed, offline, shown = LV_STEP, page = 0, cat = "", device = "phone" }) {
-  const E2 = en5();
+  const E3 = en5();
   const out = [];
   if (Array.isArray(channels2)) {
     if (offline) {
@@ -11094,13 +11420,13 @@ function channelBody(p, { channels: channels2, loading, failed, offline, shown =
         color: "muted",
         style: "caption",
         maxLines: 2,
-        text: E2 ? "No connection to the source: showing the last list." : "Sin conexi\xF3n con la fuente: se muestra la \xFAltima lista.",
+        text: E3 ? "No connection to the source: showing the last list." : "Sin conexi\xF3n con la fuente: se muestra la \xFAltima lista.",
         textEn: "No connection to the source: showing the last list."
       });
     }
     const items = channelItems(channels2);
     if (!items.length) {
-      out.push({ type: "Text", key: p + "Empty", color: "muted", text: E2 ? "No channels" : "Sin canales", textEn: "No channels" });
+      out.push({ type: "Text", key: p + "Empty", color: "muted", text: E3 ? "No channels" : "Sin canales", textEn: "No channels" });
       return out;
     }
     const pages2 = Math.ceil(items.length / LV_PAGE);
@@ -11128,9 +11454,9 @@ function channelBody(p, { channels: channels2, loading, failed, offline, shown =
       type: "MaterialBanner",
       key: p + "Fail",
       role: "error",
-      text: E2 ? "Could not load the channels." : "No se pudieron cargar los canales.",
+      text: E3 ? "Could not load the channels." : "No se pudieron cargar los canales.",
       textEn: "Could not load the channels.",
-      action: { label: E2 ? "Retry" : "Reintentar", labelEn: "Retry", onTap: busyEvent("reloadVivo") }
+      action: { label: E3 ? "Retry" : "Reintentar", labelEn: "Retry", onTap: busyEvent("reloadVivo") }
     });
   } else if (loading) {
     out.push(
@@ -11139,13 +11465,13 @@ function channelBody(p, { channels: channels2, loading, failed, offline, shown =
         key: p + "Loading",
         color: "muted",
         style: "caption",
-        text: E2 ? "Loading channels\u2026" : "Cargando canales\u2026",
+        text: E3 ? "Loading channels\u2026" : "Cargando canales\u2026",
         textEn: "Loading channels\u2026"
       },
       { type: "Row", key: p + "Skel", gap: 12, children: [1, 2, 3].map((i) => ({ type: "Skeleton", shape: "card", key: `${p}sk${i}`, flex: 1 })) }
     );
   } else {
-    out.push({ type: "Text", key: p + "Empty", color: "muted", text: E2 ? "No channels" : "Sin canales", textEn: "No channels" });
+    out.push({ type: "Text", key: p + "Empty", color: "muted", text: E3 ? "No channels" : "Sin canales", textEn: "No channels" });
   }
   return out;
 }
@@ -11197,19 +11523,19 @@ function livePage(p, head2, opts) {
     ]
   };
 }
-function agoText(ms, E2) {
-  if (!(ms >= 0)) return E2 ? "just now" : "hace un momento";
+function agoText(ms, E3) {
+  if (!(ms >= 0)) return E3 ? "just now" : "hace un momento";
   const m = Math.floor(ms / MIN4);
-  if (m < 1) return E2 ? "just now" : "hace un momento";
-  if (m < 60) return E2 ? `${m} min ago` : `hace ${m} min`;
+  if (m < 1) return E3 ? "just now" : "hace un momento";
+  if (m < 60) return E3 ? `${m} min ago` : `hace ${m} min`;
   const h = Math.floor(m / 60);
-  if (h < 48) return E2 ? `${h} h ago` : `hace ${h} h`;
-  return E2 ? `${Math.floor(h / 24)} d ago` : `hace ${Math.floor(h / 24)} d`;
+  if (h < 48) return E3 ? `${h} h ago` : `hace ${h} h`;
+  return E3 ? `${Math.floor(h / 24)} d ago` : `hace ${Math.floor(h / 24)} d`;
 }
-function ageLine(label, a, now, E2) {
-  if (!a) return E2 ? `${label[1]}: no data yet` : `${label[0]}: sin datos todav\xEDa`;
-  const parts2 = [E2 ? `${label[1]}: checked ${agoText(now - a.checkedAt, true)}` : `${label[0]}: revisado ${agoText(now - a.checkedAt, false)}`];
-  if (a.gen) parts2.push(E2 ? `published ${agoText(now - a.gen, true)}` : `publicado ${agoText(now - a.gen, false)}`);
+function ageLine(label, a, now, E3) {
+  if (!a) return E3 ? `${label[1]}: no data yet` : `${label[0]}: sin datos todav\xEDa`;
+  const parts2 = [E3 ? `${label[1]}: checked ${agoText(now - a.checkedAt, true)}` : `${label[0]}: revisado ${agoText(now - a.checkedAt, false)}`];
+  if (a.gen) parts2.push(E3 ? `published ${agoText(now - a.gen, true)}` : `publicado ${agoText(now - a.gen, false)}`);
   return parts2.join(" \xB7 ");
 }
 function leftText(min) {
@@ -11357,7 +11683,7 @@ function devicesCard(d, now, device) {
   ] };
 }
 function configView({ version, device = "phone", ages = null, now = Date.now(), seeds = null, contrib = null, devices = null } = {}) {
-  const E2 = en5();
+  const E3 = en5();
   const a = ages || {};
   const lines = [[["Cat\xE1logo", "Catalog"], a.catalog], [["Partidos", "Matches"], a.matches]];
   return {
@@ -11365,52 +11691,52 @@ function configView({ version, device = "phone", ages = null, now = Date.now(), 
     ...scaffoldChrome(device, "config", []),
     body: scrollPage("cfg-scroll", 16, [
       { type: "Card", key: "cfgAccount", children: [
-        { type: "Text", key: "cfgAccTitle", style: "h4", text: E2 ? "Account" : "Cuenta", textEn: "Account" },
+        { type: "Text", key: "cfgAccTitle", style: "h4", text: E3 ? "Account" : "Cuenta", textEn: "Account" },
         {
           type: "Text",
           key: "cfgAccHint",
           color: "muted",
-          text: E2 ? "Disconnect to activate again with your identity." : "Descon\xE9ctate para volver a activar con tu identidad.",
+          text: E3 ? "Disconnect to activate again with your identity." : "Descon\xE9ctate para volver a activar con tu identidad.",
           textEn: "Disconnect to activate again with your identity."
         },
         {
           type: "ElevatedButton",
           key: "disconnect",
           icon: "lock",
-          labelText: E2 ? "Disconnect" : "Desconectar",
+          labelText: E3 ? "Disconnect" : "Desconectar",
           labelTextEn: "Disconnect",
-          confirm: E2 ? "Disconnect Xuper?" : "\xBFDesconectar Xuper?",
+          confirm: E3 ? "Disconnect Xuper?" : "\xBFDesconectar Xuper?",
           confirmEn: "Disconnect Xuper?",
           onPressed: { event: "disconnect", timeoutMs: PRESS_MS }
         }
       ] },
       { type: "Card", key: "cfgSupport", children: [
-        { type: "Text", key: "cfgSupTitle", style: "h4", text: E2 ? "Support" : "Apoyar", textEn: "Support" },
+        { type: "Text", key: "cfgSupTitle", style: "h4", text: E3 ? "Support" : "Apoyar", textEn: "Support" },
         {
           type: "Text",
           key: "cfgSupHint",
           color: "muted",
-          text: E2 ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
+          text: E3 ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
           textEn: "If you like Xuper, you can support it on Ko-fi."
         },
-        supportButton("cfgSupportBtn", E2, device)
+        supportButton("cfgSupportBtn", E3, device)
       ] },
       ...devices ? [devicesCard(devices, now, device)] : [],
       xuperSessionCard(seeds),
       contribCard(contrib, now),
       { type: "Card", key: "cfgData", children: [
-        { type: "Text", key: "cfgDataTitle", style: "h4", text: E2 ? "Data" : "Datos", textEn: "Data" },
+        { type: "Text", key: "cfgDataTitle", style: "h4", text: E3 ? "Data" : "Datos", textEn: "Data" },
         ...lines.map(([label, age], i) => ({
           type: "Text",
           key: "cfgAge" + i,
           color: "muted",
           style: "caption",
-          text: ageLine(label, age, now, E2),
+          text: ageLine(label, age, now, E3),
           textEn: ageLine(label, age, now, true)
         }))
       ] },
       { type: "Card", key: "cfgAbout", children: [
-        { type: "Text", key: "cfgAboutTitle", style: "h4", text: E2 ? "About" : "Acerca de", textEn: "About" },
+        { type: "Text", key: "cfgAboutTitle", style: "h4", text: E3 ? "About" : "Acerca de", textEn: "About" },
         { type: "Text", key: "cfgVer", color: "muted", text: `Xuper ${version || ""}`.trim(), textEn: `Xuper ${version || ""}`.trim() }
       ] }
     ])
@@ -11428,13 +11754,13 @@ var MIN_WINDOW_MS = 4e3;
 var AT_KEY = "o2:contribAt";
 var CONTRIBUTE_SETTING = "contributeSeeds";
 var OPTIONAL_EXTRAS = ["customer"];
-var str4 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
+var str5 = (v) => typeof v === "string" ? v : v === null || v === void 0 ? "" : String(v);
 var WORD3 = /^[A-Za-z0-9_-]{1,24}$/;
 function trace(event, fields) {
   const parts2 = ["seed_contrib", event];
   for (const [k, v] of Object.entries(fields || {})) {
     if (v === void 0 || v === null) continue;
-    const s = typeof v === "boolean" ? v ? "1" : "0" : str4(v);
+    const s = typeof v === "boolean" ? v ? "1" : "0" : str5(v);
     parts2.push(k + "=" + (WORD3.test(s) ? s : "?"));
   }
   try {
@@ -11464,9 +11790,9 @@ function contribInfo() {
 function buildSeed(sn, act) {
   const seed = {
     sn,
-    userId: str4(act.userId),
-    userToken: str4(act.userToken),
-    jwtToken: str4(act.jwtToken || ""),
+    userId: str5(act.userId),
+    userToken: str5(act.userToken),
+    jwtToken: str5(act.jwtToken || ""),
     mintedAt: Math.floor(Date.now() / 1e3)
   };
   for (const k of OPTIONAL_EXTRAS) {
@@ -11975,7 +12301,7 @@ async function onEvent(e, val, state2) {
 function seedChangeToast(r) {
   const result = r && r.result;
   const n = Math.max(1, Number(r && r.min) || 1);
-  const [text, textEn, role] = result === "ok" ? ["Semilla cambiada", "Seed changed", "success"] : result === "hour" ? [
+  const [text2, textEn, role] = result === "ok" ? ["Semilla cambiada", "Seed changed", "success"] : result === "hour" ? [
     `Ya pediste muchas sesiones de respaldo esta hora; podr\xE1s pedir otra en ${n} min.`,
     `You asked for many backup sessions this hour; you can ask for another in ${n} min.`,
     "warning"
@@ -11988,7 +12314,7 @@ function seedChangeToast(r) {
     `You just asked for a backup session; you can ask for another in ${n} min.`,
     "warning"
   ] : result === "offline" ? ["Sin conexi\xF3n, reintenta", "No connection, try again", "error"] : result === "nobearer" ? [sessionExpiredText("es"), sessionExpiredText("en"), "warning"] : ["Ahora no hay sesiones de respaldo libres; int\xE9ntalo en unos minutos.", "No backup sessions are free right now; try again in a few minutes.", "warning"];
-  return { text: lang() === "en" ? textEn : text, textEn, role };
+  return { text: lang() === "en" ? textEn : text2, textEn, role };
 }
 async function screenEvent(ev) {
   const e = ev && (ev.name != null ? ev.name : ev.event);
