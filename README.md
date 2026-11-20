@@ -5,6 +5,14 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.1.2
+
+- **Solo para miembros del grupo de Kino:** si dejas de estar en el grupo de Kino en Telegram, Xuper te muestra una
+  pantalla para unirte de nuevo (con un botón al grupo y «Ya me uní, reintentar»), en vez de un error confuso. Cuando
+  vuelves al grupo y reintentas, Xuper se reconecta solo. Quien sigue en el grupo no nota ningún cambio.
+- **Ir a la búsqueda de Kino:** en la búsqueda de Xuper hay un botón «Buscar en todo Kino» que te lleva a la pantalla de
+  búsqueda de Kino, sin tener que escribir nada.
+
 ## Xuper 3.1.1
 
 - **Aviso cuando hay que reautenticar:** si Xuper deja de reconocer tu acceso, ahora te deja un aviso en la campanita de
@@ -122,6 +130,13 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.1.2
+
+- **Members of the Kino group only:** if you are no longer in the Kino group on Telegram, Xuper now shows a screen to join
+  again (with a button to the group and "I joined — retry") instead of a confusing error. Once you rejoin and retry,
+  Xuper reconnects by itself. Someone still in the group sees no change.
+- **Go to Kino's search:** Xuper's search has a "Search all of Kino" button that opens Kino's search screen, with nothing to type.
 
 ## Xuper 3.1.1
 

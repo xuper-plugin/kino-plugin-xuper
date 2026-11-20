@@ -6,6 +6,7 @@
 import { SECTIONS, lang, httpImages, SUPPORT_URL } from "./config.js";
 import { X_LOGO_DATA } from "./logo.js";
 import { isLiveMatch, matchStart, visibleMatches, LIVE_BEFORE_MS } from "./v2.js";
+import { KINO_GROUP_URL } from "./api.js";
 
 const en = () => lang() === "en";
 const HTTP = /^https?:\/\//;          // MagisPro serves http(s); both accepted for team crests
@@ -122,6 +123,7 @@ export function supportButton(key, E, device) {
  */
 export function welcomeView({ error, device } = {}) {
   const E = en();
+  if (error === "member") return groupGateView(E, device);
   const body = [
     { type: "Text", key: "wTitle", text: E ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
     { type: "Text", key: "wHint", color: "muted", textAlign: "center",
@@ -154,6 +156,35 @@ export function welcomeView({ error, device } = {}) {
   return {
     type: "Scaffold", appBar: appBar(),
     body: { type: "Column", key: "welcome", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
+      gap: 16, padding: { compact: 24, expanded: 48 }, children: body },
+  };
+}
+
+/**
+ * The group gate (the backend answered 403 not_member: the person is not in the Kino Telegram group). The access freeze
+ * is on, so this shows even with a Bearer stored. "Join the group" opens the Telegram group; "I joined — retry" mints a
+ * fresh session (`reauth`, which always re-checks membership) and, on success, lifts the freeze and shows the catalog.
+ * Re-auth alone cannot fix it: the person must rejoin the group first, then the retry passes.
+ */
+function groupGateView(E, device) {
+  const body = [
+    { type: "Text", key: "gTitle", style: "h3", textAlign: "center",
+      text: E ? "Join the Kino group" : "Únete al grupo de Kino", textEn: "Join the Kino group" },
+    { type: "Text", key: "gHint", color: "muted", textAlign: "center",
+      text: E ? "Xuper is for members of the Kino group on Telegram. Join the group, then re-validate your Telegram."
+        : "Xuper es para los miembros del grupo de Kino en Telegram. Únete al grupo y vuelve a validar tu Telegram.",
+      textEn: "Xuper is for members of the Kino group on Telegram. Join the group, then re-validate your Telegram." },
+    { type: "ElevatedButton", key: "gJoin", icon: "open_in_new",
+      labelText: E ? "Join the group" : "Unirme al grupo", labelTextEn: "Join the group",
+      onPressed: { go: { url: { href: KINO_GROUP_URL, title: E ? "Kino group" : "Grupo de Kino" } } } },
+    { type: "TextButton", key: "gRetry",
+      labelText: E ? "I joined — retry" : "Ya me uní, reintentar", labelTextEn: "I joined — retry",
+      onPressed: { event: "reauth", timeoutMs: PRESS_MS } },
+    supportButton("gSupport", E, device),
+  ];
+  return {
+    type: "Scaffold", appBar: appBar(),
+    body: { type: "Column", key: "groupGate", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
       gap: 16, padding: { compact: 24, expanded: 48 }, children: body },
   };
 }
@@ -222,17 +253,26 @@ const railNode = (r, i) => ({ type: "titleRail", key: "rail-" + i, ...(r.title ?
 export const SEARCH_FIELD = "sq";
 
 // The AppBar's search button opens this sheet: Kino's `go.search` needs a query of 1 to 200 characters (an empty
-// one is dropped), so the person types it here first; the `search` event answers the `go` (src/screen.js).
+// one is dropped), so the person types it here first; the `search` event answers the `go` (src/screen.js). A second
+// button sends the person straight to Kino's own search screen (every source), empty, with `go.searchScreen` — no
+// query to type. An older Kino that predates `searchScreen` simply drops that go (the button then does nothing).
 function searchSheet() {
   const E = en();
   return {
     type: "BottomSheet", key: "searchSheet", title: E ? "Search" : "Buscar", titleEn: "Search",
-    children: [{
-      type: "TextField", key: SEARCH_FIELD, kind: "search", maxLength: 200,
-      labelText: E ? "Movies and series" : "Películas y series", labelTextEn: "Movies and series",
-      trailingIcon: "search", trailingLabel: E ? "Search" : "Buscar", trailingLabelEn: "Search",
-      onSubmitted: { event: "search" }, onTrailingTap: { event: "search" },
-    }],
+    children: [
+      {
+        type: "TextField", key: SEARCH_FIELD, kind: "search", maxLength: 200,
+        labelText: E ? "Movies and series" : "Películas y series", labelTextEn: "Movies and series",
+        trailingIcon: "search", trailingLabel: E ? "Search" : "Buscar", trailingLabelEn: "Search",
+        onSubmitted: { event: "search" }, onTrailingTap: { event: "search" },
+      },
+      {
+        type: "TextButton", key: "searchAllKino", icon: "search",
+        labelText: E ? "Search all of Kino" : "Buscar en todo Kino", labelTextEn: "Search all of Kino",
+        onPressed: { go: { searchScreen: true } },
+      },
+    ],
   };
 }
 

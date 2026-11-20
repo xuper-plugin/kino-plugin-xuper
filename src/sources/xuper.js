@@ -23,7 +23,7 @@
 import { liveFetch, timeoutFor } from "../liveGate.js";  // kino.fetch under the call's bounds (≤5 in flight, deadline)
 import { encryptBody, decryptBlob, hexToAscii, md5Hex, randomHex } from "./xuper-crypto.js";
 import { buildSignContext, signRequest, tokenOf } from "./xuper-sign.js";
-import { authed, currentBearer } from "../api.js"; // el SECRET (magisKey + cuenta) se trae del backend CON BEARER (/xuper/config)
+import { authed, currentBearer, isNotMember, notMemberActive, notMemberText } from "../api.js"; // el SECRET (magisKey + cuenta) se trae del backend CON BEARER (/xuper/config)
 import { getJson, setJson, remove } from "../store.js";
 import { once, saneAt, callSeq } from "../flight.js";
 import { lang } from "../config.js";
@@ -132,7 +132,10 @@ export const CFG_KEY = "o2:xcfg";   // JSON text (1.0.43 stored "[object Object]
 export const SN_KEY = "o2:xsn";     // {"sn"}: this device's portal sn, persistent
 export const SESS_KEY = "o2:xsess"; // secret {"sn","userId","userToken","at"}: the device's own anonymous session, bound to o2:xsn
 const H_MS = 60 * 60 * 1000;
-const CFG_FRESH_MS = 24 * H_MS;
+// 1 h (was 24 h): the backend gates /xuper/config by Bearer → current_user → group membership (cached 1 h on oleada), so
+// re-fetching every 1 h closes the masnew (v1) window for someone who left the group to ≤1 h, aligned with the egress (v2)
+// per-request enforcement. The last-good copy (below) still covers a backend OUTAGE; a 403 not_member never serves it.
+const CFG_FRESH_MS = 1 * H_MS;
 const CFG_MAX_STALE_MS = 7 * 24 * H_MS;
 const CFG_RETRY_MS = 10 * 60 * 1000;        // backend down: serve the last-good secret, try again after 10 min
 
@@ -161,6 +164,10 @@ function storedCfg(now) {
 }
 
 async function loadConfig() {
+  // The access freeze is on (a 403 not_member from any endpoint): masnew refuses too — never serve even a fresh cached
+  // secret, so a leaver cannot start new masnew content while frozen (the screen already shows the group gate). Without
+  // this, a cached secret would keep masnew playable until its 6 h fresh window expires.
+  if (notMemberActive()) throw kino.error("unavailable", "Xuper: not a Kino group member", { userMessage: notMemberText() });
   const now = Date.now();
   const last = storedCfg(now);
   if (last && last.age < CFG_FRESH_MS) return last.cfg;
@@ -172,7 +179,12 @@ async function loadConfig() {
       setJson(CFG_KEY, fresh, { ttlMs: CFG_MAX_STALE_MS });
       return fresh;
     }
-  } catch (_) { /* backend down or no Bearer: last-good below */ }
+  } catch (e) {
+    // Left the group (403 not_member): NEVER serve the last-good secret, or masnew would keep playing up to 7 d. Let it
+    // fail (and the api.js freeze is already set) so v1 is cut within the 6 h fresh window like v2.
+    if (isNotMember(e)) throw e;
+    /* backend down or no Bearer: last-good below */
+  }
   if (last) {
     setJson(CFG_KEY, { ...last.cfg, failAt: now }, { ttlMs: Math.max(60000, CFG_MAX_STALE_MS - last.age) });
     return last.cfg;

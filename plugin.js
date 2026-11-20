@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.1";
+var PLUGIN_VERSION = "3.1.2";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -157,6 +157,8 @@ var _bearer = null;
 var BEARER_KEY = "o2:bearer";
 var RELOGIN_KEY = "o2:relogin";
 var REAUTH_KEY = "o2:reauth";
+var NOT_MEMBER_KEY = "o2:notmember";
+var KINO_GROUP_URL = "https://t.me/Kinoapptv";
 function log2(m) {
   try {
     kino.log("" + m);
@@ -237,6 +239,10 @@ async function mintSession() {
   if (!res.ok) {
     const reason = reasonOf(res);
     log2("mint: /session FAIL status=" + res.status + reason);
+    if (res.status === 403 && reason === ":not_member") {
+      markNotMember();
+      throw withCause(notMember(), "session_403:not_member");
+    }
     const msg = res.status === 403 ? t("Xuper: esta instalaci\xF3n no est\xE1 autorizada", "Xuper: this install is not authorized") : t("Xuper: no se pudo iniciar sesi\xF3n (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")");
     throw withCause(kino.error("unavailable", msg), "session_" + res.status + reason);
   }
@@ -277,6 +283,7 @@ function reportActivate(e) {
   }
 }
 function activateBanner(e) {
+  if (isNotMember(e)) return "member";
   if (isTokenMissing(e)) return "update";
   if (e && e.code === "permission_denied") return "consent";
   return "server";
@@ -288,6 +295,7 @@ async function clearBearer() {
   dropBearer();
   remove(RELOGIN_KEY);
   remove(TRIAL_KEY);
+  remove(NOT_MEMBER_KEY);
 }
 function reloginPending() {
   return getText(RELOGIN_KEY) === "1";
@@ -300,6 +308,29 @@ function markReauthNeeded(banner) {
 }
 function reauthNeeded() {
   return getText(REAUTH_KEY) === "1";
+}
+function markNotMember() {
+  setText(NOT_MEMBER_KEY, "1");
+}
+function notMemberActive() {
+  return getText(NOT_MEMBER_KEY) === "1";
+}
+function isNotMember(e) {
+  return !!e && Number(e && e.status) === 403 && (e && e.detail) === "not_member";
+}
+function notMemberText(lng) {
+  const es = "Debes estar en el grupo de Kino en Telegram. \xDAnete al grupo y vuelve a validar tu Telegram.";
+  const enText = "You must be in the Kino group on Telegram. Join the group, then re-validate your Telegram.";
+  return lng === "en" ? enText : lng === "es" ? es : t(es, enText);
+}
+function notMember() {
+  const e = kino.error("unavailable", "Xuper: not a Kino group member (403 not_member)", { userMessage: notMemberText() });
+  try {
+    e.status = 403;
+    e.detail = "not_member";
+  } catch (_) {
+  }
+  return e;
 }
 async function markRelogin() {
   if (await storedBearer()) return false;
@@ -319,6 +350,7 @@ async function ensureBearer() {
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);
       remove(REAUTH_KEY);
+      remove(NOT_MEMBER_KEY);
       return bearer;
     } finally {
       _minting = null;
@@ -336,6 +368,7 @@ async function reauth() {
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);
       remove(REAUTH_KEY);
+      remove(NOT_MEMBER_KEY);
       return bearer;
     } finally {
       _minting = null;
@@ -441,6 +474,7 @@ function authedStep(method, path, body, timeoutMs, fam, deadline2) {
 async function authedOnce(method, path, body, timeoutMs, fam) {
   const b = await storedBearer();
   if (!b) throw notActivated();
+  if (notMemberActive()) throw notMember();
   const family = fam || familyOf(path);
   if (limitedUntil(family)) throw rateLimited(family);
   const res = await rawBackend(method, path, body, b, timeoutMs);
@@ -464,6 +498,10 @@ async function authedOnce(method, path, body, timeoutMs, fam) {
       const j = res.json();
       detail = j && typeof j.detail === "string" ? j.detail : "";
     } catch (_) {
+    }
+    if (res.status === 403 && detail === "not_member") {
+      markNotMember();
+      throw notMember();
     }
     const e = kino.error("unavailable", "Xuper: backend " + res.status + (detail ? " " + detail : "") + " " + family);
     try {
@@ -495,6 +533,14 @@ async function fetchSeed(timeoutMs) {
   if (res.status === 401) {
     bearerRefused(b);
     return { ok: false, status: 401 };
+  }
+  if (res.status === 403) {
+    try {
+      const j = res.json();
+      if (j && j.detail === "not_member") markNotMember();
+    } catch (_) {
+    }
+    return { ok: false, status: 403 };
   }
   if (res.status !== 200) return { ok: false, status: Number(res.status) || "network" };
   let body;
@@ -2539,7 +2585,7 @@ var CFG_KEY = "o2:xcfg";
 var SN_KEY = "o2:xsn";
 var SESS_KEY = "o2:xsess";
 var H_MS = 60 * 60 * 1e3;
-var CFG_FRESH_MS = 24 * H_MS;
+var CFG_FRESH_MS = 1 * H_MS;
 var CFG_MAX_STALE_MS = 7 * 24 * H_MS;
 var CFG_RETRY_MS = 10 * 60 * 1e3;
 async function fetchBackendCfg(wantedMs) {
@@ -2559,6 +2605,7 @@ function storedCfg(now) {
   return age < CFG_MAX_STALE_MS ? { cfg: stored, age } : null;
 }
 async function loadConfig() {
+  if (notMemberActive()) throw kino.error("unavailable", "Xuper: not a Kino group member", { userMessage: notMemberText() });
   const now = Date.now();
   const last = storedCfg(now);
   if (last && last.age < CFG_FRESH_MS) return last.cfg;
@@ -2570,7 +2617,8 @@ async function loadConfig() {
       setJson(CFG_KEY, fresh, { ttlMs: CFG_MAX_STALE_MS });
       return fresh;
     }
-  } catch (_) {
+  } catch (e) {
+    if (isNotMember(e)) throw e;
   }
   if (last) {
     setJson(CFG_KEY, { ...last.cfg, failAt: now }, { ttlMs: Math.max(6e4, CFG_MAX_STALE_MS - last.age) });
@@ -11033,6 +11081,7 @@ function supportButton(key, E3, device) {
 }
 function welcomeView({ error, device } = {}) {
   const E3 = en5();
+  if (error === "member") return groupGateView(E3, device);
   const body = [
     { type: "Text", key: "wTitle", text: E3 ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
     {
@@ -11081,6 +11130,56 @@ function welcomeView({ error, device } = {}) {
     body: {
       type: "Column",
       key: "welcome",
+      flex: 1,
+      mainAxisAlignment: "center",
+      crossAxisAlignment: "center",
+      gap: 16,
+      padding: { compact: 24, expanded: 48 },
+      children: body
+    }
+  };
+}
+function groupGateView(E3, device) {
+  const body = [
+    {
+      type: "Text",
+      key: "gTitle",
+      style: "h3",
+      textAlign: "center",
+      text: E3 ? "Join the Kino group" : "\xDAnete al grupo de Kino",
+      textEn: "Join the Kino group"
+    },
+    {
+      type: "Text",
+      key: "gHint",
+      color: "muted",
+      textAlign: "center",
+      text: E3 ? "Xuper is for members of the Kino group on Telegram. Join the group, then re-validate your Telegram." : "Xuper es para los miembros del grupo de Kino en Telegram. \xDAnete al grupo y vuelve a validar tu Telegram.",
+      textEn: "Xuper is for members of the Kino group on Telegram. Join the group, then re-validate your Telegram."
+    },
+    {
+      type: "ElevatedButton",
+      key: "gJoin",
+      icon: "open_in_new",
+      labelText: E3 ? "Join the group" : "Unirme al grupo",
+      labelTextEn: "Join the group",
+      onPressed: { go: { url: { href: KINO_GROUP_URL, title: E3 ? "Kino group" : "Grupo de Kino" } } }
+    },
+    {
+      type: "TextButton",
+      key: "gRetry",
+      labelText: E3 ? "I joined \u2014 retry" : "Ya me un\xED, reintentar",
+      labelTextEn: "I joined \u2014 retry",
+      onPressed: { event: "reauth", timeoutMs: PRESS_MS }
+    },
+    supportButton("gSupport", E3, device)
+  ];
+  return {
+    type: "Scaffold",
+    appBar: appBar(),
+    body: {
+      type: "Column",
+      key: "groupGate",
       flex: 1,
       mainAxisAlignment: "center",
       crossAxisAlignment: "center",
@@ -11187,19 +11286,29 @@ function searchSheet() {
     key: "searchSheet",
     title: E3 ? "Search" : "Buscar",
     titleEn: "Search",
-    children: [{
-      type: "TextField",
-      key: SEARCH_FIELD,
-      kind: "search",
-      maxLength: 200,
-      labelText: E3 ? "Movies and series" : "Pel\xEDculas y series",
-      labelTextEn: "Movies and series",
-      trailingIcon: "search",
-      trailingLabel: E3 ? "Search" : "Buscar",
-      trailingLabelEn: "Search",
-      onSubmitted: { event: "search" },
-      onTrailingTap: { event: "search" }
-    }]
+    children: [
+      {
+        type: "TextField",
+        key: SEARCH_FIELD,
+        kind: "search",
+        maxLength: 200,
+        labelText: E3 ? "Movies and series" : "Pel\xEDculas y series",
+        labelTextEn: "Movies and series",
+        trailingIcon: "search",
+        trailingLabel: E3 ? "Search" : "Buscar",
+        trailingLabelEn: "Search",
+        onSubmitted: { event: "search" },
+        onTrailingTap: { event: "search" }
+      },
+      {
+        type: "TextButton",
+        key: "searchAllKino",
+        icon: "search",
+        labelText: E3 ? "Search all of Kino" : "Buscar en todo Kino",
+        labelTextEn: "Search all of Kino",
+        onPressed: { go: { searchScreen: true } }
+      }
+    ]
   };
 }
 function catalogView({ tab, view, fTag = "", device = "phone", failed = false }) {
@@ -12229,6 +12338,7 @@ async function listProgress(cat) {
 async function screen(arg) {
   const state2 = arg && arg.state || {};
   const device = arg && arg.device || "phone";
+  if (notMemberActive()) return welcomeView({ error: "member", device });
   if (!await currentBearer() && (state2.actError || !reloginPending())) return welcomeView({ error: state2.actError, device });
   const nav = navName(state2.nav);
   if (nav === "config") {
@@ -12507,7 +12617,10 @@ async function onEvent(e, val, state2) {
 function reauthToast(ok, e) {
   if (ok) return { text: lang() === "en" ? "Access re-authenticated" : "Acceso reautenticado", textEn: "Access re-authenticated", role: "success" };
   const banner = activateBanner(e);
-  const [text2, textEn] = banner === "update" ? [
+  const [text2, textEn] = banner === "member" ? [
+    "A\xFAn no est\xE1s en el grupo de Kino. \xDAnete al grupo y vuelve a intentarlo.",
+    "You are not in the Kino group yet. Join the group, then try again."
+  ] : banner === "update" ? [
     "Para reautenticar necesitas la versi\xF3n m\xE1s reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
     "To re-authenticate you need the latest version of Kino. Update Kino and try again."
   ] : banner === "server" ? [

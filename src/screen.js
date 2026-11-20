@@ -31,7 +31,7 @@
 // one-shot `devices` timer, src/devices.js), the Xuper session (own, a backup seed and its time left, none) and the Aportar switch; its
 // `seedChange` event is the person's "Cambiar semilla" (one GET /seed per tap, src/seeds.js) and `contrib` writes the
 // `contributeSeeds` setting. Neither the screen nor its timers ever ask for a seed on their own.
-import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, markReauthNeeded } from "./api.js";
+import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, markReauthNeeded, notMemberActive } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
 import { screenCategories, screenList, loadList, fillScreenCategories, exposedIdOf, TICK_BOUNDS, TICK_LOAD_BOUNDS, PICK_BOUNDS } from "./live.js";
 import { welcomeView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
@@ -135,6 +135,9 @@ async function listProgress(cat) {
 export async function screen(arg) {
   const state = (arg && arg.state) || {};
   const device = (arg && arg.device) || "phone";   // "phone" | "tv" | "desktop" (on TV the bottom bar is a TabBar)
+  // Left the Kino group (the freeze): the "join the group" welcome, even with a Bearer stored — every authed call is
+  // failing not_member anyway, so showing the catalog would only break. A successful rejoin + /session lifts it.
+  if (notMemberActive()) return welcomeView({ error: "member", device });
   // Never mints; only reads. A Bearer the backend refused keeps the app on screen while `open` signs in again.
   if (!(await currentBearer()) && (state.actError || !reloginPending())) return welcomeView({ error: state.actError, device });
   const nav = navName(state.nav);
@@ -390,8 +393,11 @@ async function onEvent(e, val, state) {
  */
 function reauthToast(ok, e) {
   if (ok) return { text: lang() === "en" ? "Access re-authenticated" : "Acceso reautenticado", textEn: "Access re-authenticated", role: "success" };
-  const banner = activateBanner(e);   // "update" | "consent" | "server"
-  const [text, textEn] = banner === "update"
+  const banner = activateBanner(e);   // "member" | "update" | "consent" | "server"
+  const [text, textEn] = banner === "member"
+    ? ["Aún no estás en el grupo de Kino. Únete al grupo y vuelve a intentarlo.",
+      "You are not in the Kino group yet. Join the group, then try again."]
+    : banner === "update"
     ? ["Para reautenticar necesitas la versión más reciente de Kino. Actualiza Kino y vuelve a intentarlo.",
       "To re-authenticate you need the latest version of Kino. Update Kino and try again."]
     : banner === "server"

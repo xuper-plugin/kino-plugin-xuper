@@ -28,6 +28,15 @@ const RELOGIN_KEY = "o2:relogin";
 // Cleared the moment a session mints again.
 const REAUTH_KEY = "o2:reauth";
 
+// The group-membership freeze (backend oleada: 403 {"detail":"not_member"} on /session or any authenticated endpoint
+// when the person is no longer in the Kino Telegram group). While set, authed calls fail FAST with the "join the group"
+// message instead of hammering the backend; only a successful sign-in (they rejoined → /session passes) clears it.
+// Re-auth alone never fixes a leaver: they must rejoin the group FIRST, then the next /session clears this.
+const NOT_MEMBER_KEY = "o2:notmember";
+
+/** The Kino Telegram group a member must be in (the welcome's "Join the group" button opens it). */
+export const KINO_GROUP_URL = "https://t.me/Kinoapptv";
+
 function log(m) { try { kino.log("" + m); } catch (_) { /* ignore */ } }
 const t = (es, en) => (lang() === "en" ? en : es);
 
@@ -111,6 +120,8 @@ async function mintSession() {
   if (!res.ok) {
     const reason = reasonOf(res);   // the backend names one in `detail` (bad_proof, bad_token, unofficial_plugin…)
     log("mint: /session FAIL status=" + res.status + reason);
+    // The person is not in the Kino group: freeze and show the "join the group" message (they must rejoin, then re-auth).
+    if (res.status === 403 && reason === ":not_member") { markNotMember(); throw withCause(notMember(), "session_403:not_member"); }
     const msg = res.status === 403 ? t("Xuper: esta instalación no está autorizada", "Xuper: this install is not authorized")
       : t("Xuper: no se pudo iniciar sesión (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")");
     throw withCause(kino.error("unavailable", msg), "session_" + res.status + reason);
@@ -162,12 +173,14 @@ export function reportActivate(e) {
 
 /**
  * Which welcome banner an activation failure deserves, so the message matches the real problem:
+ *   "member"  → the person is not in the Kino Telegram group (403 not_member): they must rejoin, then re-authenticate.
  *   "update"  → an older Kino answered without the gate token.
  *   "consent" → the identity permission is off / not approved (kino.identity rejects and never re-prompts; the person must
  *               turn it on in Kino's settings — "Acepta el permiso y vuelve a intentarlo" is misleading here).
  *   "server"  → the backend refused, the challenge failed, or anything else (a retry later, not a permission).
  */
 export function activateBanner(e) {
+  if (isNotMember(e)) return "member";
   if (isTokenMissing(e)) return "update";
   if (e && e.code === "permission_denied") return "consent";
   return "server";
@@ -177,7 +190,7 @@ export function activateBanner(e) {
 export async function currentBearer() { return storedBearer(); }
 
 /** Forgets the stored session: the screen goes back to Welcome/Activate. Ajustes' "Desconectar". */
-export async function clearBearer() { dropBearer(); remove(RELOGIN_KEY); remove(TRIAL_KEY); }
+export async function clearBearer() { dropBearer(); remove(RELOGIN_KEY); remove(TRIAL_KEY); remove(NOT_MEMBER_KEY); }
 
 /** Whether the screen's `open` signs in with no tap (RELOGIN_KEY above). */
 export function reloginPending() { return getText(RELOGIN_KEY) === "1"; }
@@ -194,6 +207,33 @@ export function forgetRelogin() { remove(RELOGIN_KEY); }
 export function markReauthNeeded(banner) { if (banner === "consent" || banner === "update") setText(REAUTH_KEY, "1"); }
 export function clearReauthNeeded() { remove(REAUTH_KEY); }
 export function reauthNeeded() { return getText(REAUTH_KEY) === "1"; }
+
+/**
+ * The group-membership freeze (`NOT_MEMBER_KEY`): set on a 403 {"detail":"not_member"} from the backend (the person left
+ * the Kino Telegram group). While active, `authed` calls fail fast with the "join the group" message (no request leaves
+ * the device), and the screen shows the "join the group" welcome even with a Bearer stored. Cleared only by a successful
+ * sign-in (the mint paths above clear it) — i.e. once the person rejoined and the next /session passed.
+ */
+function markNotMember() { setText(NOT_MEMBER_KEY, "1"); }
+export function notMemberActive() { return getText(NOT_MEMBER_KEY) === "1"; }
+export function clearNotMember() { remove(NOT_MEMBER_KEY); }
+
+/** Whether a backend error is the group-membership refusal (403 {"detail":"not_member"}). */
+export function isNotMember(e) { return !!e && Number(e && e.status) === 403 && (e && e.detail) === "not_member"; }
+
+/** The sentence for someone not in the Kino group. `lng`: "es" | "en" (default: the visible one). */
+export function notMemberText(lng) {
+  const es = "Debes estar en el grupo de Kino en Telegram. Únete al grupo y vuelve a validar tu Telegram.";
+  const enText = "You must be in the Kino group on Telegram. Join the group, then re-validate your Telegram.";
+  return lng === "en" ? enText : lng === "es" ? es : t(es, enText);
+}
+
+/** The 403 not_member error: the per-request refusal and the freeze's fail-fast, carrying the "join the group" message. */
+function notMember() {
+  const e = kino.error("unavailable", "Xuper: not a Kino group member (403 not_member)", { userMessage: notMemberText() });
+  try { e.status = 403; e.detail = "not_member"; } catch (_) { /* frozen: the message says it */ }
+  return e;
+}
 
 /**
  * After an update from Xuper 2.x (src/upgrade.js): with no Bearer stored, the screen's next `open` signs in with no tap,
@@ -221,6 +261,7 @@ export async function ensureBearer() {
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);   // a new session: the next `open` prepares its trial
       remove(REAUTH_KEY);  // signed in again: the re-authenticate reminder (if any) no longer applies
+      remove(NOT_MEMBER_KEY);  // /session passed: the person is a group member again, lift the freeze
       return bearer;
     } finally {
       _minting = null;
@@ -246,6 +287,7 @@ export async function reauth() {
       remove(RELOGIN_KEY);
       remove(TRIAL_KEY);   // a new session: the next `open` prepares its trial
       remove(REAUTH_KEY);  // signed in again: the re-authenticate reminder (if any) no longer applies
+      remove(NOT_MEMBER_KEY);  // /session passed: the person is a group member again, lift the freeze
       return bearer;
     } finally {
       _minting = null;
@@ -393,6 +435,7 @@ function authedStep(method, path, body, timeoutMs, fam, deadline) {
 async function authedOnce(method, path, body, timeoutMs, fam) {
   const b = await storedBearer();
   if (!b) throw notActivated();
+  if (notMemberActive()) throw notMember();   // frozen: fail fast until a successful /session (a rejoin) lifts it
   const family = fam || familyOf(path);
   if (limitedUntil(family)) throw rateLimited(family);
   const res = await rawBackend(method, path, body, b, timeoutMs);
@@ -407,6 +450,8 @@ async function authedOnce(method, path, body, timeoutMs, fam) {
   if (!res.ok) {
     let detail = "";
     try { const j = res.json(); detail = j && typeof j.detail === "string" ? j.detail : ""; } catch (_) { /* not JSON */ }
+    // Left the Kino group: freeze and fail with the "join the group" message (any authenticated endpoint can answer this).
+    if (res.status === 403 && detail === "not_member") { markNotMember(); throw notMember(); }
     const e = kino.error("unavailable", "Xuper: backend " + res.status + (detail ? " " + detail : "") + " " + family);
     try { e.status = Number(res.status) || 0; e.detail = detail; } catch (_) { /* frozen: the message says it */ }
     throw e;
@@ -440,6 +485,7 @@ export async function fetchSeed(timeoutMs) {
   try { res = await rawBackend("GET", "/seed", undefined, b, timeoutMs); } catch (_) { return { ok: false, status: "network" }; }
   if (!res) return { ok: false, status: "network" };
   if (res.status === 401) { bearerRefused(b); return { ok: false, status: 401 }; }
+  if (res.status === 403) { try { const j = res.json(); if (j && j.detail === "not_member") markNotMember(); } catch (_) { /* not JSON */ } return { ok: false, status: 403 }; }
   if (res.status !== 200) return { ok: false, status: Number(res.status) || "network" };
   let body;
   try { body = res.json(); } catch (_) { return { ok: false, status: "bad" }; }
