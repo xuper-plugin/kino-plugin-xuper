@@ -1,6 +1,6 @@
 {
   "name": "kino-plugin-xuper",
-  "version": "3.0.6",
+  "version": "3.0.7",
   "private": true,
   "type": "module",
   "scripts": {

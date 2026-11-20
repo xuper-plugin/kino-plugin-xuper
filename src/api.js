@@ -81,7 +81,7 @@ export function isTokenMissing(e) {
 async function mintSession() {
   const ch = await rawBackend("POST", "/session/challenge", undefined, null);
   log("mint: challenge -> " + ch.status);
-  if (!ch.ok) throw kino.error("unavailable", t("Xuper: el servidor no respondió (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")"));
+  if (!ch.ok) throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondió (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status);
   const challenge = ch.json().challenge;
   let idn;
   try {
@@ -98,11 +98,47 @@ async function mintSession() {
     signature: idn.signature, author: idn.author, codeHash: idn.codeHash, pluginId: PLUGIN_ID,
   }, null);
   log("mint: /session -> " + res.status);
-  if (res.status === 403) throw kino.error("unavailable", t("Xuper: esta instalación no está autorizada", "Xuper: this install is not authorized"));
-  if (!res.ok) throw kino.error("unavailable", t("Xuper: no se pudo iniciar sesión (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")"));
+  if (!res.ok) {
+    // The backend's reason (bad_proof, bad_token, device_key_mismatch…) when it names one, for the GlitchTip cause.
+    let detail = "";
+    try { const j = res.json(); detail = j && typeof j.detail === "string" ? j.detail.slice(0, 40) : ""; } catch (_) { /* not JSON */ }
+    log("mint: /session FAIL status=" + res.status + (detail ? " detail=" + detail : ""));
+    const cause = "session_" + res.status + (detail ? ":" + detail.replace(/[^A-Za-z0-9]+/g, "_") : "");
+    const msg = res.status === 403 ? t("Xuper: esta instalación no está autorizada", "Xuper: this install is not authorized")
+      : t("Xuper: no se pudo iniciar sesión (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")");
+    throw withCause(kino.error("unavailable", msg), cause);
+  }
   const session = res.json().session;
-  if (!session) throw kino.error("unavailable", t("Xuper: el servidor no devolvió la sesión", "Xuper: the server returned no session"));
+  if (!session) throw withCause(kino.error("unavailable", t("Xuper: el servidor no devolvió la sesión", "Xuper: the server returned no session")), "no_session");
   return session;
+}
+
+/** Tags an activation error with a GlitchTip-safe cause word (challenge_* / session_* / no_session), for [activateCause]. */
+function withCause(e, cause) { try { e.actCause = cause; } catch (_) { /* frozen: activateCause falls back to the code */ } return e; }
+
+/**
+ * The cause word of an activation failure, for Kino's error board — never a tap, token or any private text:
+ *   consent_denied | identity_off | identity_bad_request | update_needed | challenge_<status> | session_<status>[:reason] |
+ *   no_session | err_<code> | unknown.
+ */
+export function activateCause(e) {
+  if (isTokenMissing(e)) return "update_needed";
+  const code = e && e.code;
+  if (code === "permission_denied") return "consent_denied";
+  if (code === "not_available") return "identity_off";
+  if (code === "bad_request") return "identity_bad_request";
+  if (e && typeof e.actCause === "string") return e.actCause;
+  if (code) return "err_" + String(code).replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 24);
+  return "unknown";
+}
+
+/**
+ * Tells Kino's error board (GlitchTip; telemetry is on) WHY an activation failed, as a non-fatal degraded report
+ * (`kino.log.report`, throttled to once an hour per device): the fleet's cause distribution shows up without a thrown
+ * error, so "No se pudo activar" stops being a black box. The line carries only the cause word, never anything private.
+ */
+export function reportActivate(e) {
+  try { kino.log.report("activate_fail cause=" + activateCause(e)); } catch (_) { /* telemetry off, or an older Kino */ }
 }
 
 /** The stored Bearer (or null), never signing in: whether the screen is already connected. */

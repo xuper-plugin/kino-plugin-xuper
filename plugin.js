@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.6";
+var PLUGIN_VERSION = "3.0.7";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -208,7 +208,7 @@ function isTokenMissing(e) {
 async function mintSession() {
   const ch = await rawBackend("POST", "/session/challenge", void 0, null);
   log2("mint: challenge -> " + ch.status);
-  if (!ch.ok) throw kino.error("unavailable", t("Xuper: el servidor no respondi\xF3 (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")"));
+  if (!ch.ok) throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondi\xF3 (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status);
   const challenge = ch.json().challenge;
   let idn;
   try {
@@ -229,11 +229,44 @@ async function mintSession() {
     pluginId: PLUGIN_ID
   }, null);
   log2("mint: /session -> " + res.status);
-  if (res.status === 403) throw kino.error("unavailable", t("Xuper: esta instalaci\xF3n no est\xE1 autorizada", "Xuper: this install is not authorized"));
-  if (!res.ok) throw kino.error("unavailable", t("Xuper: no se pudo iniciar sesi\xF3n (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")"));
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const j = res.json();
+      detail = j && typeof j.detail === "string" ? j.detail.slice(0, 40) : "";
+    } catch (_) {
+    }
+    log2("mint: /session FAIL status=" + res.status + (detail ? " detail=" + detail : ""));
+    const cause = "session_" + res.status + (detail ? ":" + detail.replace(/[^A-Za-z0-9]+/g, "_") : "");
+    const msg = res.status === 403 ? t("Xuper: esta instalaci\xF3n no est\xE1 autorizada", "Xuper: this install is not authorized") : t("Xuper: no se pudo iniciar sesi\xF3n (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")");
+    throw withCause(kino.error("unavailable", msg), cause);
+  }
   const session = res.json().session;
-  if (!session) throw kino.error("unavailable", t("Xuper: el servidor no devolvi\xF3 la sesi\xF3n", "Xuper: the server returned no session"));
+  if (!session) throw withCause(kino.error("unavailable", t("Xuper: el servidor no devolvi\xF3 la sesi\xF3n", "Xuper: the server returned no session")), "no_session");
   return session;
+}
+function withCause(e, cause) {
+  try {
+    e.actCause = cause;
+  } catch (_) {
+  }
+  return e;
+}
+function activateCause(e) {
+  if (isTokenMissing(e)) return "update_needed";
+  const code = e && e.code;
+  if (code === "permission_denied") return "consent_denied";
+  if (code === "not_available") return "identity_off";
+  if (code === "bad_request") return "identity_bad_request";
+  if (e && typeof e.actCause === "string") return e.actCause;
+  if (code) return "err_" + String(code).replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 24);
+  return "unknown";
+}
+function reportActivate(e) {
+  try {
+    kino.log.report("activate_fail cause=" + activateCause(e));
+  } catch (_) {
+  }
 }
 async function currentBearer() {
   return storedBearer();
@@ -12205,10 +12238,12 @@ async function relogin() {
     }
     if (isTokenMissing(e)) {
       forgetRelogin();
+      reportActivate(e);
       return { actError: "update" };
     }
     if (code === "permission_denied" || code === "not_available" || code === "bad_request") {
       forgetRelogin();
+      reportActivate(e);
       return { actError: true };
     }
     return {};
@@ -12236,6 +12271,7 @@ async function onEvent(e, val, state2) {
         await ensureBearer();
         return { state: { actError: null } };
       } catch (e2) {
+        reportActivate(e2);
         return { state: { actError: isTokenMissing(e2) ? "update" : true } };
       }
     case "disconnect":

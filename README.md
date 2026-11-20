@@ -5,6 +5,11 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.7
+
+- **Diagnóstico de activación:** cuando falla «Activar», Xuper ahora anota la causa (de forma anónima, sin ningún dato
+  tuyo) para poder arreglar el problema de raíz.
+
 ## Xuper 3.0.6
 
 - **Películas más precisas:** Xuper le pasa a Kino el id (IMDb) de la película, para que su página muestre el logo, la
@@ -85,6 +90,11 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.7
+
+- **Activation diagnostics:** when "Activate" fails, Xuper now records the cause (anonymously, with no personal data) so
+  the problem can be fixed at its root.
 
 ## Xuper 3.0.6
 

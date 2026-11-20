@@ -31,7 +31,7 @@
 // one-shot `devices` timer, src/devices.js), the Xuper session (own, a backup seed and its time left, none) and the Aportar switch; its
 // `seedChange` event is the person's "Cambiar semilla" (one GET /seed per tap, src/seeds.js) and `contrib` writes the
 // `contributeSeeds` setting. Neither the screen nor its timers ever ask for a seed on their own.
-import { ensureBearer, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing } from "./api.js";
+import { ensureBearer, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate } from "./api.js";
 import { screenCategories, screenList, loadList, fillScreenCategories, exposedIdOf, TICK_BOUNDS, TICK_LOAD_BOUNDS, PICK_BOUNDS } from "./live.js";
 import { welcomeView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
 import { SECTIONS, PLUGIN_VERSION, lang } from "./config.js";
@@ -197,10 +197,12 @@ async function relogin() {
     try { kino.log("screen: sign-in again failed: " + (code || (e && e.message) || e)); } catch (_) { /* no log */ }
     if (isTokenMissing(e)) {
       forgetRelogin();
+      reportActivate(e);
       return { actError: "update" };
     }
     if (code === "permission_denied" || code === "not_available" || code === "bad_request") {
       forgetRelogin();
+      reportActivate(e);
       return { actError: true };
     }
     return {};
@@ -226,7 +228,7 @@ async function onEvent(e, val, state) {
     }
     case "activate":
       try { await ensureBearer(); return { state: { actError: null } }; }   // identity HERE (a press)
-      catch (e) { return { state: { actError: isTokenMissing(e) ? "update" : true } }; }
+      catch (e) { reportActivate(e); return { state: { actError: isTokenMissing(e) ? "update" : true } }; }
     case "disconnect":
       try { await clearBearer(); } catch (_) { /* best-effort */ }
       return { state: {} };
