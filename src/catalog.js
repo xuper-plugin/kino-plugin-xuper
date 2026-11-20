@@ -225,7 +225,11 @@ export async function browse(ref, cursor) {
   }
   if (r.kind === "column") {
     const data = await columnPage(r.columnId, page);
-    const items = columnItems(data && data.items, !!r.adult);
+    let items = columnItems(data && data.items, !!r.adult);
+    // Like search: one entry per series ("Ver más" of a live column also lists each season as its own title), the rest are
+    // the detail's season chips. Within the page the portal lists a series' seasons together, so they collapse here.
+    items = collapseSeasons(items, (it) => ({ title: it.title, series: it.kind === "series" }));
+    for (const it of items) { const clean = displaySeriesTitle(it.title); if (clean && clean !== it.title) it.title = clean; }
     const total = Number(data && data.total) || 0;
     return { items, next: page * COLUMN_PAGE_SIZE < total ? String(page + 1) : null };
   }
@@ -264,6 +268,25 @@ export async function episodes(ref) {
   const answer = toEpisodes(detail, r.id, r.type);
   await enrichEpisodes(answer, detail, r.id);   // TMDB stills/names/seasons, best-effort; never fails the list
   return answer;
+}
+
+/**
+ * A MOVIE's ids for Kino's title page (apiVersion 8 `details(ref)`, no capability): the portal detail's IMDb id
+ * (`keyWords`), so Kino pins the right film on TMDB. Kino runs its own title lookup alongside this (never in front), so a
+ * movie is already enriched by name; the IMDb id just makes it EXACT — the right film for an ambiguous or dub-tagged title.
+ * Series carry their ids through `episodes().series`, not here. Best-effort: null (Kino's title match still enriches) on anything.
+ */
+export async function details(ref) {
+  try {
+    const r = decodeRef(ref);
+    if (r.kind !== "item" || r.type === "0" || !r.id) return null;   // movies only (type "1"); a series uses episodes()
+    if (!(await currentBearer())) return null;
+    const data = await itemData(r.id, r.type);
+    const imdb = String((data && data.detail && data.detail.keyWords) || "").trim();
+    return IMDB_ID.test(imdb) ? { ids: { imdb } } : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ── Xuper 2.x's titles (src/legacy.js): masnew's own ids, played and listed on masnew as 2.x did ──

@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.5";
+var PLUGIN_VERSION = "3.0.6";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -10586,7 +10586,12 @@ async function browse(ref, cursor) {
   }
   if (r.kind === "column") {
     const data = await columnPage(r.columnId, page);
-    const items = columnItems(data && data.items, !!r.adult);
+    let items = columnItems(data && data.items, !!r.adult);
+    items = collapseSeasons(items, (it) => ({ title: it.title, series: it.kind === "series" }));
+    for (const it of items) {
+      const clean = displaySeriesTitle(it.title);
+      if (clean && clean !== it.title) it.title = clean;
+    }
     const total = Number(data && data.total) || 0;
     return { items, next: page * COLUMN_PAGE_SIZE < total ? String(page + 1) : null };
   }
@@ -10614,6 +10619,18 @@ async function episodes(ref) {
   const answer = toEpisodes(detail, r.id, r.type);
   await enrichEpisodes(answer, detail, r.id);
   return answer;
+}
+async function details(ref) {
+  try {
+    const r = decodeRef(ref);
+    if (r.kind !== "item" || r.type === "0" || !r.id) return null;
+    if (!await currentBearer()) return null;
+    const data = await itemData(r.id, r.type);
+    const imdb = String(data && data.detail && data.detail.keyWords || "").trim();
+    return IMDB_ID2.test(imdb) ? { ids: { imdb } } : null;
+  } catch (_) {
+    return null;
+  }
 }
 var CHAPTERS_TTL_MS = 30 * 6e4;
 var CHAPTERS_MAX = 8;
@@ -12444,6 +12461,10 @@ async function episodes2(ref) {
   await begin("episodes");
   return episodes(ref);
 }
+async function details2(ref) {
+  await begin("details");
+  return details(ref);
+}
 async function resolve3(ref, options) {
   await begin("resolve");
   return resolve2(ref, options);
@@ -12475,6 +12496,7 @@ async function liveChannels2(arg) {
 export {
   browse2 as browse,
   categories3 as categories,
+  details2 as details,
   episodes2 as episodes,
   home2 as home,
   liveCategories2 as liveCategories,

@@ -5,6 +5,12 @@
 Plugin de Kino: películas, series, anime y canales en vivo, con su propia pantalla (Inicio, Fútbol, En vivo y
 Ajustes), filas en el Inicio de Kino, búsqueda y reproducción en el reproductor de Kino.
 
+## Xuper 3.0.6
+
+- **Películas más precisas:** Xuper le pasa a Kino el id (IMDb) de la película, para que su página muestre el logo, la
+  sinopsis y el reparto de la película correcta (antes, con un título ambiguo o con doblaje, Kino podía fijar otra).
+- **Un solo resultado por serie también en «Ver más»:** las filas y categorías ya no repiten las temporadas de una serie.
+
 ## Xuper 3.0.5
 
 - **Un solo resultado por serie en la búsqueda:** si una serie tiene varias temporadas, la búsqueda vuelve a mostrar un
@@ -79,6 +85,12 @@ Este plugin se mantiene de forma independiente de Kino. Kino no aloja ni control
 
 A Kino plugin: movies, series, anime and live channels, with its own screen (Home, Football, Live and Settings), rows
 on Kino's Home, search, and playback in Kino's player.
+
+## Xuper 3.0.6
+
+- **More precise movies:** Xuper hands Kino the film's IMDb id, so its page shows the right film's logo, synopsis and
+  cast (an ambiguous or dub-tagged title could pin the wrong one before).
+- **One result per series in "See more" too:** rows and categories no longer repeat a series' seasons.
 
 ## Xuper 3.0.5
 

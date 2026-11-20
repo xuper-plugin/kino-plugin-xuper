@@ -36,6 +36,8 @@ export async function search(query) { await begin("search"); try { return await 
 // Native detail + player: Kino calls them with a card's ref; they reuse the stored Bearer. Xuper 2.x's library refs
 // play and list too (src/legacy.js).
 export async function episodes(ref) { await begin("episodes"); return catalog.episodes(ref); }
+// A movie's ids for Kino's title page (apiVersion 8; no capability — Kino calls it only for a movie ref when exported).
+export async function details(ref) { await begin("details"); return catalog.details(ref); }
 export async function resolve(ref, options) { await begin("resolve"); return catalog.resolve(ref, options); }
 
 // Kino's play ahead (app: PlayAhead, 2026-11-18): a background call while the person rests on a title page, with the ref
