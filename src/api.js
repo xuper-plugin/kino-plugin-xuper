@@ -81,7 +81,11 @@ export function isTokenMissing(e) {
 async function mintSession() {
   const ch = await rawBackend("POST", "/session/challenge", undefined, null);
   log("mint: challenge -> " + ch.status);
-  if (!ch.ok) throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondió (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status);
+  if (!ch.ok) {
+    const reason = reasonOf(ch);   // the backend names one in `detail` (e.g. rate_limited)
+    log("mint: challenge FAIL status=" + ch.status + reason);
+    throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondió (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status + reason);
+  }
   const challenge = ch.json().challenge;
   let idn;
   try {
@@ -99,14 +103,11 @@ async function mintSession() {
   }, null);
   log("mint: /session -> " + res.status);
   if (!res.ok) {
-    // The backend's reason (bad_proof, bad_token, device_key_mismatch…) when it names one, for the GlitchTip cause.
-    let detail = "";
-    try { const j = res.json(); detail = j && typeof j.detail === "string" ? j.detail.slice(0, 40) : ""; } catch (_) { /* not JSON */ }
-    log("mint: /session FAIL status=" + res.status + (detail ? " detail=" + detail : ""));
-    const cause = "session_" + res.status + (detail ? ":" + detail.replace(/[^A-Za-z0-9]+/g, "_") : "");
+    const reason = reasonOf(res);   // the backend names one in `detail` (bad_proof, bad_token, unofficial_plugin…)
+    log("mint: /session FAIL status=" + res.status + reason);
     const msg = res.status === 403 ? t("Xuper: esta instalación no está autorizada", "Xuper: this install is not authorized")
       : t("Xuper: no se pudo iniciar sesión (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")");
-    throw withCause(kino.error("unavailable", msg), cause);
+    throw withCause(kino.error("unavailable", msg), "session_" + res.status + reason);
   }
   const session = res.json().session;
   if (!session) throw withCause(kino.error("unavailable", t("Xuper: el servidor no devolvió la sesión", "Xuper: the server returned no session")), "no_session");
@@ -115,6 +116,18 @@ async function mintSession() {
 
 /** Tags an activation error with a GlitchTip-safe cause word (challenge_* / session_* / no_session), for [activateCause]. */
 function withCause(e, cause) { try { e.actCause = cause; } catch (_) { /* frozen: activateCause falls back to the code */ } return e; }
+
+/** The `:<reason>` suffix for a failed backend call — the JSON body's `detail` (bad_proof, bad_token, rate_limited…),
+ *  sanitized to a safe word, or "" when the backend names none. Fed into the activation cause so GlitchTip shows WHY. */
+function reasonOf(res) {
+  try {
+    const j = res.json();
+    const d = j && typeof j.detail === "string" ? j.detail.slice(0, 40) : "";
+    return d ? ":" + d.replace(/[^A-Za-z0-9]+/g, "_") : "";
+  } catch (_) {
+    return "";
+  }
+}
 
 /**
  * The cause word of an activation failure, for Kino's error board — never a tap, token or any private text:

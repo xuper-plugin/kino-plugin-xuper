@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.0.7";
+var PLUGIN_VERSION = "3.0.8";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -208,7 +208,11 @@ function isTokenMissing(e) {
 async function mintSession() {
   const ch = await rawBackend("POST", "/session/challenge", void 0, null);
   log2("mint: challenge -> " + ch.status);
-  if (!ch.ok) throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondi\xF3 (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status);
+  if (!ch.ok) {
+    const reason = reasonOf(ch);
+    log2("mint: challenge FAIL status=" + ch.status + reason);
+    throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondi\xF3 (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status + reason);
+  }
   const challenge = ch.json().challenge;
   let idn;
   try {
@@ -230,16 +234,10 @@ async function mintSession() {
   }, null);
   log2("mint: /session -> " + res.status);
   if (!res.ok) {
-    let detail = "";
-    try {
-      const j = res.json();
-      detail = j && typeof j.detail === "string" ? j.detail.slice(0, 40) : "";
-    } catch (_) {
-    }
-    log2("mint: /session FAIL status=" + res.status + (detail ? " detail=" + detail : ""));
-    const cause = "session_" + res.status + (detail ? ":" + detail.replace(/[^A-Za-z0-9]+/g, "_") : "");
+    const reason = reasonOf(res);
+    log2("mint: /session FAIL status=" + res.status + reason);
     const msg = res.status === 403 ? t("Xuper: esta instalaci\xF3n no est\xE1 autorizada", "Xuper: this install is not authorized") : t("Xuper: no se pudo iniciar sesi\xF3n (" + res.status + ")", "Xuper: could not sign in (" + res.status + ")");
-    throw withCause(kino.error("unavailable", msg), cause);
+    throw withCause(kino.error("unavailable", msg), "session_" + res.status + reason);
   }
   const session = res.json().session;
   if (!session) throw withCause(kino.error("unavailable", t("Xuper: el servidor no devolvi\xF3 la sesi\xF3n", "Xuper: the server returned no session")), "no_session");
@@ -251,6 +249,15 @@ function withCause(e, cause) {
   } catch (_) {
   }
   return e;
+}
+function reasonOf(res) {
+  try {
+    const j = res.json();
+    const d = j && typeof j.detail === "string" ? j.detail.slice(0, 40) : "";
+    return d ? ":" + d.replace(/[^A-Za-z0-9]+/g, "_") : "";
+  } catch (_) {
+    return "";
+  }
 }
 function activateCause(e) {
   if (isTokenMissing(e)) return "update_needed";
