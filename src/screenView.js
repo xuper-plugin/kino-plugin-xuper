@@ -116,6 +116,30 @@ export function supportButton(key, E, device) {
   };
 }
 
+/**
+ * The one-time welcome (the FIRST open with no session): a short hello, "Ingresar" (go in) and "Apoyar". Tapping
+ * Ingresar marks the intro seen and signs in; from then on Xuper signs in by itself on open (loadingView, no button).
+ * It never blocks entry — "Ingresar" is the only step, and it is a single tap.
+ */
+export function introView(device) {
+  const E = en();
+  const body = [
+    { type: "Text", key: "iTitle", text: "Xuper", textEn: "Xuper", style: "h3", textAlign: "center" },
+    { type: "Text", key: "iHint", color: "muted", textAlign: "center",
+      text: E ? "Welcome to Xuper. Tap Enter to go in." : "Bienvenido a Xuper. Toca Ingresar para entrar.",
+      textEn: "Welcome to Xuper. Tap Enter to go in." },
+    { type: "ElevatedButton", key: "iEnter", icon: "arrow_forward",
+      labelText: E ? "Enter" : "Ingresar", labelTextEn: "Enter",
+      onPressed: { event: "enter", timeoutMs: PRESS_MS } },
+    supportButton("iSupport", E, device),
+  ];
+  return {
+    type: "Scaffold", appBar: appBar(),
+    body: { type: "Column", key: "intro", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
+      gap: 16, padding: { compact: 24, expanded: 48 }, children: body },
+  };
+}
+
 // ── Screen 1: Welcome + Activate (the entry lock; identity runs only from this press) ──
 /**
  * The gate: Welcome + Activate. `error`: the last sign-in failed — `true` (identity refused or switched off: grant it
@@ -124,13 +148,13 @@ export function supportButton(key, E, device) {
 export function welcomeView({ error, device } = {}) {
   const E = en();
   if (error === "member") return groupGateView(E, device);
+  if (error === "link") return linkTelegramView(E, device);
+  // An AUTO-activation failed (update / consent / server). The happy path never reaches here — it shows loadingView while
+  // Xuper signs in by itself on open. This is the retry surface: the cause-specific banner + "Reintentar".
   const body = [
-    { type: "Text", key: "wTitle", text: E ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
-    { type: "Text", key: "wHint", color: "muted", textAlign: "center",
-      text: E ? "To get in, activate your access with your Kino identity." : "Para entrar, activa tu acceso con tu identidad de Kino.",
-      textEn: "To get in, activate your access with your Kino identity." },
-    { type: "ElevatedButton", key: "activate",
-      labelText: E ? "Activate" : "Activar", labelTextEn: "Activate",
+    { type: "Text", key: "wTitle", text: E ? "Xuper" : "Xuper", textEn: "Xuper", style: "h3", textAlign: "center" },
+    { type: "ElevatedButton", key: "retry", icon: "refresh",
+      labelText: E ? "Retry" : "Reintentar", labelTextEn: "Retry",
       onPressed: { event: "activate", timeoutMs: PRESS_MS } },
   ];
   if (error === "update") body.push({
@@ -151,11 +175,51 @@ export function welcomeView({ error, device } = {}) {
     text: E ? "Could not reach Xuper's server. Try again in a moment." : "No se pudo conectar con el servidor de Xuper. Inténtalo de nuevo en un momento.",
     textEn: "Could not reach Xuper's server. Try again in a moment.",
   });
-  // Below Activate (and below its error, which stays next to it); the TV's first focus stays on Activate.
   body.push(supportButton("wSupport", E, device));
   return {
     type: "Scaffold", appBar: appBar(),
     body: { type: "Column", key: "welcome", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
+      gap: 16, padding: { compact: 24, expanded: 48 }, children: body },
+  };
+}
+
+/**
+ * Shown while Xuper signs in by itself on open (no "Activar" button): a spinner and "Activando…". When the sign-in lands
+ * the screen re-renders into the catalog; a failure re-renders into welcomeView (the cause banner + "Reintentar").
+ */
+export function loadingView(device) {
+  const E = en();
+  return {
+    type: "Scaffold", appBar: appBar(),
+    body: { type: "Column", key: "activating", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center", gap: 16,
+      padding: { compact: 24, expanded: 48 }, children: [
+        { type: "CircularProgressIndicator", key: "actSpin" },
+        { type: "Text", key: "actText", color: "muted", textAlign: "center",
+          text: E ? "Signing you in…" : "Activando tu acceso…", textEn: "Signing you in…" },
+      ] },
+  };
+}
+
+/**
+ * The gate shown only when this device has no Telegram identity (the backend/identity answered `not_available` → the
+ * "link" banner): the person must validate their Telegram in Kino. "Reintentar" tries the sign-in again once they have.
+ */
+function linkTelegramView(E, device) {
+  const body = [
+    { type: "Text", key: "lTitle", style: "h3", textAlign: "center",
+      text: E ? "Validate your Telegram" : "Valida tu Telegram", textEn: "Validate your Telegram" },
+    { type: "Text", key: "lHint", color: "muted", textAlign: "center",
+      text: E ? "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back."
+        : "Este aparato todavía no está validado con una cuenta de Telegram. Valida tu Telegram en Kino y vuelve.",
+      textEn: "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back." },
+    { type: "ElevatedButton", key: "lRetry", icon: "refresh",
+      labelText: E ? "Retry" : "Reintentar", labelTextEn: "Retry",
+      onPressed: { event: "activate", timeoutMs: PRESS_MS } },
+    supportButton("lSupport", E, device),
+  ];
+  return {
+    type: "Scaffold", appBar: appBar(),
+    body: { type: "Column", key: "linkTg", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
       gap: 16, padding: { compact: 24, expanded: 48 }, children: body },
   };
 }
@@ -887,9 +951,9 @@ export function configView({ version, device = "phone", ages = null, now = Date.
       { type: "Card", key: "cfgAccount", children: [
         { type: "Text", key: "cfgAccTitle", style: "h4", text: E ? "Account" : "Cuenta", textEn: "Account" },
         { type: "Text", key: "cfgAccHint", color: "muted",
-          text: E ? "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate."
-            : "Si Xuper dejó de reconocer tu identidad, reautentícate (sin desconectar). Desconectarte te lleva de vuelta a «Activar».",
-          textEn: "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate." },
+          text: E ? "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to the welcome screen."
+            : "Si Xuper dejó de reconocer tu identidad, reautentícate (sin desconectar). Desconectarte te lleva de vuelta a la pantalla de bienvenida.",
+          textEn: "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to the welcome screen." },
         { type: "ElevatedButton", key: "reauth", icon: "refresh",
           labelText: E ? "Re-authenticate" : "Reautenticar", labelTextEn: "Re-authenticate",
           onPressed: { event: "reauth", timeoutMs: PRESS_MS } },

@@ -9,7 +9,7 @@ import { installKino, res } from "./helpers/fake-kino.mjs";
 import { gridOf, tilesOf, channelsOf } from "./helpers/tiles.mjs";
 
 globalThis.kino = { lang: "es", config: {} };
-const { welcomeView, catalogView, deportesView, vivoView, configView, channelItems, clockMs, liveSignature, genreLabels } =
+const { welcomeView, introView, loadingView, catalogView, deportesView, vivoView, configView, channelItems, clockMs, liveSignature, genreLabels } =
   await import("../src/screenView.js");
 const { isLiveMatch } = await import("../src/v2.js");
 const { screen, screenEvent } = await import("../src/screen.js");
@@ -50,7 +50,7 @@ const MATCHES = fromLegacyMatches({ matches: [
 function everyView() {
   const view = viewOf("pelicula", legacy.sections.populares);
   return [
-    welcomeView(), welcomeView({ error: true }),
+    welcomeView(), welcomeView({ error: true }), introView("phone"), introView("tv"), loadingView("phone"),
     catalogView({ tab: "pelicula", view: null }), catalogView({ tab: "pelicula", view: null, failed: true }),
     catalogView({ tab: "pelicula", view }), catalogView({ tab: "pelicula", view, fTag: "Action" }), catalogView({ tab: "adultos", view, device: "tv" }),
     deportesView({ matches: MATCHES, now: T0 }), deportesView({ matches: null }), deportesView({ matches: null, failed: true }),
@@ -62,14 +62,14 @@ function everyView() {
 
 // ── views ──
 
-test("welcomeView: Scaffold + Activate press with a timeout for identity; tuteo, no voseo", () => {
-  const v = welcomeView({ error: true });
-  const btn = byKey(v, "activate");
+test("welcomeView: Scaffold + Retry press with a timeout for identity; tuteo, no voseo", () => {
+  const v = welcomeView({ error: true });   // welcomeView is now the retry surface after an auto sign-in failed
+  const btn = byKey(v, "retry");
   assert.equal(btn.onPressed.event, "activate");
   assert.ok(btn.onPressed.timeoutMs >= 20_000);
   assert.ok(byType(v, "MaterialBanner").length === 1);
   const txt = JSON.stringify(v);
-  assert.ok(/activa tu acceso/.test(txt) && /Inténtalo de nuevo/.test(txt));   // error:true → the generic "server" banner
+  assert.ok(/servidor de Xuper/.test(txt) && /Inténtalo de nuevo/.test(txt));   // error:true → the generic "server" banner
   assert.ok(!/activá|Aceptá|reintentá/.test(txt));
 });
 
@@ -110,7 +110,8 @@ test("no view carries the 1 s tick; the only timers are the Fútbol clock and th
 });
 
 test("every app view carries the hidden busy bar (LinearProgressIndicator `busy`)", () => {
-  for (const v of everyView().slice(2)) {
+  // slice(5): skip the gate screens (welcomeView ×2, introView ×2, loadingView) — Scaffold views with no busy bar.
+  for (const v of everyView().slice(5)) {
     const b = byKey(v, "busy");
     assert.ok(b, "busy bar missing");
     assert.equal(b.type, "LinearProgressIndicator");
@@ -348,13 +349,24 @@ test("screen(): a cold runtime with storage paints full content in the first fra
   assert.equal(requests.length, 0, "screen() never fetches");
 });
 
-test("screen(): no Bearer → welcome view", async () => {
+test("screen(): no Bearer, first time → the one-time intro; intro seen → loading; intro seen + error → retry", async () => {
   cold({ storage: storedDevice({ "o2:bearer": undefined }), noFetch: true });
   globalThis.kino.storage.remove("o2:bearer");
+  globalThis.kino.storage.remove("o2:intro");
   await clearBearer();
   beginCall();
-  const v = await screen({ state: {} });
-  assert.ok(byKey(v, "activate"));
+  // First open ever (no intro seen): the one-time welcome with "Ingresar" + "Apoyar", no auto sign-in.
+  const first = await screen({ state: {} });
+  assert.ok(byKey(first, "iEnter"), "first time: the intro's Ingresar button");
+  assert.equal(byKey(first, "activate"), undefined);
+  // Intro seen (an existing session that is just missing its Bearer): the loading screen while it signs in by itself.
+  globalThis.kino.storage.set("o2:intro", "1");
+  const loading = await screen({ state: {} });
+  assert.ok(byType(loading, "CircularProgressIndicator").length === 1, "intro seen: the loading spinner");
+  assert.equal(byKey(loading, "iEnter"), undefined);
+  // Intro seen and a sign-in failed (actError): the retry surface.
+  const retry = await screen({ state: { actError: "server" } });
+  assert.ok(byKey(retry, "retry"), "a failed sign-in: the Retry button");
 });
 
 test("open: {} when fresh (0 requests), {state:{rev}} when the catalog changed", async () => {

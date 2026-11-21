@@ -183,6 +183,7 @@ export function activateBanner(e) {
   if (isNotMember(e)) return "member";
   if (isTokenMissing(e)) return "update";
   if (e && e.code === "permission_denied") return "consent";
+  if (e && e.code === "not_available") return "link";   // this device has no Telegram identity: link it in Kino
   return "server";
 }
 
@@ -217,6 +218,14 @@ export function reauthNeeded() { return getText(REAUTH_KEY) === "1"; }
 function markNotMember() { setText(NOT_MEMBER_KEY, "1"); }
 export function notMemberActive() { return getText(NOT_MEMBER_KEY) === "1"; }
 export function clearNotMember() { remove(NOT_MEMBER_KEY); }
+
+// The one-time intro (`o2:intro`): the FIRST time a person opens Xuper with no session, the screen shows a short welcome
+// with "Apoyar" + "Ingresar" (the person taps Ingresar to go in). From then on Xuper signs in by itself on open (a loading
+// screen, no button). Set the moment they tap Ingresar.
+const INTRO_KEY = "o2:intro";
+export function introSeen() { return getText(INTRO_KEY) === "1"; }
+export function markIntroSeen() { setText(INTRO_KEY, "1"); }
+export function clearIntro() { remove(INTRO_KEY); }
 
 /** Whether a backend error is the group-membership refusal (403 {"detail":"not_member"}). */
 export function isNotMember(e) { return !!e && Number(e && e.status) === 403 && (e && e.detail) === "not_member"; }

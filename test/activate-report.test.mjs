@@ -23,7 +23,7 @@ test("activateCause: consent, identity, update, and the mint-attached causes", (
 test("activateBanner: the welcome banner matches the cause (consent → settings, not a retry)", () => {
   assert.equal(activateBanner({ noToken: true }), "update");               // older Kino
   assert.equal(activateBanner({ code: "permission_denied" }), "consent");  // identity off → point at the settings toggle
-  assert.equal(activateBanner({ code: "not_available" }), "server");
+  assert.equal(activateBanner({ code: "not_available" }), "link");         // no Telegram on this device → the "validate your Telegram" gate
   assert.equal(activateBanner({ actCause: "session_401" }), "server");     // the backend refused → retry later, not a permission
   assert.equal(activateBanner({}), "server");
 });

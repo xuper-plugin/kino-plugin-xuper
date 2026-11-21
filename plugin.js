@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.4";
+var PLUGIN_VERSION = "3.1.5";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -286,6 +286,7 @@ function activateBanner(e) {
   if (isNotMember(e)) return "member";
   if (isTokenMissing(e)) return "update";
   if (e && e.code === "permission_denied") return "consent";
+  if (e && e.code === "not_available") return "link";
   return "server";
 }
 async function currentBearer() {
@@ -296,9 +297,6 @@ async function clearBearer() {
   remove(RELOGIN_KEY);
   remove(TRIAL_KEY);
   remove(NOT_MEMBER_KEY);
-}
-function reloginPending() {
-  return getText(RELOGIN_KEY) === "1";
 }
 function forgetRelogin() {
   remove(RELOGIN_KEY);
@@ -314,6 +312,16 @@ function markNotMember() {
 }
 function notMemberActive() {
   return getText(NOT_MEMBER_KEY) === "1";
+}
+var INTRO_KEY = "o2:intro";
+function introSeen() {
+  return getText(INTRO_KEY) === "1";
+}
+function markIntroSeen() {
+  setText(INTRO_KEY, "1");
+}
+function clearIntro() {
+  remove(INTRO_KEY);
 }
 function isNotMember(e) {
   return !!e && Number(e && e.status) === 403 && (e && e.detail) === "not_member";
@@ -11093,24 +11101,55 @@ function supportButton(key, E3, device) {
     onPressed: { go: { url: { href: SUPPORT_URL, title: E3 ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } }
   };
 }
-function welcomeView({ error, device } = {}) {
+function introView(device) {
   const E3 = en5();
-  if (error === "member") return groupGateView(E3, device);
   const body = [
-    { type: "Text", key: "wTitle", text: E3 ? "Welcome to Xuper" : "Bienvenido a Xuper", textEn: "Welcome to Xuper", style: "h3", textAlign: "center" },
+    { type: "Text", key: "iTitle", text: "Xuper", textEn: "Xuper", style: "h3", textAlign: "center" },
     {
       type: "Text",
-      key: "wHint",
+      key: "iHint",
       color: "muted",
       textAlign: "center",
-      text: E3 ? "To get in, activate your access with your Kino identity." : "Para entrar, activa tu acceso con tu identidad de Kino.",
-      textEn: "To get in, activate your access with your Kino identity."
+      text: E3 ? "Welcome to Xuper. Tap Enter to go in." : "Bienvenido a Xuper. Toca Ingresar para entrar.",
+      textEn: "Welcome to Xuper. Tap Enter to go in."
     },
     {
       type: "ElevatedButton",
-      key: "activate",
-      labelText: E3 ? "Activate" : "Activar",
-      labelTextEn: "Activate",
+      key: "iEnter",
+      icon: "arrow_forward",
+      labelText: E3 ? "Enter" : "Ingresar",
+      labelTextEn: "Enter",
+      onPressed: { event: "enter", timeoutMs: PRESS_MS }
+    },
+    supportButton("iSupport", E3, device)
+  ];
+  return {
+    type: "Scaffold",
+    appBar: appBar(),
+    body: {
+      type: "Column",
+      key: "intro",
+      flex: 1,
+      mainAxisAlignment: "center",
+      crossAxisAlignment: "center",
+      gap: 16,
+      padding: { compact: 24, expanded: 48 },
+      children: body
+    }
+  };
+}
+function welcomeView({ error, device } = {}) {
+  const E3 = en5();
+  if (error === "member") return groupGateView(E3, device);
+  if (error === "link") return linkTelegramView(E3, device);
+  const body = [
+    { type: "Text", key: "wTitle", text: E3 ? "Xuper" : "Xuper", textEn: "Xuper", style: "h3", textAlign: "center" },
+    {
+      type: "ElevatedButton",
+      key: "retry",
+      icon: "refresh",
+      labelText: E3 ? "Retry" : "Reintentar",
+      labelTextEn: "Retry",
       onPressed: { event: "activate", timeoutMs: PRESS_MS }
     }
   ];
@@ -11144,6 +11183,76 @@ function welcomeView({ error, device } = {}) {
     body: {
       type: "Column",
       key: "welcome",
+      flex: 1,
+      mainAxisAlignment: "center",
+      crossAxisAlignment: "center",
+      gap: 16,
+      padding: { compact: 24, expanded: 48 },
+      children: body
+    }
+  };
+}
+function loadingView(device) {
+  const E3 = en5();
+  return {
+    type: "Scaffold",
+    appBar: appBar(),
+    body: {
+      type: "Column",
+      key: "activating",
+      flex: 1,
+      mainAxisAlignment: "center",
+      crossAxisAlignment: "center",
+      gap: 16,
+      padding: { compact: 24, expanded: 48 },
+      children: [
+        { type: "CircularProgressIndicator", key: "actSpin" },
+        {
+          type: "Text",
+          key: "actText",
+          color: "muted",
+          textAlign: "center",
+          text: E3 ? "Signing you in\u2026" : "Activando tu acceso\u2026",
+          textEn: "Signing you in\u2026"
+        }
+      ]
+    }
+  };
+}
+function linkTelegramView(E3, device) {
+  const body = [
+    {
+      type: "Text",
+      key: "lTitle",
+      style: "h3",
+      textAlign: "center",
+      text: E3 ? "Validate your Telegram" : "Valida tu Telegram",
+      textEn: "Validate your Telegram"
+    },
+    {
+      type: "Text",
+      key: "lHint",
+      color: "muted",
+      textAlign: "center",
+      text: E3 ? "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back." : "Este aparato todav\xEDa no est\xE1 validado con una cuenta de Telegram. Valida tu Telegram en Kino y vuelve.",
+      textEn: "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back."
+    },
+    {
+      type: "ElevatedButton",
+      key: "lRetry",
+      icon: "refresh",
+      labelText: E3 ? "Retry" : "Reintentar",
+      labelTextEn: "Retry",
+      onPressed: { event: "activate", timeoutMs: PRESS_MS }
+    },
+    supportButton("lSupport", E3, device)
+  ];
+  return {
+    type: "Scaffold",
+    appBar: appBar(),
+    body: {
+      type: "Column",
+      key: "linkTg",
       flex: 1,
       mainAxisAlignment: "center",
       crossAxisAlignment: "center",
@@ -11993,8 +12102,8 @@ function configView({ version, device = "phone", ages = null, now = Date.now(), 
           type: "Text",
           key: "cfgAccHint",
           color: "muted",
-          text: E3 ? "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate." : "Si Xuper dej\xF3 de reconocer tu identidad, reautent\xEDcate (sin desconectar). Desconectarte te lleva de vuelta a \xABActivar\xBB.",
-          textEn: "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to Activate."
+          text: E3 ? "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to the welcome screen." : "Si Xuper dej\xF3 de reconocer tu identidad, reautent\xEDcate (sin desconectar). Desconectarte te lleva de vuelta a la pantalla de bienvenida.",
+          textEn: "If Xuper stopped recognizing your identity, re-authenticate (no need to disconnect). Disconnecting takes you back to the welcome screen."
         },
         {
           type: "ElevatedButton",
@@ -12353,7 +12462,10 @@ async function screen(arg) {
   const state2 = arg && arg.state || {};
   const device = arg && arg.device || "phone";
   if (notMemberActive()) return welcomeView({ error: "member", device });
-  if (!await currentBearer() && (state2.actError || !reloginPending())) return welcomeView({ error: state2.actError, device });
+  if (!await currentBearer()) {
+    if (!introSeen()) return introView(device);
+    return state2.actError ? welcomeView({ error: state2.actError, device }) : loadingView(device);
+  }
   const nav = navName(state2.nav);
   if (nav === "config") {
     const view2 = configView({
@@ -12428,33 +12540,23 @@ function failFlags(tab) {
   return { catFail: !catalog() && !fallbackSectionView(tab), matFail: !matches() };
 }
 async function relogin() {
-  if (await currentBearer() || !reloginPending()) return {};
+  if (await currentBearer()) return {};
+  if (!introSeen()) return {};
   try {
     await ensureBearer();
     await syncReauthNotice();
     return { auth: Date.now(), actError: null };
   } catch (e) {
-    const code = e && e.code;
     try {
-      kino.log("screen: sign-in again failed: " + (code || e && e.message || e));
+      kino.log("screen: auto sign-in failed: " + (e && e.code || e && e.message || e));
     } catch (_) {
     }
-    if (isTokenMissing(e)) {
-      forgetRelogin();
-      reportActivate(e);
-      markReauthNeeded("update");
-      await syncReauthNotice();
-      return { actError: "update" };
-    }
-    if (code === "permission_denied" || code === "not_available" || code === "bad_request") {
-      forgetRelogin();
-      reportActivate(e);
-      const banner = activateBanner(e);
-      markReauthNeeded(banner);
-      await syncReauthNotice();
-      return { actError: banner };
-    }
-    return {};
+    forgetRelogin();
+    reportActivate(e);
+    const banner = activateBanner(e);
+    markReauthNeeded(banner);
+    await syncReauthNotice();
+    return { actError: banner };
   }
 }
 async function onEvent(e, val, state2) {
@@ -12486,6 +12588,19 @@ async function onEvent(e, val, state2) {
         await syncReauthNotice();
         return { state: { actError: b } };
       }
+    case "enter":
+      markIntroSeen();
+      try {
+        await ensureBearer();
+        await syncReauthNotice();
+        return { state: { actError: null } };
+      } catch (e2) {
+        reportActivate(e2);
+        const b = activateBanner(e2);
+        markReauthNeeded(b);
+        await syncReauthNotice();
+        return { state: { actError: b } };
+      }
     case "reauth":
       try {
         await reauth();
@@ -12502,6 +12617,7 @@ async function onEvent(e, val, state2) {
         await clearBearer();
       } catch (_) {
       }
+      clearIntro();
       return { state: {} };
     case "seedChange": {
       const r = await manualChange();
@@ -12689,10 +12805,13 @@ async function upgradeOnce() {
   _done = true;
   try {
     const n = sweepOld();
-    if (n > 0 && await markRelogin()) {
-      try {
-        kino.log("upgrade: data of an older version removed; the screen signs in on its next opening");
-      } catch (_) {
+    if (n > 0) {
+      markIntroSeen();
+      if (await markRelogin()) {
+        try {
+          kino.log("upgrade: data of an older version removed; the screen signs in on its next opening");
+        } catch (_) {
+        }
       }
     }
     return n;

@@ -140,12 +140,15 @@ test("the sweep runs once per runtime (one keys() read), and finds nothing on a 
 
 // ═════════════ the first opening ═════════════
 
-test("a device that ran 2.x: the screen shows the app (not Activar) and its `open` signs in with no tap", async () => {
+test("a device that ran 2.x: the screen shows the loading view (not the intro) and its `open` signs in with no tap", async () => {
   const be = backend("new-bearer");
   const ids = [];
   const k = await updatedDevice({ storage: { ...STORAGE_269, ...storedCatalog() }, routes: [be.route], identity: identityWith(ids, SIGNED) });
+  // The sweep (src/upgrade.js) marks the intro seen for a 2.x device, so the screen goes straight to the loading view
+  // while it signs in by itself — never the one-time intro, never a welcome/Activar.
   const first = await P.screen({ state: {}, device: "tv" });
   assert.equal(byKey(first, "activate"), undefined, "no welcome view for a person who updated");
+  assert.equal(byKey(first, "iEnter"), undefined, "a 2.x upgrade skips the one-time intro");
   const out = await P.screenEvent({ name: "open", state: {} });
   assert.equal(ids.length, 1, "one identity call, no press");
   assert.equal(k.store.get(BEARER_KEY), "new-bearer");
@@ -167,12 +170,29 @@ test("a device that ran 2.x and already signed in to 3.x keeps its Bearer: no si
   assert.equal(k.store.get(BEARER_KEY), "bearer-3x");
 });
 
-test("a new install (no 2.x data) still shows Activar, and `open` never signs in by itself", async () => {
+test("a new install (no 2.x data) shows the one-time intro, and `open` never signs in by itself", async () => {
   const ids = [];
   await updatedDevice({ storage: storedCatalog(), identity: identityWith(ids, SIGNED), noFetch: true });
-  assert.ok(byKey(await P.screen({ state: {} }), "activate"));
+  assert.ok(byKey(await P.screen({ state: {} }), "iEnter"), "a fresh install: the one-time welcome");
   await P.screenEvent({ name: "open", state: {} });
-  assert.equal(ids.length, 0);
+  assert.equal(ids.length, 0, "no sign-in before the person taps Ingresar");
+});
+
+test("a new install: tapping «Ingresar» marks the intro seen and signs in; the intro never shows again", async () => {
+  const be = backend("new-bearer");
+  const ids = [];
+  const k = await updatedDevice({ storage: storedCatalog(), routes: [be.route], identity: identityWith(ids, SIGNED) });
+  assert.ok(byKey(await P.screen({ state: {} }), "iEnter"), "first: the intro");
+  const out = await P.screenEvent({ name: "enter", state: {} });   // the person taps Ingresar
+  assert.equal(ids.length, 1, "Ingresar signs in");
+  assert.equal(k.store.get(BEARER_KEY), "new-bearer");
+  assert.equal(out.state.actError, null);
+  assert.equal(k.store.get("o2:intro"), "1", "the intro is marked seen");
+  // The Bearer dropping later (a server move) never brings the intro back: the intro is seen, so the screen shows the
+  // loading view and signs in by itself.
+  k.store.delete(BEARER_KEY);
+  const after = await P.screen({ state: {} });
+  assert.equal(byKey(after, "iEnter"), undefined, "the intro does not come back on its own");
 });
 
 test("identity without the gate token: nothing is posted to /session and the welcome view says to update Kino (ES and EN)", async () => {
@@ -187,11 +207,12 @@ test("identity without the gate token: nothing is posted to /session and the wel
     assert.ok(!be.seen.some((r) => r.path === "/session"), "no sign-in without the token");
     assert.equal(k.store.has(BEARER_KEY), false);
     const v = await P.screen({ state: out.state });
-    assert.ok(byKey(v, "activate") && byKey(v, "wErrUpd"), "welcome with the update banner");
+    assert.ok(byKey(v, "retry") && byKey(v, "wErrUpd"), "the retry surface with the update banner");
     assert.match(texts(v), lang === "en" ? /latest version of Kino/ : /versión más reciente de Kino/);
+    // Auto-activate retries on each open (no button to press): the moment Kino is updated, the next open recovers.
     await P.screenEvent({ name: "open", state: {} });
-    assert.equal(ids.length, 1, "not asked again by itself");
-    // the person's own press says the same
+    assert.equal(ids.length, 2, "asked again on the next open — it auto-recovers once Kino is up to date");
+    // the person's own press (Reintentar) says the same while Kino is still old
     const pressed = await P.screenEvent({ name: "activate", state: {} });
     assert.equal(pressed.state.actError, "update");
   }

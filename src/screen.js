@@ -31,10 +31,10 @@
 // one-shot `devices` timer, src/devices.js), the Xuper session (own, a backup seed and its time left, none) and the Aportar switch; its
 // `seedChange` event is the person's "Cambiar semilla" (one GET /seed per tap, src/seeds.js) and `contrib` writes the
 // `contributeSeeds` setting. Neither the screen nor its timers ever ask for a seed on their own.
-import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, markReauthNeeded, notMemberActive } from "./api.js";
+import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, markReauthNeeded, notMemberActive, introSeen, markIntroSeen, clearIntro } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
 import { screenCategories, screenList, loadList, fillScreenCategories, exposedIdOf, TICK_BOUNDS, TICK_LOAD_BOUNDS, PICK_BOUNDS } from "./live.js";
-import { welcomeView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
+import { welcomeView, loadingView, introView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
 import { SECTIONS, PLUGIN_VERSION, lang } from "./config.js";
 import { catalog, matches, revalidate, dataAges, loadFallbackSection, fallbackSectionView } from "./data.js";
 import { sectionView } from "./v2.js";
@@ -138,8 +138,13 @@ export async function screen(arg) {
   // Left the Kino group (the freeze): the "join the group" welcome, even with a Bearer stored — every authed call is
   // failing not_member anyway, so showing the catalog would only break. A successful rejoin + /session lifts it.
   if (notMemberActive()) return welcomeView({ error: "member", device });
-  // Never mints; only reads. A Bearer the backend refused keeps the app on screen while `open` signs in again.
-  if (!(await currentBearer()) && (state.actError || !reloginPending())) return welcomeView({ error: state.actError, device });
+  // No session yet. The FIRST time ever (no intro seen), show the one-time welcome (Ingresar + Apoyar) and wait for the
+  // "Ingresar" tap — the `open` event does NOT auto-mint before that. After the intro, Xuper signs in BY ITSELF on open:
+  // a loading screen while it mints, or the cause banner + "Reintentar" (welcomeView) when a sign-in failed.
+  if (!(await currentBearer())) {
+    if (!introSeen()) return introView(device);
+    return state.actError ? welcomeView({ error: state.actError, device }) : loadingView(device);
+  }
   const nav = navName(state.nav);
 
   if (nav === "config") {
@@ -192,30 +197,21 @@ function failFlags(tab) {
  * stays, a later opening tries again).
  */
 async function relogin() {
-  if ((await currentBearer()) || !reloginPending()) return {};
+  if (await currentBearer()) return {};
+  if (!introSeen()) return {};   // first time: wait for the "Ingresar" tap (screen shows introView), don't mint on open
+  // no session yet: sign in BY ITSELF (the screen shows loadingView meanwhile)
   try {
     await ensureBearer();
     await syncReauthNotice();   // signed in: clears any Home-bell "Reautentícate" reminder
     return { auth: Date.now(), actError: null };
   } catch (e) {
-    const code = e && e.code;
-    try { kino.log("screen: sign-in again failed: " + (code || (e && e.message) || e)); } catch (_) { /* no log */ }
-    if (isTokenMissing(e)) {
-      forgetRelogin();
-      reportActivate(e);
-      markReauthNeeded("update");
-      await syncReauthNotice();
-      return { actError: "update" };
-    }
-    if (code === "permission_denied" || code === "not_available" || code === "bad_request") {
-      forgetRelogin();
-      reportActivate(e);
-      const banner = activateBanner(e);
-      markReauthNeeded(banner);   // "consent" sets the reminder; "server" does not
-      await syncReauthNotice();
-      return { actError: banner };   // "consent" (identity off) or "server"
-    }
-    return {};
+    try { kino.log("screen: auto sign-in failed: " + ((e && e.code) || (e && e.message) || e)); } catch (_) { /* no log */ }
+    forgetRelogin();
+    reportActivate(e);
+    const banner = activateBanner(e);   // "update" | "consent" | "link" | "server" | "member"
+    markReauthNeeded(banner);           // "consent"/"update" set the Home-bell reminder; the others do not
+    await syncReauthNotice();
+    return { actError: banner };        // the screen shows the cause banner + "Reintentar" (or the link/group gate)
   }
 }
 
@@ -239,6 +235,12 @@ async function onEvent(e, val, state) {
     case "activate":
       try { await ensureBearer(); await syncReauthNotice(); return { state: { actError: null } }; }   // identity HERE (a press)
       catch (e) { reportActivate(e); const b = activateBanner(e); markReauthNeeded(b); await syncReauthNotice(); return { state: { actError: b } }; }   // "update" | "consent" | "server"
+    case "enter":
+      // The one-time welcome's "Ingresar": mark the intro seen (so later opens sign in by themselves) and sign in now.
+      // Same sign-in as "activate" — on success the catalog shows; on failure the cause banner + "Reintentar".
+      markIntroSeen();
+      try { await ensureBearer(); await syncReauthNotice(); return { state: { actError: null } }; }
+      catch (e) { reportActivate(e); const b = activateBanner(e); markReauthNeeded(b); await syncReauthNotice(); return { state: { actError: b } }; }
     case "reauth":
       // Ajustes ▸ "Reautenticar": mint a FRESH session with the current Kino identity, replacing the stored one only
       // once the new one is in hand (a failed mint never disconnects: the working session stays). On failure the toast
@@ -246,7 +248,10 @@ async function onEvent(e, val, state) {
       try { await reauth(); await syncReauthNotice(); return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY }; }
       catch (e) { reportActivate(e); markReauthNeeded(activateBanner(e)); await syncReauthNotice(); return { toast: reauthToast(false, e), ui: HIDE_BUSY }; }
     case "disconnect":
+      // An explicit "Desconectar" is a real off-switch: drop the Bearer AND forget the intro, so the next open shows the
+      // one-time welcome again (and `open` does not auto-sign-in). Without clearing the intro, auto-mint would undo it.
       try { await clearBearer(); } catch (_) { /* best-effort */ }
+      clearIntro();
       return { state: {} };
     case "seedChange": {
       // Ajustes ▸ "Cambiar semilla" (only drawn while on a seed): at most ONE GET /seed per tap, within the taps' own

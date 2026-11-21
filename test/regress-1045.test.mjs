@@ -89,17 +89,20 @@ function movedBackend({ oldBearer = "old-bearer", newBearer = "new-bearer" } = {
 
 // ═════════════════ BUG-1: moving the backend logged every device out ═════════════════
 
-test("BUG-1: a Bearer the moved backend refuses (401) keeps the app on screen, and `open` signs in again with no tap", async () => {
+test("BUG-1: a Bearer the moved backend refuses (401) → the loading screen, and `open` signs in again with no tap", async () => {
   const ids = [];
   const be = movedBackend();
-  const k = await device({ storage: storedCatalog(), bearer: "old-bearer", routes: [be.route], identity: identityOk(ids) });
+  // An existing user (intro already seen): a cached catalog, a Bearer, and `o2:intro` set.
+  const k = await device({ storage: { ...storedCatalog(), "o2:intro": "1" }, bearer: "old-bearer", routes: [be.route], identity: identityOk(ids) });
   // The first call after the update meets the new backend: 401, the stored session is forgotten; the person reads why.
   await assert.rejects(P.resolve("v:ABC123:1"), (e) => e.userMessage === "La sesión venció. Abre la pantalla de Xuper para reconectarte.");
   assert.equal(k.store.get("o2:bearer"), undefined, "the refused Bearer is dropped (as designed)");
-  // Opening Xuper: the app, not "Bienvenido a Xuper / Activar".
+  // Opening Xuper with no Bearer (but the intro already seen): the loading screen while it signs in by itself — never
+  // the one-time intro, and never a welcome/Activar.
   const first = await P.screen({ state: {}, device: "phone" });
   assert.equal(byKey(first, "activate"), undefined, "no welcome view after a server-side session loss");
-  assert.ok(all(first, (n) => n.type === "titleRail").length > 0, "the catalog is drawn");
+  assert.equal(byKey(first, "iEnter"), undefined, "an existing user never sees the one-time intro");
+  assert.ok(all(first, (n) => n.type === "CircularProgressIndicator").length > 0, "the loading screen shows while it signs in");
   // `open` (the screen's own event: identity is allowed there, Kino approved it at install) signs in again.
   const out = await P.screenEvent({ name: "open", state: {} });
   assert.equal(ids.length, 1, "one identity call, no press");
@@ -108,41 +111,45 @@ test("BUG-1: a Bearer the moved backend refuses (401) keeps the app on screen, a
   assert.ok(out.state && out.state.auth > 0, "the answer re-renders the screen");
   const again = await P.screen({ state: out.state });
   assert.equal(byKey(again, "activate"), undefined);
+  assert.ok(all(again, (n) => n.type === "titleRail").length > 0, "the catalog is drawn once signed in");
   // and nothing more on the next opening
   await P.screenEvent({ name: "open", state: {} });
   assert.equal(ids.length, 1);
 });
 
-test("BUG-1 guard: «Desconectar» and a first install still show the welcome view; `open` never signs in by itself", async () => {
+test("BUG-1 guard: a first install shows the one-time intro and «Desconectar» returns to it; `open` never signs in by itself", async () => {
   const ids = [];
   await device({ storage: storedCatalog(), bearer: null, identity: identityOk(ids), noFetch: true });
-  assert.ok(byKey(await P.screen({ state: {} }), "activate"), "never activated: welcome");
+  assert.ok(byKey(await P.screen({ state: {} }), "iEnter"), "never activated: the one-time intro");
   await P.screenEvent({ name: "open", state: {} });
   assert.equal(ids.length, 0);
 
   const be = movedBackend();
-  const k = await device({ storage: storedCatalog(), bearer: "old-bearer", routes: [be.route], identity: identityOk(ids) });
+  // An existing user (intro seen) disconnects: it clears the Bearer AND the intro, back to the one-time welcome.
+  const k = await device({ storage: { ...storedCatalog(), "o2:intro": "1" }, bearer: "old-bearer", routes: [be.route], identity: identityOk(ids) });
   await assert.rejects(P.resolve("v:ABC123:1"));            // 401: a sign-in is pending
   await P.screenEvent({ name: "disconnect", state: {} });    // the person disconnects anyway
-  assert.ok(byKey(await P.screen({ state: {} }), "activate"), "disconnected: welcome");
+  assert.ok(byKey(await P.screen({ state: {} }), "iEnter"), "disconnected: back to the one-time intro");
   await P.screenEvent({ name: "open", state: {} });
   assert.equal(ids.length, 0, "a disconnected person is never signed in without a press");
   assert.equal(k.store.get("o2:bearer"), undefined);
 });
 
-test("BUG-1: the person's identity says no → the welcome view with its error, and no sign-in loop", async () => {
+test("BUG-1: the person's identity says no → the retry surface with its error; `open` auto-recovers once it's back on", async () => {
   let asked = 0;
   const be = movedBackend();
   const refused = async () => { asked++; throw Object.assign(new Error("switched off"), { code: "permission_denied" }); };
-  await device({ storage: storedCatalog(), bearer: "old-bearer", routes: [be.route], identity: refused });
+  await device({ storage: { ...storedCatalog(), "o2:intro": "1" }, bearer: "old-bearer", routes: [be.route], identity: refused });
   await assert.rejects(P.resolve("v:ABC123:1"));
   const out = await P.screenEvent({ name: "open", state: {} });
   assert.equal(asked, 1);
-  assert.equal(out.state.actError, "consent");   // identity off/denied → the "turn it on in settings" banner, not a retry
+  assert.equal(out.state.actError, "consent");   // identity off/denied → the "turn it on in settings" banner
   const v = await P.screen({ state: out.state });
-  assert.ok(byKey(v, "activate") && byKey(v, "wErrId"), "welcome with the identity banner");
+  assert.ok(byKey(v, "retry") && byKey(v, "wErrId"), "the retry surface with the identity banner");
+  // Auto-activate retries on each open (no "Activar" button to press): the moment the permission is back on, the next
+  // opening recovers by itself. While it is still off, the call simply fails again (kino.identity never re-prompts).
   await P.screenEvent({ name: "open", state: {} });
-  assert.equal(asked, 1, "not asked again by itself: the person presses Activar");
+  assert.equal(asked, 2, "signed in again on the next open — it auto-recovers without a tap when the permission returns");
 });
 
 // ═════════════════ BUG-8: the catalog's search button did nothing ═════════════════

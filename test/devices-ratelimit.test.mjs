@@ -52,6 +52,7 @@ function walk(node, fn) {
   for (const v of Object.values(node)) if (v && typeof v === "object") walk(v, fn);
 }
 const byKey = (tree, key) => { let out = null; walk(tree, (n) => { if (!out && n.key === key) out = n; }); return out; };
+const byType = (tree, type) => { const out = []; walk(tree, (n) => { if (n.type === type) out.push(n); }); return out; };
 const texts = (tree) => { const out = []; walk(tree, (n) => { if (typeof n.text === "string") out.push(n.text); if (typeof n.title === "string") out.push(n.title); }); return out; };
 const timers = (tree) => (Array.isArray(tree.every) ? tree.every : tree.every ? [tree.every] : []).map((t) => t.event);
 const inLang = async (lang, fn) => { const was = globalThis.kino.lang; globalThis.kino.lang = lang; try { return await fn(); } finally { globalThis.kino.lang = was; } };
@@ -133,15 +134,18 @@ test("the card: used of max, newest first as listed, this phone marked, plugins 
   assert.equal(byKey(configView({ version: "1.0.46", now }), "cfgDevices"), null);
 });
 
-test("401 on /devices: the Bearer is dropped and the screen signs in again on its next opening (o2:relogin); the card stays hidden", async () => {
-  const k = await device((p) => (p === "/devices" ? res(401, "") : undefined));
+test("401 on /devices: the Bearer is dropped and the screen signs in again on its next opening (o2:relogin); the loading screen shows", async () => {
+  const k = await device((p) => (p === "/devices" ? res(401, "") : undefined), { "o2:intro": "1" });
   const state = { nav: "config" };
   const out = await ev("devices", state);
   assert.equal(k.kino.storage.get("o2:bearer"), null, "the refused Bearer is gone");
   assert.equal(k.kino.storage.get("o2:relogin"), "1", "marked for the screen's sign-in again");
   const v = await draw({ ...state, ...out.state });
   assert.equal(byKey(v, "cfgDevices"), null);
-  assert.ok(byKey(v, "cfgAccount"), "the app stays on screen (not the welcome view)");
+  // The intro is already seen, so with the Bearer gone the screen shows the loading view (it signs in by itself on open),
+  // never the one-time intro.
+  assert.ok(byType(v, "CircularProgressIndicator").length === 1, "the loading screen shows while it signs in again");
+  assert.ok(!byKey(v, "iEnter"), "not the one-time intro");
   assert.deepEqual(timers(v), [], "and does not ask again in this visit");
 });
 

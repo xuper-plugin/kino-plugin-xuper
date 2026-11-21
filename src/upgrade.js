@@ -6,7 +6,7 @@
 // device ran 2.x: with no Bearer stored, the screen's next `open` signs in with no tap (src/api.js markRelogin), since
 // the person approved the identity on the update's consent sheet. Never throws: an update must not fail a call.
 import { sweepOld } from "./store.js";
-import { markRelogin } from "./api.js";
+import { markRelogin, markIntroSeen } from "./api.js";
 
 let _done = false;
 
@@ -19,8 +19,13 @@ export async function upgradeOnce() {
   _done = true;
   try {
     const n = sweepOld();
-    if (n > 0 && (await markRelogin())) {
-      try { kino.log("upgrade: data of an older version removed; the screen signs in on its next opening"); } catch (_) { /* no log */ }
+    if (n > 0) {
+      // A device that ran 2.x is an existing user: skip the one-time welcome (markIntroSeen) so its next `open` signs in
+      // with no tap, straight into the app (the person already approved the identity on the update's consent sheet).
+      markIntroSeen();
+      if (await markRelogin()) {
+        try { kino.log("upgrade: data of an older version removed; the screen signs in on its next opening"); } catch (_) { /* no log */ }
+      }
     }
     return n;
   } catch (_) {
