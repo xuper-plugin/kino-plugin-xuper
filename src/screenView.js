@@ -102,17 +102,17 @@ export function supportButton(key, E, device) {
       type: "Column", key, crossAxisAlignment: "center",
       children: [
         { type: "Text", key: key + "Cap", color: "muted", textAlign: "center",
-          text: E ? "Scan with your phone to support Xuper on Ko-fi" : "Escanea con tu celular para apoyar a Xuper en Ko-fi",
-          textEn: "Scan with your phone to support Xuper on Ko-fi" },
+          text: E ? "If you want to support me, scan with your phone (Ko-fi)" : "Si quieres apoyarme, escanea con tu celular (Ko-fi)",
+          textEn: "If you want to support me, scan with your phone (Ko-fi)" },
         { type: "QrImage", key: key + "Qr", value: SUPPORT_URL, size: "large" },
       ],
     };
   }
   return {
     type: "Button", variant: "secondary", key, icon: "heart",
-    labelText: E ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aquí",
-    labelTextEn: "If you want to support me, click here",
-    onPressed: { go: { url: { href: SUPPORT_URL, title: E ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } },
+    labelText: E ? "If you want to support me, you can do it here" : "Si quieres apoyarme, puedes hacerlo aquí",
+    labelTextEn: "If you want to support me, you can do it here",
+    onPressed: { go: { url: { href: SUPPORT_URL, title: E ? "Support me on Ko-fi" : "Apóyame en Ko-fi" } } },
   };
 }
 
@@ -965,8 +965,8 @@ export function configView({ version, device = "phone", ages = null, now = Date.
       { type: "Card", key: "cfgSupport", children: [
         { type: "Text", key: "cfgSupTitle", style: "h4", text: E ? "Support" : "Apoyar", textEn: "Support" },
         { type: "Text", key: "cfgSupHint", color: "muted",
-          text: E ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
-          textEn: "If you like Xuper, you can support it on Ko-fi." },
+          text: E ? "If you like Xuper, you can support me on Ko-fi." : "Si te gusta Xuper, puedes apoyarme en Ko-fi.",
+          textEn: "If you like Xuper, you can support me on Ko-fi." },
         supportButton("cfgSupportBtn", E, device),
       ] },
       ...(devices ? [devicesCard(devices, now, device)] : []),

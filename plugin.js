@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.5";
+var PLUGIN_VERSION = "3.1.6";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -11084,8 +11084,8 @@ function supportButton(key, E3, device) {
           key: key + "Cap",
           color: "muted",
           textAlign: "center",
-          text: E3 ? "Scan with your phone to support Xuper on Ko-fi" : "Escanea con tu celular para apoyar a Xuper en Ko-fi",
-          textEn: "Scan with your phone to support Xuper on Ko-fi"
+          text: E3 ? "If you want to support me, scan with your phone (Ko-fi)" : "Si quieres apoyarme, escanea con tu celular (Ko-fi)",
+          textEn: "If you want to support me, scan with your phone (Ko-fi)"
         },
         { type: "QrImage", key: key + "Qr", value: SUPPORT_URL, size: "large" }
       ]
@@ -11096,9 +11096,9 @@ function supportButton(key, E3, device) {
     variant: "secondary",
     key,
     icon: "heart",
-    labelText: E3 ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aqu\xED",
-    labelTextEn: "If you want to support me, click here",
-    onPressed: { go: { url: { href: SUPPORT_URL, title: E3 ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi" } } }
+    labelText: E3 ? "If you want to support me, you can do it here" : "Si quieres apoyarme, puedes hacerlo aqu\xED",
+    labelTextEn: "If you want to support me, you can do it here",
+    onPressed: { go: { url: { href: SUPPORT_URL, title: E3 ? "Support me on Ko-fi" : "Ap\xF3yame en Ko-fi" } } }
   };
 }
 function introView(device) {
@@ -12130,8 +12130,8 @@ function configView({ version, device = "phone", ages = null, now = Date.now(), 
           type: "Text",
           key: "cfgSupHint",
           color: "muted",
-          text: E3 ? "If you like Xuper, you can support it on Ko-fi." : "Si te gusta Xuper, puedes apoyarlo en Ko-fi.",
-          textEn: "If you like Xuper, you can support it on Ko-fi."
+          text: E3 ? "If you like Xuper, you can support me on Ko-fi." : "Si te gusta Xuper, puedes apoyarme en Ko-fi.",
+          textEn: "If you like Xuper, you can support me on Ko-fi."
         },
         supportButton("cfgSupportBtn", E3, device)
       ] },

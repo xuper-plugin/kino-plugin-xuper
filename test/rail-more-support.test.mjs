@@ -143,10 +143,10 @@ test("«Apoyar» sits below Activate (and below its error) and in Ajustes: Kino'
       assert.equal(b.type, "Button");
       assert.equal(b.variant, "secondary");
       assert.equal(b.icon, "heart");
-      assert.equal(b.labelText, lang === "en" ? "If you want to support me, click here" : "Si me quieres apoyar, haz clic aquí");
-      assert.equal(b.labelTextEn, "If you want to support me, click here");
+      assert.equal(b.labelText, lang === "en" ? "If you want to support me, you can do it here" : "Si quieres apoyarme, puedes hacerlo aquí");
+      assert.equal(b.labelTextEn, "If you want to support me, you can do it here");
       assert.equal(b.onPressed.go.url.href, KO_FI);
-      assert.equal(b.onPressed.go.url.title, lang === "en" ? "Support Xuper on Ko-fi" : "Apoya a Xuper en Ko-fi");
+      assert.equal(b.onPressed.go.url.title, lang === "en" ? "Support me on Ko-fi" : "Apóyame en Ko-fi");
       assert.equal(b.onPressed.event, undefined, "Kino opens it itself: no plugin call");
     }
     const card = byKey(configView({ version: "3.0.1" }), "cfgSupport");
