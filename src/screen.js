@@ -31,7 +31,7 @@
 // one-shot `devices` timer, src/devices.js), the Xuper session (own, a backup seed and its time left, none) and the Aportar switch; its
 // `seedChange` event is the person's "Cambiar semilla" (one GET /seed per tap, src/seeds.js) and `contrib` writes the
 // `contributeSeeds` setting. Neither the screen nor its timers ever ask for a seed on their own.
-import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, markReauthNeeded, notMemberActive, introSeen, markIntroSeen, clearIntro } from "./api.js";
+import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, activateCause, identityWhy, markReauthNeeded, notMemberActive, introSeen, markIntroSeen, clearIntro } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
 import { screenCategories, screenList, loadList, fillScreenCategories, exposedIdOf, TICK_BOUNDS, TICK_LOAD_BOUNDS, PICK_BOUNDS } from "./live.js";
 import { welcomeView, loadingView, introView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
@@ -196,21 +196,42 @@ function failFlags(tab) {
  * without the gate token (the welcome view says to update Kino) | `{}` (nothing to do, or the backend is down: the app
  * stays, a later opening tries again).
  */
+/** A line in the plugin's own log (Ajustes ▸ the plugin's debug log, the one a person can share). Never throws. */
+function slog(line) {
+  try { kino.log("screen: " + line); } catch (_) { /* no log */ }
+}
+
+/**
+ * Every sign-in path ends here on failure: one log line that says what started it ([via]: "enter" = the welcome's
+ * "Ingresar", "open" = the sign-in Xuper does by itself, "activate" = "Reintentar", "reauth" = Ajustes), what failed
+ * (cause), Kino's reason for a not_available identity (why: no_tg | no_key | key_failed | no_attest) and which screen
+ * that leads to (banner: "link" is the "Valida tu Telegram" gate); then the report for the error board and the Home-bell
+ * reminder. Returns the banner.
+ */
+async function signInFailed(e, via) {
+  const banner = activateBanner(e);   // "update" | "consent" | "link" | "server" | "member"
+  const why = identityWhy(e);
+  slog("sign-in via=" + via + " FAILED cause=" + activateCause(e) + (why ? " why=" + why : "") + " -> banner=" + banner +
+    " code=" + ((e && e.code) || "-") + " msg=" + String((e && e.message) || e).slice(0, 160));
+  reportActivate(e, via);
+  markReauthNeeded(banner);           // "consent"/"update" set the Home-bell reminder; the others do not
+  await syncReauthNotice();
+  return banner;
+}
+
 async function relogin() {
   if (await currentBearer()) return {};
-  if (!introSeen()) return {};   // first time: wait for the "Ingresar" tap (screen shows introView), don't mint on open
+  if (!introSeen()) { slog("open: no session and the welcome was never passed -> the one-time welcome (Ingresar)"); return {}; }
   // no session yet: sign in BY ITSELF (the screen shows loadingView meanwhile)
+  slog("sign-in via=open: no session stored, signing in by itself");
   try {
     await ensureBearer();
     await syncReauthNotice();   // signed in: clears any Home-bell "Reautentícate" reminder
+    slog("sign-in via=open OK");
     return { auth: Date.now(), actError: null };
   } catch (e) {
-    try { kino.log("screen: auto sign-in failed: " + ((e && e.code) || (e && e.message) || e)); } catch (_) { /* no log */ }
     forgetRelogin();
-    reportActivate(e);
-    const banner = activateBanner(e);   // "update" | "consent" | "link" | "server" | "member"
-    markReauthNeeded(banner);           // "consent"/"update" set the Home-bell reminder; the others do not
-    await syncReauthNotice();
+    const banner = await signInFailed(e, "open");
     return { actError: banner };        // the screen shows the cause banner + "Reintentar" (or the link/group gate)
   }
 }
@@ -233,20 +254,25 @@ async function onEvent(e, val, state) {
       return Object.keys(patch).length ? { state: patch } : {};
     }
     case "activate":
-      try { await ensureBearer(); await syncReauthNotice(); return { state: { actError: null } }; }   // identity HERE (a press)
-      catch (e) { reportActivate(e); const b = activateBanner(e); markReauthNeeded(b); await syncReauthNotice(); return { state: { actError: b } }; }   // "update" | "consent" | "server"
+      // "Reintentar" (the cause banner's, or the "Valida tu Telegram" gate's after the person validated in Kino).
+      slog("sign-in via=activate: Reintentar pressed (last banner=" + (state.actError || "-") + ")");
+      try { await ensureBearer(); await syncReauthNotice(); slog("sign-in via=activate OK"); return { state: { actError: null } }; }   // identity HERE (a press)
+      catch (e) { return { state: { actError: await signInFailed(e, "activate") } }; }   // "update" | "consent" | "link" | "server" | "member"
     case "enter":
       // The one-time welcome's "Ingresar": mark the intro seen (so later opens sign in by themselves) and sign in now.
-      // Same sign-in as "activate" — on success the catalog shows; on failure the cause banner + "Reintentar".
+      // Same sign-in as "activate" — on success the catalog shows; on failure the cause banner + "Reintentar" (or the
+      // "Valida tu Telegram" gate when Kino has no Telegram identity for this device).
+      slog("sign-in via=enter: Ingresar pressed (welcome passed; later opens sign in by themselves)");
       markIntroSeen();
-      try { await ensureBearer(); await syncReauthNotice(); return { state: { actError: null } }; }
-      catch (e) { reportActivate(e); const b = activateBanner(e); markReauthNeeded(b); await syncReauthNotice(); return { state: { actError: b } }; }
+      try { await ensureBearer(); await syncReauthNotice(); slog("sign-in via=enter OK"); return { state: { actError: null } }; }
+      catch (e) { return { state: { actError: await signInFailed(e, "enter") } }; }
     case "reauth":
       // Ajustes ▸ "Reautenticar": mint a FRESH session with the current Kino identity, replacing the stored one only
       // once the new one is in hand (a failed mint never disconnects: the working session stays). On failure the toast
       // points the person at re-linking their Telegram identity in Kino; on success Xuper stays connected.
-      try { await reauth(); await syncReauthNotice(); return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY }; }
-      catch (e) { reportActivate(e); markReauthNeeded(activateBanner(e)); await syncReauthNotice(); return { toast: reauthToast(false, e), ui: HIDE_BUSY }; }
+      slog("sign-in via=reauth: Reautenticar pressed");
+      try { await reauth(); await syncReauthNotice(); slog("sign-in via=reauth OK"); return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY }; }
+      catch (e) { await signInFailed(e, "reauth"); return { toast: reauthToast(false, e), ui: HIDE_BUSY }; }
     case "disconnect":
       // An explicit "Desconectar" is a real off-switch: drop the Bearer AND forget the intro, so the next open shows the
       // one-time welcome again (and `open` does not auto-sign-in). Without clearing the intro, auto-mint would undo it.

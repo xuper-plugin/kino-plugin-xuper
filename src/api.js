@@ -163,12 +163,36 @@ export function activateCause(e) {
 }
 
 /**
+ * Which of Kino's reasons is behind a `not_available` identity answer, from the message Kino gives each one
+ * (PluginIdentityBridge): the device was never validated with a Telegram account, or its validation predates the
+ * Telegram id (no_tg); this install has no device key to sign the challenge (no_key) or the key failed to sign
+ * (key_failed); or Kino could not attest the installed plugin (no_attest). They all show the same "Valida tu Telegram"
+ * gate, but only no_tg is fixed by re-validating Telegram, so the board must tell them apart. "" for any other error.
+ */
+export function identityWhy(e) {
+  if (!e || e.code !== "not_available") return "";
+  const m = String((e && e.message) || "").toLowerCase();
+  if (m.includes("never validated")) return "no_tg";
+  if (m.includes("right now")) return "key_failed";        // "cannot sign a challenge right now": the key threw
+  if (m.includes("cannot sign")) return "no_key";          // "cannot sign a challenge": no device keys at all
+  if (m.includes("attest")) return "no_attest";
+  return "unknown";
+}
+
+/** The trigger words a report may carry (`via=`): the button or event that started the sign-in. */
+const VIA = new Set(["enter", "open", "activate", "reauth"]);
+
+/**
  * Tells Kino's error board (GlitchTip; telemetry is on) WHY an activation failed, as a non-fatal degraded report
  * (`kino.log.report`, throttled to once an hour per device): the fleet's cause distribution shows up without a thrown
- * error, so "No se pudo activar" stops being a black box. The line carries only the cause word, never anything private.
+ * error, so "No se pudo activar" stops being a black box. The line carries only fixed words, never anything private:
+ * `cause=` (activateCause), `why=` (identityWhy, for a not_available identity) and `via=` — what started the sign-in:
+ * enter (the welcome's "Ingresar"), open (the sign-in Xuper does by itself), activate ("Reintentar"), reauth (Ajustes).
  */
-export function reportActivate(e) {
-  try { kino.log.report("activate_fail cause=" + activateCause(e)); } catch (_) { /* telemetry off, or an older Kino */ }
+export function reportActivate(e, via) {
+  const why = identityWhy(e);
+  const line = "activate_fail cause=" + activateCause(e) + (why ? " why=" + why : "") + (VIA.has(via) ? " via=" + via : "");
+  try { kino.log.report(line); } catch (_) { /* telemetry off, or an older Kino */ }
 }
 
 /**

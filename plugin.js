@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.7";
+var PLUGIN_VERSION = "3.1.8";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -284,9 +284,21 @@ function activateCause(e) {
   if (code) return "err_" + String(code).replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 24);
   return "unknown";
 }
-function reportActivate(e) {
+function identityWhy(e) {
+  if (!e || e.code !== "not_available") return "";
+  const m = String(e && e.message || "").toLowerCase();
+  if (m.includes("never validated")) return "no_tg";
+  if (m.includes("right now")) return "key_failed";
+  if (m.includes("cannot sign")) return "no_key";
+  if (m.includes("attest")) return "no_attest";
+  return "unknown";
+}
+var VIA = /* @__PURE__ */ new Set(["enter", "open", "activate", "reauth"]);
+function reportActivate(e, via) {
+  const why4 = identityWhy(e);
+  const line = "activate_fail cause=" + activateCause(e) + (why4 ? " why=" + why4 : "") + (VIA.has(via) ? " via=" + via : "");
   try {
-    kino.log.report("activate_fail cause=" + activateCause(e));
+    kino.log.report(line);
   } catch (_) {
   }
 }
@@ -12563,23 +12575,36 @@ async function tryFallback(tab) {
 function failFlags(tab) {
   return { catFail: !catalog() && !fallbackSectionView(tab), matFail: !matches() };
 }
+function slog(line) {
+  try {
+    kino.log("screen: " + line);
+  } catch (_) {
+  }
+}
+async function signInFailed(e, via) {
+  const banner = activateBanner(e);
+  const why4 = identityWhy(e);
+  slog("sign-in via=" + via + " FAILED cause=" + activateCause(e) + (why4 ? " why=" + why4 : "") + " -> banner=" + banner + " code=" + (e && e.code || "-") + " msg=" + String(e && e.message || e).slice(0, 160));
+  reportActivate(e, via);
+  markReauthNeeded(banner);
+  await syncReauthNotice();
+  return banner;
+}
 async function relogin() {
   if (await currentBearer()) return {};
-  if (!introSeen()) return {};
+  if (!introSeen()) {
+    slog("open: no session and the welcome was never passed -> the one-time welcome (Ingresar)");
+    return {};
+  }
+  slog("sign-in via=open: no session stored, signing in by itself");
   try {
     await ensureBearer();
     await syncReauthNotice();
+    slog("sign-in via=open OK");
     return { auth: Date.now(), actError: null };
   } catch (e) {
-    try {
-      kino.log("screen: auto sign-in failed: " + (e && e.code || e && e.message || e));
-    } catch (_) {
-    }
     forgetRelogin();
-    reportActivate(e);
-    const banner = activateBanner(e);
-    markReauthNeeded(banner);
-    await syncReauthNotice();
+    const banner = await signInFailed(e, "open");
     return { actError: banner };
   }
 }
@@ -12601,39 +12626,35 @@ async function onEvent(e, val, state2) {
       return Object.keys(patch).length ? { state: patch } : {};
     }
     case "activate":
+      slog("sign-in via=activate: Reintentar pressed (last banner=" + (state2.actError || "-") + ")");
       try {
         await ensureBearer();
         await syncReauthNotice();
+        slog("sign-in via=activate OK");
         return { state: { actError: null } };
       } catch (e2) {
-        reportActivate(e2);
-        const b = activateBanner(e2);
-        markReauthNeeded(b);
-        await syncReauthNotice();
-        return { state: { actError: b } };
+        return { state: { actError: await signInFailed(e2, "activate") } };
       }
     case "enter":
+      slog("sign-in via=enter: Ingresar pressed (welcome passed; later opens sign in by themselves)");
       markIntroSeen();
       try {
         await ensureBearer();
         await syncReauthNotice();
+        slog("sign-in via=enter OK");
         return { state: { actError: null } };
       } catch (e2) {
-        reportActivate(e2);
-        const b = activateBanner(e2);
-        markReauthNeeded(b);
-        await syncReauthNotice();
-        return { state: { actError: b } };
+        return { state: { actError: await signInFailed(e2, "enter") } };
       }
     case "reauth":
+      slog("sign-in via=reauth: Reautenticar pressed");
       try {
         await reauth();
         await syncReauthNotice();
+        slog("sign-in via=reauth OK");
         return { toast: reauthToast(true), state: { actError: null, sRev: Date.now() }, ui: HIDE_BUSY };
       } catch (e2) {
-        reportActivate(e2);
-        markReauthNeeded(activateBanner(e2));
-        await syncReauthNotice();
+        await signInFailed(e2, "reauth");
         return { toast: reauthToast(false, e2), ui: HIDE_BUSY };
       }
     case "disconnect":
