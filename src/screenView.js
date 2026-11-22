@@ -282,6 +282,11 @@ const slideNode = (s) => ({
 const hero = (slides) => (slides.length === 1 ? slideNode(slides[0])
   : { type: "PageView", key: "hero" + slides.length, autoPlayMs: 6_000, children: slides.map(slideNode) });
 
+// The catalog list has no side padding of its own: the hero runs edge to edge (owner, 2026-11-22) and every other item
+// keeps the page's side room through this margin (12 on a phone, 24 on a large screen / TV).
+const SIDE = { compact: { x: 12 }, expanded: { x: 24 } };
+const inset = (node) => ({ ...node, margin: SIDE });
+
 const skeletonRail = (n) => ({
   type: "Column", key: "skel" + n, gap: 8, children: [
     { type: "Skeleton", key: "skl" + n, shape: "line", width: 160 },
@@ -369,32 +374,32 @@ export function catalogView({ tab, view, fTag = "", device = "phone", failed = f
   const body = [];
   let genres = [];
   if (!view && failed) {
-    body.push({ type: "MaterialBanner", key: "failed", role: "error",
+    body.push({ type: "MaterialBanner", key: "failed", role: "error", margin: SIDE,
       text: E ? "Could not load. Check your connection." : "No se pudo cargar. Revisa la conexión.",
       textEn: "Could not load. Check your connection.",
       action: { label: E ? "Retry" : "Reintentar", labelEn: "Retry", onTap: busyEvent("reload") } });
   } else if (!view) {
     body.push({ type: "Skeleton", key: "heroSkel", shape: "block", height: HERO_H },
-      skeletonRail(1), skeletonRail(2), skeletonRail(3));
+      inset(skeletonRail(1)), inset(skeletonRail(2)), inset(skeletonRail(3)));
   } else {
     const adult = tab === "adultos";
     genres = view.genres || [];
     if (fTag) {
       const [es, enL] = genreLabels(fTag);
-      body.push({ type: "Row", key: "fChip", gap: 8, crossAxisAlignment: "center", children: [
+      body.push({ type: "Row", key: "fChip", gap: 8, crossAxisAlignment: "center", margin: SIDE, children: [
         { type: "Text", key: "fLabel", text: E ? `Genre: ${enL}` : `Género: ${es}`, textEn: `Genre: ${enL}`, style: "caption", color: "primary", flex: 1, maxLines: 1 },
         { type: "TextButton", key: "fClear", labelText: E ? "Clear" : "Quitar", labelTextEn: "Clear", onPressed: { event: "fTag", arg: "" } },
       ] });
       const filtered = (view.all || []).filter((it) => (it.genres || []).includes(fTag));
-      body.push(filtered.length
+      body.push(inset(filtered.length
         ? { type: "titleGrid", key: "fGrid", columns: { compact: 3, expanded: 6 }, items: filtered.slice(0, 60) }
-        : { type: "Text", key: "fEmpty", color: "muted", text: E ? "No results" : "Sin resultados", textEn: "No results" });
+        : { type: "Text", key: "fEmpty", color: "muted", text: E ? "No results" : "Sin resultados", textEn: "No results" }));
     } else {
       // No hero on the adult tab (Kino does not gate a heroCard by 18+); its rail items carry adult:true.
       if (!adult && view.slides && view.slides.length) body.push(hero(view.slides));
-      const rails = (view.rails || []).map(railNode);
+      const rails = (view.rails || []).map(railNode).map(inset);
       if (rails.length) body.push(...rails);
-      else body.push({ type: "Text", key: "empty", color: "muted", text: E ? "No content" : "Sin contenido", textEn: "No content" });
+      else body.push(inset({ type: "Text", key: "empty", color: "muted", text: E ? "No content" : "Sin contenido", textEn: "No content" }));
     }
   }
   const searchBtn = { type: "IconButton", key: "search", icon: "search", labelText: E ? "Search" : "Buscar", labelTextEn: "Search", tooltip: E ? "Search" : "Buscar", tooltipEn: "Search", onPressed: { ui: [{ open: "searchSheet" }] } };
@@ -411,7 +416,7 @@ export function catalogView({ tab, view, fTag = "", device = "phone", failed = f
       // Room above and below the section menu (the owner, 2026-11-18: it looked squeezed between the bar and the list). A
       // margin, not a padding: Kino before its fix draws a TV TabBar without its padding.
       { type: "TabBar", key: "tabs", divider: false, margin: { top: 8, bottom: 8 }, value: tab, onChanged: "tab", tabs },
-      { type: "ListView", key: "list-" + tab + (fTag ? "-f" : ""), flex: 1, padding: { compact: 12, expanded: 24 }, gap: 16, items: body },
+      { type: "ListView", key: "list-" + tab + (fTag ? "-f" : ""), flex: 1, padding: { compact: { bottom: 12 }, expanded: { bottom: 24 } }, gap: 16, items: body },
       ...sheets,
     ] },
   };

@@ -191,7 +191,7 @@ test("screen events: Cambiar semilla's toasts (changed, 503, this hour, offline,
 
 test("24. manifest: telemetry true, the contributeSeeds toggle (default on) with its ES and EN texts, version 3.0.9", () => {
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
-  assert.equal(m.version, "3.1.12");
+  assert.equal(m.version, "3.1.13");
   assert.equal(m.telemetry, true, "the error board reports (kino.log.report) need telemetry declared");
   const s = m.settings.find((x) => x.key === "contributeSeeds");
   assert.deepEqual(s, {
