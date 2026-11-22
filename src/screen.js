@@ -34,16 +34,18 @@
 import { ensureBearer, reauth, currentBearer, clearBearer, reloginPending, forgetRelogin, sessionExpiredText, trialAtOpen, isTokenMissing, reportActivate, activateBanner, activateCause, identityWhy, markReauthNeeded, notMemberActive, introSeen, markIntroSeen, clearIntro } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
 import { screenCategories, screenList, loadList, fillScreenCategories, exposedIdOf, TICK_BOUNDS, TICK_LOAD_BOUNDS, PICK_BOUNDS } from "./live.js";
-import { welcomeView, loadingView, introView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
+import { welcomeView, loadingView, introView, setupView, catalogView, deportesView, vivoView, configView, liveSignature, SEARCH_FIELD, LV_STEP, LV_PAGE } from "./screenView.js";
 import { SECTIONS, PLUGIN_VERSION, lang } from "./config.js";
 import { catalog, matches, revalidate, dataAges, loadFallbackSection, fallbackSectionView } from "./data.js";
 import { sectionView } from "./v2.js";
 import { sessionStatus } from "./sources/xuper.js";
 import { manualChange } from "./seeds.js";
 import { contribInfo } from "./seedContrib.js";
+import { prepareAll, prepPoll, prepActive } from "./setup.js";
 import { devicesNow, devicesAsked, forgetDevices, loadDevices } from "./devices.js";
 
 const HIDE_BUSY = [{ hide: "busy" }];
+const PREP_TIMER = { ms: 2000, event: "prepPoll" };   // "Preparar todo": follows Movie+/HDFull through kino.plugins.setupStatus
 // A timer's answer drops `ui`: it hides the busy bar through the state instead (Kino merges `ui.hidden` per key).
 const TICK_HIDE_BUSY = { ui: { hidden: { busy: true } } };
 const EMPTY_VIEW = { slides: [], rails: [], genres: [], all: [] };
@@ -145,13 +147,23 @@ export async function screen(arg) {
     if (!introSeen()) return introView(device);
     return state.actError ? welcomeView({ error: state.actError, device }) : loadingView(device);
   }
+  // The manifest's `setup.route`: Kino opens the screen here when it asks for Xuper's setup. Signed in now, what is left is
+  // preparing the others.
+  if (arg && arg.route && arg.route.name === "setup") {
+    const view = setupView({ prep: state.prep, device });
+    return prepActive(state) ? { ...view, every: [PREP_TIMER] } : view;
+  }
   const nav = navName(state.nav);
 
   if (nav === "config") {
     const view = configView({ version: PLUGIN_VERSION, device, ages: dataAges(), now: Date.now(), seeds: sessionStatus(), contrib: contribInfo(),
-      devices: devicesNow() });
-    // "Dispositivos": asked once per visit by a one-shot timer (the view shows at once; the card appears when it answers).
-    return !devicesAsked() && !state.devTried ? { ...view, every: [{ ms: 1000, event: "devices" }] } : view;
+      devices: devicesNow(), prep: state.prep });
+    // "Dispositivos": asked once per visit by a one-shot timer (the view shows at once; the card appears when it answers);
+    // "Preparar todo" follows the others' setup with its own poll timer while one is setting up.
+    const every = [];
+    if (!devicesAsked() && !state.devTried) every.push({ ms: 1000, event: "devices" });
+    if (prepActive(state)) every.push(PREP_TIMER);
+    return every.length ? { ...view, every } : view;
   }
 
   if (nav === "deportes") {
@@ -266,6 +278,13 @@ async function onEvent(e, val, state) {
       markIntroSeen();
       try { await ensureBearer(); await syncReauthNotice(); slog("sign-in via=enter OK"); return { state: { actError: null } }; }
       catch (e) { return { state: { actError: await signInFailed(e, "enter") } }; }
+    case "prepareAll":
+      // "Preparar todo" (a press: kino.plugins.setup only answers from a person-started call). Kino asks the person to
+      // confirm each target; the answer starts the poll timer while one is setting up.
+      return { state: { prep: await prepareAll(), prepN: null, prepStop: null }, ui: HIDE_BUSY };
+    case "prepPoll":
+      // Timer: where the targets stand (kino.plugins.setupStatus; never setup). A timer's answer keeps only `state`.
+      return { state: await prepPoll(state) };
     case "reauth":
       // Ajustes ▸ "Reautenticar": mint a FRESH session with the current Kino identity, replacing the stored one only
       // once the new one is in hand (a failed mint never disconnects: the working session stays). On failure the toast
@@ -469,6 +488,7 @@ export async function screenEvent(ev) {
     if (e === "lvRefresh") return { state: { lvStop: true, ...TICK_HIDE_BUSY } };
     if (e === "lcFill") return { state: { lcTried: true, ...TICK_HIDE_BUSY } };
     if (e === "devices") return { state: { devTried: true } };
+    if (e === "prepPoll") return { state: { prepStop: true } };
     return { ui: HIDE_BUSY };   // never leave the busy bar spinning
   }
 }

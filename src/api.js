@@ -180,14 +180,15 @@ export function identityWhy(e) {
 }
 
 /** The trigger words a report may carry (`via=`): the button or event that started the sign-in. */
-const VIA = new Set(["enter", "open", "activate", "reauth"]);
+const VIA = new Set(["enter", "open", "activate", "reauth", "setup"]);
 
 /**
  * Tells Kino's error board (GlitchTip; telemetry is on) WHY an activation failed, as a non-fatal degraded report
  * (`kino.log.report`, throttled to once an hour per device): the fleet's cause distribution shows up without a thrown
  * error, so "No se pudo activar" stops being a black box. The line carries only fixed words, never anything private:
  * `cause=` (activateCause), `why=` (identityWhy, for a not_available identity) and `via=` — what started the sign-in:
- * enter (the welcome's "Ingresar"), open (the sign-in Xuper does by itself), activate ("Reintentar"), reauth (Ajustes).
+ * enter (the welcome's "Ingresar"), open (the sign-in Xuper does by itself), activate ("Reintentar"), reauth (Ajustes),
+ * setup (Kino's setup run).
  */
 export function reportActivate(e, via) {
   const why = identityWhy(e);

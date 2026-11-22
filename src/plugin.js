@@ -9,6 +9,7 @@ import * as catalog from "./catalog.js";
 import * as live from "./live.js";
 import * as scr from "./screen.js";
 import * as reauthNotice from "./reauthNotice.js";
+import * as setup from "./setup.js";
 import { beginCall, callFor } from "./flight.js";
 import { afterHome } from "./seedContrib.js";
 import { upgradeOnce } from "./upgrade.js";
@@ -59,6 +60,12 @@ export async function migrate(input) { await begin("migrate"); return catalog.mi
 // stored; the first ever is bounded at 12 s), channels from the stored lists in pages of 500.
 export async function liveCategories() { await begin("liveCategories"); return live.liveCategories(); }
 export async function liveChannels(arg) { await begin("liveChannels"); return live.liveChannels(arg); }
+
+// Kino's plugin setup (apiVersion 30, the manifest's enhancements["30"].setup): Xuper's setup is its activation.
+// `setupStatus` is cheap and unattended (also asked at app start): it reads the stored session, never identity or the
+// vault. `setupRun` is person-started and signs in (src/setup.js).
+export async function setupStatus() { await begin("setupStatus"); return setup.setupStatus(); }
+export async function setupRun(arg) { await begin("setupRun"); return setup.setupRun(arg); }
 
 // Scheduled job (capability "schedule", manifest `jobs`): the only background work. It keeps the Home-bell
 // "Reautentícate" reminder in step with the stored flag, so a stuck access reaches the person WITHOUT opening Xuper. A
