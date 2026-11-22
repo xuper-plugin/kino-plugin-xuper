@@ -3,7 +3,7 @@
 // Palette: the theme's semantic colors (they adapt) + the xuper brand.
 // No view carries a 1 s timer: data is drawn from what is stored (src/data.js) in the first frame, a skeleton
 // appears only when nothing was ever stored, and slow events show the hidden `busy` bar through a local `ui` op.
-import { SECTIONS, lang, httpImages, SUPPORT_URL, canRelinkTelegram } from "./config.js";
+import { SECTIONS, lang, httpImages, SUPPORT_URL, canRelinkTelegram, canPrepareOthers, PREP_TARGETS } from "./config.js";
 import { X_LOGO_DATA } from "./logo.js";
 import { isLiveMatch, matchStart, visibleMatches, LIVE_BEFORE_MS } from "./v2.js";
 import { KINO_GROUP_URL } from "./api.js";
@@ -137,6 +137,68 @@ export function introView(device) {
     type: "Scaffold", appBar: appBar(),
     body: { type: "Column", key: "intro", flex: 1, mainAxisAlignment: "center", crossAxisAlignment: "center",
       gap: 16, padding: { compact: 24, expanded: 48 }, children: body },
+  };
+}
+
+/**
+ * «Preparar todo» (Ajustes and the setup route; only on a Kino that can set other plugins up, apiVersion 29): one button that asks
+ * Kino to set up Movie+ and HDFull (Kino asks the person to confirm each), and below it a line per target from `prep` (the
+ * screen state, src/setup.js): progress while it sets up, "Listo", or why not: a missing plugin offers its install sheet.
+ */
+function prepMessage(entry, name, E) {
+  switch (entry.s) {
+    case "SETTING_UP": return [entry.l || (E ? "Setting up…" : "Configurando…"), entry.l || "Setting up…"];
+    case "READY": return [`${name} listo`, `${name} ready`];
+    case "not_installed": return [`${name} no está instalado, o está apagado.`, `${name} is not installed, or it is switched off.`];
+    case "no_setup": return [`${name} necesita actualizarse a su versión más reciente.`, `${name} needs updating to its latest version.`];
+    case "busy": return ["Kino está con otra pregunta; inténtalo en un momento.", "Kino is busy with another question; try again in a moment."];
+    case "rate_limited": return ["Demasiados intentos seguidos; espera unos segundos.", "Too many tries in a row; wait a few seconds."];
+    case "timeout": return ["No se confirmó a tiempo. Toca de nuevo para preparar.", "It was not confirmed in time. Tap again to prepare."];
+    default: return [`No se pudo preparar ${name}. Inténtalo de nuevo.`, `Could not prepare ${name}. Try again.`];
+  }
+}
+export function prepareCard(prep) {
+  if (!canPrepareOthers()) return null;
+  const E = en();
+  const rows = [];
+  for (const target of PREP_TARGETS) {
+    const entry = prep && prep[target.key];
+    if (!entry) continue;
+    const [text, textEn] = prepMessage(entry, target.name, E);
+    rows.push({ type: "Column", key: "prepRow-" + target.key, gap: 4, children: [
+      { type: "Text", key: "prepName-" + target.key, style: "h4", text: target.name, textEn: target.name },
+      ...(entry.s === "SETTING_UP" ? [{ type: "LinearProgressIndicator", key: "prepBar-" + target.key, ...(typeof entry.p === "number" ? { value: entry.p } : {}) }] : []),
+      { type: "Text", key: "prepMsg-" + target.key, ...(entry.s === "READY" ? {} : { color: "muted" }), style: "caption", text: E ? textEn : text, textEn },
+      ...(entry.s === "not_installed" ? [{ type: "TextButton", key: "prepInstall-" + target.key, icon: "download",
+        labelText: E ? "Install " + target.name : "Instalar " + target.name, labelTextEn: "Install " + target.name,
+        onPressed: { go: { installPlugin: { repo: target.repo } } } }] : []),
+    ] });
+  }
+  return { type: "Card", key: "cfgPrep", children: [
+    { type: "Text", key: "cfgPrepTitle", style: "h4", text: E ? "Prepare everything" : "Preparar todo", textEn: "Prepare everything" },
+    { type: "Text", key: "cfgPrepHint", color: "muted",
+      text: E ? "Kino will ask you to confirm, then it sets up Movie+ and HDFull so they are ready to use."
+        : "Kino te pedirá confirmar y deja Movie+ y HDFull listos para usar.",
+      textEn: "Kino will ask you to confirm, then it sets up Movie+ and HDFull so they are ready to use." },
+    { type: "ElevatedButton", key: "prepAll", icon: "bolt",
+      labelText: E ? "Prepare everything" : "Preparar todo", labelTextEn: "Prepare everything",
+      onPressed: { event: "prepareAll", timeoutMs: PRESS_MS } },
+    ...rows,
+  ] };
+}
+
+/** The setup route (the manifest's `setup.route`): Xuper is activated, so what is left is preparing the others. */
+export function setupView({ prep, device } = {}) {
+  const E = en();
+  const card = prepareCard(prep);
+  return {
+    type: "Scaffold", appBar: appBar(),
+    body: scrollPage("setup-scroll", 16, [
+      { type: "Text", key: "setupTitle", style: "h3", text: E ? "Xuper is ready" : "Xuper está listo", textEn: "Xuper is ready" },
+      ...(card ? [card] : []),
+      { type: "ElevatedButton", key: "setupContinue", icon: "arrow_forward",
+        labelText: E ? "Continue" : "Continuar", labelTextEn: "Continue", onPressed: { go: { close: true } } },
+    ]),
   };
 }
 
@@ -956,8 +1018,9 @@ function devicesCard(d, now, device) {
   ] };
 }
 
-export function configView({ version, device = "phone", ages = null, now = Date.now(), seeds = null, contrib = null, devices = null } = {}) {
+export function configView({ version, device = "phone", ages = null, now = Date.now(), seeds = null, contrib = null, devices = null, prep = null } = {}) {
   const E = en();
+  const prepCard = prepareCard(prep);
   const a = ages || {};
   const lines = [[["Catálogo", "Catalog"], a.catalog], [["Partidos", "Matches"], a.matches]];
   return {
@@ -984,6 +1047,7 @@ export function configView({ version, device = "phone", ages = null, now = Date.
           textEn: "If you like Xuper, you can support me on Ko-fi." },
         supportButton("cfgSupportBtn", E, device),
       ] },
+      ...(prepCard ? [prepCard] : []),
       ...(devices ? [devicesCard(devices, now, device)] : []),
       xuperSessionCard(seeds),
       contribCard(contrib, now),
