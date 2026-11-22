@@ -6,7 +6,7 @@
 //    makes Kino ask the person), then follows them with `kino.plugins.setupStatus`. The result per target lives in the
 //    screen state as `prep[key] = { s, p?, l? }` (s: SETTING_UP | READY | not_installed | no_setup | busy | rate_limited |
 //    timeout | error); a target the person refused is `null` (nothing to say).
-import { ensureBearer, currentBearer, notMemberActive, markIntroSeen, reportActivate, activateBanner, markReauthNeeded, notMemberText } from "./api.js";
+import { ensureBearer, currentBearer, notMemberActive, markIntroSeen, reportActivate, activateBanner, markReauthNeeded, reauthNeeded, notMemberText } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
 import { PREP_TARGETS, lang } from "./config.js";
 
@@ -25,16 +25,17 @@ export function setupErrorText(banner) {
 /** `setupStatus()`: ready when Xuper is activated (a stored session, not frozen as a non-member). Reads storage only. */
 export async function setupStatus() {
   if (notMemberActive()) return { ready: false, label: setupErrorText("member") };
+  if (reauthNeeded()) return { ready: false, label: t("Xuper necesita que te reautentiques", "Xuper needs you to re-authenticate") };
   if (await currentBearer()) return { ready: true };
   return { ready: false, label: t("Falta activar Xuper (iniciar sesión)", "Xuper needs activating (signing in)") };
 }
 
 /** `setupRun({ step })`: the activation, in one step. Throws a step error carrying the per-cause message. */
 export async function setupRun() {
-  if (await currentBearer()) { markIntroSeen(); return { done: true }; }
-  markIntroSeen();   // the person started it: the first-time intro is done, later opens sign in by themselves
+  if (await currentBearer()) return { done: true };   // already activated: the intro state is not touched
   try {
     await ensureBearer();
+    markIntroSeen();   // only a successful sign-in stands in for "Ingresar" (setupView still offers Apoyar)
     await syncReauthNotice();
     return { done: true };
   } catch (e) {

@@ -107,6 +107,29 @@ test("setupRun failing: a step error with the per-cause message", async () => {
   await assert.rejects(P.setupRun({ step: 0 }), (e) => /momento/.test(e.userMessage));
 });
 
+test("intro state: a failed setupRun leaves it unseen; the already-activated path does not touch it; success marks it", async () => {
+  let k = await fresh({ identity: async () => { throw Object.assign(new Error("x"), { code: "permission_denied" }); } });
+  await assert.rejects(P.setupRun({ step: 0 }));
+  assert.equal(api.introSeen(), false, "failed: the next plain open still shows the intro");
+  assert.ok(byKey(await screen({ state: {} }), "iEnter"), "introView shows");
+  k = await fresh({ bearer: "b" });
+  await P.setupRun({ step: 0 });
+  assert.equal(api.introSeen(), false, "already activated: untouched");
+  k = await fresh();
+  await P.setupRun({ step: 0 });
+  assert.equal(api.introSeen(), true, "a successful sign-in stands in for Ingresar");
+});
+
+test("setupStatus is not ready while the reauth-needed flag is set", async () => {
+  const k = await fresh({ bearer: "b" });
+  api.markReauthNeeded("consent");
+  const st = await P.setupStatus();
+  assert.equal(st.ready, false);
+  assert.equal(typeof st.label, "string");
+  api.clearReauthNeeded();
+  assert.equal((await P.setupStatus()).ready, true);
+});
+
 // ── Preparar todo ──
 function withPlugins(impl) {
   globalThis.kino.plugins = impl;
@@ -234,6 +257,15 @@ test("Kino's screen rules drop no node of Preparar todo / the setup view (ES/EN 
         assert.deepEqual(checkScreenTree(v, lang, undefined, { apiVersion: 27 }).dropped, [], `${lang} ${device}`);
       }
     }
+  }
+  globalThis.kino.lang = "es";
+});
+
+test("the setup view keeps the Apoyar (Ko-fi) ask, ES/EN x phone/TV", async () => {
+  const { setupView } = await import("../src/screenView.js");
+  for (const lang of ["es", "en"]) for (const device of ["phone", "tv"]) {
+    globalThis.kino.lang = lang;
+    assert.ok(byKey(setupView({ device }), "setupSupport"), `${lang} ${device}`);
   }
   globalThis.kino.lang = "es";
 });

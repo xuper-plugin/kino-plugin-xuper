@@ -196,6 +196,7 @@ export function setupView({ prep, device } = {}) {
     body: scrollPage("setup-scroll", 16, [
       { type: "Text", key: "setupTitle", style: "h3", text: E ? "Xuper is ready" : "Xuper está listo", textEn: "Xuper is ready" },
       ...(card ? [card] : []),
+      supportButton("setupSupport", E, device),
       { type: "ElevatedButton", key: "setupContinue", icon: "arrow_forward",
         labelText: E ? "Continue" : "Continuar", labelTextEn: "Continue", onPressed: { go: { close: true } } },
     ]),
