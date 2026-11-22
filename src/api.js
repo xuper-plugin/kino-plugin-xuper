@@ -6,6 +6,7 @@
 
 import { serverUrl, lang, PLUGIN_ID, PLUGIN_VERSION } from "./config.js";
 import { getText, setText, getJson, setJson, remove } from "./store.js";
+import { kinoVersion, learnMinKino, updateKinoError, isUpdateKino } from "./kinoGate.js";
 import { once, inFlight, saneAt, callStartedAt } from "./flight.js";
 
 let _bearer = null;
@@ -52,9 +53,18 @@ async function rawBackend(method, path, body, bearer, timeoutMs = 20000, attempt
   if (bearer) headers["Authorization"] = "Bearer " + bearer;
   // A sign-in's id: the backend logs it on its CHALLENGE / IN / OK / REJECT lines, and the failure report carries it too.
   if (attempt) headers["X-Kino-Attempt"] = attempt;
-  return kino.fetch(serverUrl() + path, {
+  // Which Kino this is: the backend serves Xuper only on its minimum Kino (426 update_kino below it, while enforced).
+  const kv = kinoVersion();
+  if (kv) headers["X-Kino-Version"] = kv;
+  const res = await kino.fetch(serverUrl() + path, {
     method, headers, body: jsonBody(body), cookies: false, timeoutMs,
   });
+  if (res && res.status === 426) {
+    learnMinKino(res.headers && res.headers["x-min-kino"]);   // the next calls stop at the "Actualiza Kino" gate
+    log("backend: 426 update_kino on " + path + " (Kino " + (kv || "?") + ", minimum " + ((res.headers && res.headers["x-min-kino"]) || "?") + ")");
+    throw updateKinoError();
+  }
+  return res;
 }
 
 async function storedBearer() {
@@ -215,6 +225,7 @@ function reasonOf(res) {
  */
 export function activateCause(e) {
   if (isTokenMissing(e)) return "update_needed";
+  if (isUpdateKino(e)) return "update_kino";
   const code = e && e.code;
   if (code === "permission_denied") return "consent_denied";
   if (code === "not_available") return "identity_off";
@@ -274,7 +285,7 @@ export function reportActivate(e, via) {
  */
 export function activateBanner(e) {
   if (isNotMember(e)) return "member";
-  if (isTokenMissing(e)) return "update";
+  if (isTokenMissing(e) || isUpdateKino(e)) return "update";
   if (e && e.code === "permission_denied") return "consent";
   if (e && e.code === "not_available") return "link";   // this device has no Telegram identity: link it in Kino
   return "server";

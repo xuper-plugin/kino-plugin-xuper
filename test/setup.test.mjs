@@ -45,11 +45,11 @@ const all = (tree, pred) => { const out = []; walk(tree, (n) => { if (pred(n)) o
 const byKey = (tree, key) => all(tree, (n) => n.key === key)[0];
 
 // ── manifest ──
-test("manifest: enhancements 30 declares setup at the route `setup` (no inputs); 29 stays empty for relink; apiVersion stays", () => {
+test("manifest: apiVersion 30 (Kino 0.9.91) declares setup at the route `setup` (no inputs), no enhancements left", () => {
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
-  assert.deepEqual(m.enhancements["29"], {});
-  assert.deepEqual(m.enhancements["30"].setup, { route: "setup" });
-  assert.equal(m.apiVersion, 27);
+  assert.deepEqual(m.setup, { route: "setup" });
+  assert.equal(m.enhancements, undefined);
+  assert.equal(m.apiVersion, 30);
   assert.ok(m.capabilities.includes("screen"));
 });
 

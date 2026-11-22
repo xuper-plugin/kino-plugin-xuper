@@ -21,10 +21,9 @@ test("manifest: the update of Xuper 2.x (same id and entry), apiVersion 27, iden
   assert.equal(m.name, "Xuper");
   assert.equal(m.entry, "plugin.js");
   assert.equal(m.icon, "icon.png");
-  // apiVersion 27 = Kino 0.9.88, the first Kino that gives kino.identity's token to the xuper-plugin author key
-  // (PluginIdentityBridge TOKEN_AUTHORS): an older Kino keeps 2.x and asks to update Kino instead of installing a 3.0.0
-  // that could never sign in.
-  assert.equal(m.apiVersion, 27);
+  // apiVersion 30 = Kino 0.9.91 (owner rule 2026-11-22: Xuper only on the latest Kino): an older Kino refuses this update
+  // and asks to update Kino; the Xuper it keeps is cut by the backend's minimum Kino (src/kinoGate.js).
+  assert.equal(m.apiVersion, 30);
   for (const cap of ["identity", "screen", "home", "search", "episodes", "resolve", "channels", "browse", "migrate", "drm", "storageLarge"]) {
     assert.ok(m.capabilities.includes(cap), `missing capability: ${cap}`);
   }
@@ -78,7 +77,7 @@ test("the manifest version equals PLUGIN_VERSION (bumped together)", async () =>
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url)));
   const { PLUGIN_VERSION } = await import("../src/config.js");
   assert.equal(m.version, PLUGIN_VERSION);
-  assert.equal(m.version, "3.1.10");
+  assert.equal(m.version, "3.1.11");
 });
 
 test("the manifest id equals PLUGIN_ID, the id the session request declares", async () => {

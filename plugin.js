@@ -1,6 +1,7 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.10";
+var PLUGIN_VERSION = "3.1.11";
+var MIN_KINO_FLOOR = "0.9.91";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -131,6 +132,78 @@ function sweepOld() {
   return n;
 }
 
+// src/kinoGate.js
+var MIN_KEY = "o2:minKino";
+var VER = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})/;
+function parseVersion(v) {
+  const m = typeof v === "string" ? VER.exec(v.trim()) : null;
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+function cmp(a, b) {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
+}
+function kinoVersion() {
+  try {
+    return typeof kino.appVersion === "string" ? kino.appVersion : "";
+  } catch (_) {
+    return "";
+  }
+}
+function minKino() {
+  const floor = parseVersion(MIN_KINO_FLOOR);
+  const told = parseVersion(getText(MIN_KEY) || "");
+  return told && cmp(told, floor) > 0 ? told.join(".") : floor.join(".");
+}
+function learnMinKino(v) {
+  const p = parseVersion(v || "");
+  if (p) setText(MIN_KEY, p.join("."));
+}
+function kinoTooOld() {
+  const have = parseVersion(kinoVersion());
+  return !!have && cmp(have, parseVersion(minKino())) < 0;
+}
+function updateKinoText() {
+  let en6 = false;
+  try {
+    en6 = String(kino.lang || "es").startsWith("en");
+  } catch (_) {
+  }
+  return updateKinoTextIn(en6 ? "en" : "es");
+}
+function updateKinoError() {
+  const e = kino.error("unavailable", "Xuper: Kino " + (kinoVersion() || "?") + " is older than " + minKino(), { userMessage: updateKinoText() });
+  try {
+    e.updateKino = true;
+  } catch (_) {
+  }
+  return e;
+}
+function isUpdateKino(e) {
+  return !!e && (e.updateKino === true || /is older than \d/.test(String(e.message || "")));
+}
+function updateKinoView() {
+  return {
+    type: "Scaffold",
+    body: {
+      type: "Column",
+      mainAxisAlignment: "center",
+      crossAxisAlignment: "center",
+      padding: 24,
+      gap: 16,
+      children: [
+        { type: "Icon", name: "download" },
+        { type: "Text", style: "h3", text: "Actualiza Kino", textEn: "Update Kino" },
+        { type: "Text", style: "p", text: updateKinoTextIn("es"), textEn: updateKinoTextIn("en") }
+      ]
+    }
+  };
+}
+function updateKinoTextIn(lng) {
+  const need2 = minKino();
+  return lng === "en" ? `Xuper needs Kino ${need2} or newer. Open Settings \u25B8 App \u25B8 Settings for all profiles \u25B8 Updates and tap "Check for updates".` : `Para usar Xuper necesitas Kino ${need2} o m\xE1s reciente. Abre Ajustes \u25B8 App \u25B8 Ajustes de todos los perfiles \u25B8 Actualizaciones y toca \xABBuscar actualizaciones\xBB.`;
+}
+
 // src/flight.js
 var flights = /* @__PURE__ */ new Map();
 var seq = 0;
@@ -192,13 +265,21 @@ async function rawBackend(method, path, body, bearer, timeoutMs = 2e4, attempt) 
   const headers = { "Content-Type": "application/json", "X-Plugin-Version": PLUGIN_VERSION };
   if (bearer) headers["Authorization"] = "Bearer " + bearer;
   if (attempt) headers["X-Kino-Attempt"] = attempt;
-  return kino.fetch(serverUrl() + path, {
+  const kv = kinoVersion();
+  if (kv) headers["X-Kino-Version"] = kv;
+  const res = await kino.fetch(serverUrl() + path, {
     method,
     headers,
     body: jsonBody(body),
     cookies: false,
     timeoutMs
   });
+  if (res && res.status === 426) {
+    learnMinKino(res.headers && res.headers["x-min-kino"]);
+    log2("backend: 426 update_kino on " + path + " (Kino " + (kv || "?") + ", minimum " + (res.headers && res.headers["x-min-kino"] || "?") + ")");
+    throw updateKinoError();
+  }
+  return res;
 }
 async function storedBearer() {
   if (_bearer) return _bearer;
@@ -334,6 +415,7 @@ function reasonOf(res) {
 }
 function activateCause(e) {
   if (isTokenMissing(e)) return "update_needed";
+  if (isUpdateKino(e)) return "update_kino";
   const code = e && e.code;
   if (code === "permission_denied") return "consent_denied";
   if (code === "not_available") return "identity_off";
@@ -362,7 +444,7 @@ function reportActivate(e, via) {
 }
 function activateBanner(e) {
   if (isNotMember(e)) return "member";
-  if (isTokenMissing(e)) return "update";
+  if (isTokenMissing(e) || isUpdateKino(e)) return "update";
   if (e && e.code === "permission_denied") return "consent";
   if (e && e.code === "not_available") return "link";
   return "server";
@@ -6174,9 +6256,9 @@ function notePrimary(acc, raw, shaped) {
   const now = Date.now();
   const all = readStvs();
   const prim = { a: accountKey(acc), sk: sketchOf(fp), tg, main, at: now };
-  const old = all.prim;
+  const old2 = all.prim;
   const changes = {};
-  if (!old || old.a !== prim.a || old.main !== main || JSON.stringify(old.tg) !== JSON.stringify(tg) || JSON.stringify(old.sk) !== JSON.stringify(prim.sk) || now - saneAt(old.at) >= D) changes.prim = prim;
+  if (!old2 || old2.a !== prim.a || old2.main !== main || JSON.stringify(old2.tg) !== JSON.stringify(tg) || JSON.stringify(old2.sk) !== JSON.stringify(prim.sk) || now - saneAt(old2.at) >= D) changes.prim = prim;
   for (const name of SLOTS) {
     const s = slotOf(all, name);
     const sfp = s && readSketch(s.sk);
@@ -8161,9 +8243,9 @@ function l0Get(key) {
   return e;
 }
 function l0Put(key, items, chars, h) {
-  const old = L02.get(key);
-  if (old) {
-    l0Chars -= old.chars;
+  const old2 = L02.get(key);
+  if (old2) {
+    l0Chars -= old2.chars;
     L02.delete(key);
   }
   if (chars > L0_MAX_CHARS) return;
@@ -8176,9 +8258,9 @@ function l0Put(key, items, chars, h) {
   }
 }
 function l0Drop(key) {
-  const old = L02.get(key);
-  if (old) {
-    l0Chars -= old.chars;
+  const old2 = L02.get(key);
+  if (old2) {
+    l0Chars -= old2.chars;
     L02.delete(key);
   }
 }
@@ -13104,16 +13186,18 @@ async function begin(name) {
   callFor(name);
   await upgradeOnce();
 }
+var old = () => kinoTooOld();
 async function screen2(arg) {
   await begin("screen");
-  return screen(arg);
+  return old() ? updateKinoView() : screen(arg);
 }
 async function screenEvent2(ev) {
   await begin("screenEvent");
-  return screenEvent(ev);
+  return old() ? { state: { kinoOld: true } } : screenEvent(ev);
 }
 async function home2() {
   await begin("home");
+  if (old()) return [];
   const startedAt2 = Date.now();
   const rows = await home();
   try {
@@ -13125,6 +13209,7 @@ async function home2() {
 }
 async function search2(query) {
   await begin("search");
+  if (old()) return [];
   try {
     return await search(query);
   } catch (_) {
@@ -13133,26 +13218,32 @@ async function search2(query) {
 }
 async function episodes2(ref) {
   await begin("episodes");
+  if (old()) throw updateKinoError();
   return episodes(ref);
 }
 async function details2(ref) {
   await begin("details");
+  if (old()) throw updateKinoError();
   return details(ref);
 }
 async function resolve3(ref, options) {
   await begin("resolve");
+  if (old()) throw updateKinoError();
   return resolve2(ref, options);
 }
 async function prepare2(ref) {
   await begin("prepare");
+  if (old()) return null;
   return prepare(ref);
 }
 async function browse2(ref, cursor) {
   await begin("browse");
+  if (old()) throw updateKinoError();
   return browse(ref, cursor);
 }
 async function categories3() {
   await begin("categories");
+  if (old()) return [];
   return categories2();
 }
 async function migrate3(input) {
@@ -13161,18 +13252,22 @@ async function migrate3(input) {
 }
 async function liveCategories2() {
   await begin("liveCategories");
+  if (old()) return [];
   return liveCategories();
 }
 async function liveChannels2(arg) {
   await begin("liveChannels");
+  if (old()) throw updateKinoError();
   return liveChannels(arg);
 }
 async function setupStatus2() {
   await begin("setupStatus");
+  if (old()) return { ready: false, label: updateKinoText() };
   return setupStatus();
 }
 async function setupRun2(arg) {
   await begin("setupRun");
+  if (old()) throw updateKinoError();
   return setupRun(arg);
 }
 async function job() {
