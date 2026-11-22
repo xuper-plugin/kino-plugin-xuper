@@ -94,13 +94,13 @@ export const SECTIONS = [
   { name: "adultos", title: "Adultos", titleEn: "Adults", genre: "otros", adult: true },
 ];
 
-/** The plugins "Preparar todo" asks Kino to set up (apiVersion 29 `kino.plugins.setup`), by repository: `key` names each in the screen's state. */
+/** The plugins "Preparar todo" asks Kino to set up (apiVersion 30 `kino.plugins.setup`), by repository: `key` names each in the screen's state. */
 export const PREP_TARGETS = Object.freeze([
   { key: "movieplus", repo: "xuper-plugin/kino-plugin-movieplus", name: "Movie+" },
   { key: "hdfull", repo: "xuper-plugin/kino-plugin-hdfull", name: "HDFull" },
 ]);
 
-/** Whether this Kino can set other plugins up from here (`kino.plugins.setup`, apiVersion 29): feature detection, no version number. */
+/** Whether this Kino can set other plugins up from here (`kino.plugins.setup`, apiVersion 30): feature detection, no version number. */
 export function canPrepareOthers() {
   try { return typeof kino !== "undefined" && !!kino && !!kino.plugins && typeof kino.plugins.setup === "function"; } catch (_) { return false; }
 }

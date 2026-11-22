@@ -1,11 +1,12 @@
-// setup.js — Xuper and Kino's plugin setup (apiVersion 29).
+// setup.js — Xuper and Kino's plugin setup (apiVersion 30; the manifest keeps "29": {} for go.relinkTelegram).
 // 1. Xuper's own setup is its activation: `setupStatus` (ready = a session is stored; cheap, also asked at app start, so it
 //    never touches kino.identity or the vault) and `setupRun` (person-started: step 0 signs in through identity, with the
 //    per-cause message of the welcome view when it fails).
 // 2. "Preparar todo": from a press (a screen event) Xuper asks Kino to set up Movie+ and HDFull (`kino.plugins.setup`, which
 //    makes Kino ask the person), then follows them with `kino.plugins.setupStatus`. The result per target lives in the
-//    screen state as `prep[key] = { s, p?, l? }` (s: SETTING_UP | READY | not_installed | no_setup | busy | rate_limited |
-//    timeout | error); a target the person refused is `null` (nothing to say).
+//    screen state as `prep[key] = { s, p?, l? }` (s: SETTING_UP | READY | failed | not_installed | no_setup | busy |
+//    rate_limited | timeout | error); a target the person refused is `null` (nothing to say). `failed`: Kino's setupStatus
+//    says not ready AND not running (its setup stopped without finishing), so the row offers Preparar todo again.
 import { ensureBearer, reauth, currentBearer, notMemberActive, markIntroSeen, reportActivate, activateBanner, markReauthNeeded, reauthNeeded, notMemberText } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
 import { PREP_TARGETS, lang } from "./config.js";
@@ -22,17 +23,21 @@ export function setupErrorText(banner) {
   return t("No se pudo conectar con el servidor de Xuper. Inténtalo de nuevo en un momento.", "Could not reach Xuper's server. Try again in a moment.");
 }
 
-/** `setupStatus()`: ready when Xuper is activated (a stored session, not frozen as a non-member). Reads storage only. */
+/**
+ * `setupStatus()`: ready when Xuper is activated (a stored session, not frozen as a non-member). Reads storage only. A pending
+ * re-authentication does not gate it: the Home bell (syncReauthNotice) asks for that, and Kino's setup is for a first activation.
+ */
 export async function setupStatus() {
   if (notMemberActive()) return { ready: false, label: setupErrorText("member") };
-  if (reauthNeeded()) return { ready: false, label: t("Xuper necesita que te reautentiques", "Xuper needs you to re-authenticate") };
   if (await currentBearer()) return { ready: true };
   return { ready: false, label: t("Falta activar Xuper (iniciar sesión)", "Xuper needs activating (signing in)") };
 }
 
 /** `setupRun({ step })`: the activation, in one step. Throws a step error carrying the per-cause message. */
 export async function setupRun() {
-  const stale = reauthNeeded();   // a session is stored but a re-activation failed: only a fresh sign-in clears the flag
+  // A session is stored but a re-activation failed, or it is frozen as a non-member: only a fresh sign-in clears either
+  // (a passed /session lifts the freeze), so the stored session is no shortcut then.
+  const stale = reauthNeeded() || notMemberActive();
   if (!stale && await currentBearer()) return { done: true };   // already activated: the intro state is not touched
   try {
     if (stale) await reauth(); else await ensureBearer();   // reauth mints fresh and keeps the old session if it fails

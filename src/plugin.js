@@ -61,7 +61,7 @@ export async function migrate(input) { await begin("migrate"); return catalog.mi
 export async function liveCategories() { await begin("liveCategories"); return live.liveCategories(); }
 export async function liveChannels(arg) { await begin("liveChannels"); return live.liveChannels(arg); }
 
-// Kino's plugin setup (apiVersion 29, the manifest's enhancements["29"].setup): Xuper's setup is its activation.
+// Kino's plugin setup (apiVersion 30, the manifest's enhancements["30"].setup): Xuper's setup is its activation.
 // `setupStatus` is cheap and unattended (also asked at app start): it reads the stored session, never identity or the
 // vault. `setupRun` is person-started and signs in (src/setup.js).
 export async function setupStatus() { await begin("setupStatus"); return setup.setupStatus(); }

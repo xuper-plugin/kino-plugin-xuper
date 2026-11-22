@@ -1,4 +1,4 @@
-// Plugin setup (apiVersion 29): Xuper's activation is its setup (setupStatus / setupRun), and its screen's "Preparar todo"
+// Plugin setup (apiVersion 30; "29": {} stays for go.relinkTelegram): Xuper's activation is its setup (setupStatus / setupRun), and its screen's "Preparar todo"
 // asks Kino to set up Movie+ and HDFull (kino.plugins.setup / setupStatus), offering go.installPlugin for a missing one.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -45,9 +45,10 @@ const all = (tree, pred) => { const out = []; walk(tree, (n) => { if (pred(n)) o
 const byKey = (tree, key) => all(tree, (n) => n.key === key)[0];
 
 // ── manifest ──
-test("manifest: enhancements 29 declares setup at the route `setup` (no inputs); apiVersion stays", () => {
+test("manifest: enhancements 30 declares setup at the route `setup` (no inputs); 29 stays empty for relink; apiVersion stays", () => {
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
-  assert.deepEqual(m.enhancements["29"].setup, { route: "setup" });
+  assert.deepEqual(m.enhancements["29"], {});
+  assert.deepEqual(m.enhancements["30"].setup, { route: "setup" });
   assert.equal(m.apiVersion, 27);
   assert.ok(m.capabilities.includes("screen"));
 });
@@ -120,15 +121,23 @@ test("intro state: a failed setupRun leaves it unseen; the already-activated pat
   assert.equal(api.introSeen(), true, "a successful sign-in stands in for Ingresar");
 });
 
-test("setupStatus is not ready while the reauth-needed flag is set", async () => {
+test("setupStatus stays ready with a stored session while the reauth-needed flag is set (the Home bell asks for that)", async () => {
   const k = await fresh({ bearer: "b" });
   api.markReauthNeeded("consent");
-  const st = await P.setupStatus();
-  assert.equal(st.ready, false);
-  assert.equal(typeof st.label, "string");
+  assert.equal((await P.setupStatus()).ready, true);
   assert.equal(k.calls.n, 0, "identity untouched");
   assert.equal(k.calls.vault, undefined, "vault untouched");
   api.clearReauthNeeded();
+  assert.equal((await P.setupStatus()).ready, true);
+});
+
+test("setupRun frozen as a non-member with a stored session does a fresh sign-in, which lifts the freeze", async () => {
+  const k = await fresh({ bearer: "old" });
+  k.store.set("o2:notmember", "1");
+  assert.equal((await P.setupStatus()).ready, false);
+  assert.equal((await P.setupRun({ step: 0 })).done, true);
+  assert.equal(k.calls.n, 1, "a fresh sign-in ran (no stored-session shortcut)");
+  assert.equal(api.notMemberActive(), false);
   assert.equal((await P.setupStatus()).ready, true);
 });
 
@@ -149,7 +158,8 @@ test("setupRun with the reauth flag set and the sign-in failing: step error, fla
   assert.equal(api.reauthNeeded(), true);
   assert.equal(k.store.get("o2:bearer"), "old");
   assert.equal(api.introSeen(), false);
-  assert.equal((await P.setupStatus()).ready, false);
+  // The old session is kept, so Kino's setup reads ready (R20); the bell keeps asking for the re-authentication.
+  assert.equal((await P.setupStatus()).ready, true);
 });
 
 // ── Preparar todo ──
