@@ -76,7 +76,11 @@ export function prepActive(state) {
   return !!prep && !state.prepStop && PREP_TARGETS.some((x) => prep[x.key] && prep[x.key].s === "SETTING_UP");
 }
 
-/** One poll tick: where each target still setting up stands (`kino.plugins.setupStatus`, from the screen's timer). → a state patch. */
+/**
+ * One poll tick: where each target still setting up stands (`kino.plugins.setupStatus`, from the screen's timer). → a state
+ * patch. Not ready and `running === false` (Kino's own loop for it stopped: a step failed, or it was switched off) is `failed`,
+ * with the target's own words, and the poll stops following it; an older Kino without `running` keeps it SETTING_UP.
+ */
 export async function prepPoll(state) {
   const prep = { ...(state.prep || {}) };
   for (const target of PREP_TARGETS) {
@@ -84,8 +88,10 @@ export async function prepPoll(state) {
     if (!cur || cur.s !== "SETTING_UP") continue;
     try {
       const st = await kino.plugins.setupStatus(target.repo);
+      const label = st && typeof st.label === "string" ? { l: st.label.slice(0, 120) } : {};
       prep[target.key] = st && st.ready ? { s: "READY" }
-        : { s: "SETTING_UP", ...(st && typeof st.progress === "number" ? { p: Math.max(0, Math.min(1, st.progress)) } : {}), ...(st && typeof st.label === "string" ? { l: st.label.slice(0, 120) } : {}) };
+        : st && st.running === false ? { s: "failed", ...label }
+        : { s: "SETTING_UP", ...(st && typeof st.progress === "number" ? { p: Math.max(0, Math.min(1, st.progress)) } : {}), ...label };
     } catch (_) { /* rate limited or gone: the next tick asks again */ }
   }
   const n = (Number(state.prepN) || 0) + 1;

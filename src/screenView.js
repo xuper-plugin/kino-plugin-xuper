@@ -141,14 +141,16 @@ export function introView(device) {
 }
 
 /**
- * «Preparar todo» (Ajustes and the setup route; only on a Kino that can set other plugins up, apiVersion 29): one button that asks
+ * «Preparar todo» (Ajustes and the setup route; only on a Kino that can set other plugins up, apiVersion 30): one button that asks
  * Kino to set up Movie+ and HDFull (Kino asks the person to confirm each), and below it a line per target from `prep` (the
- * screen state, src/setup.js): progress while it sets up, "Listo", or why not: a missing plugin offers its install sheet.
+ * screen state, src/setup.js): progress while it sets up, "Listo", or why not: a missing plugin offers its install sheet, and
+ * one whose setup stopped without finishing (`failed`) its own words and a Reintentar that runs Preparar todo again.
  */
 function prepMessage(entry, name, E) {
   switch (entry.s) {
     case "SETTING_UP": return [entry.l || (E ? "Setting up…" : "Configurando…"), entry.l || "Setting up…"];
     case "READY": return [`${name} listo`, `${name} ready`];
+    case "failed": return [entry.l || `No se pudo preparar ${name}. Toca Reintentar.`, entry.l || `Could not prepare ${name}. Tap Try again.`];
     case "not_installed": return [`${name} no está instalado, o está apagado.`, `${name} is not installed, or it is switched off.`];
     case "no_setup": return [`${name} necesita actualizarse a su versión más reciente.`, `${name} needs updating to its latest version.`];
     case "busy": return ["Kino está con otra pregunta; inténtalo en un momento.", "Kino is busy with another question; try again in a moment."];
@@ -172,6 +174,9 @@ export function prepareCard(prep) {
       ...(entry.s === "not_installed" ? [{ type: "TextButton", key: "prepInstall-" + target.key, icon: "download",
         labelText: E ? "Install " + target.name : "Instalar " + target.name, labelTextEn: "Install " + target.name,
         onPressed: { go: { installPlugin: { repo: target.repo } } } }] : []),
+      ...(entry.s === "failed" ? [{ type: "TextButton", key: "prepRetry-" + target.key, icon: "refresh",
+        labelText: E ? "Try again" : "Reintentar", labelTextEn: "Try again",
+        onPressed: { event: "prepareAll", timeoutMs: PRESS_MS } }] : []),
     ] });
   }
   return { type: "Card", key: "cfgPrep", children: [

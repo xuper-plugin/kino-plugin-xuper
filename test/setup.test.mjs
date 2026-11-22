@@ -260,6 +260,41 @@ test("progress: while a target sets up, a timer follows kino.plugins.setupStatus
   assert.equal(all(tree, (n) => n.event === "prepPoll").length, 0, "no timer once nothing sets up");
 });
 
+test("a target whose setup stopped without finishing (not ready, not running) is a failed row with Reintentar", async () => {
+  await fresh({ bearer: "b" });
+  let attempts = 0;
+  withPlugins({
+    setup: async () => { attempts++; return { state: "SETTING_UP" }; },
+    setupStatus: async (repo) => (repo === MOVIEPLUS
+      ? { ready: false, running: false, label: "El servidor del catálogo no responde" } : { ready: false, running: true, progress: 0.5 }),
+  });
+  const started = await screenEvent({ name: "prepareAll", state: configState() });
+  let state = configState({ ...started.state });
+  const tick = await screenEvent({ name: "prepPoll", state });
+  assert.equal(tick.state.prep.movieplus.s, "failed");
+  assert.equal(tick.state.prep.movieplus.l, "El servidor del catálogo no responde");
+  assert.equal(tick.state.prep.hdfull.s, "SETTING_UP", "still running: followed");
+  state = { ...state, ...tick.state };
+  const tree = await screen({ state });
+  assert.match(byKey(tree, "prepMsg-movieplus").text, /no responde/);
+  const retry = byKey(tree, "prepRetry-movieplus");
+  assert.equal(retry.onPressed.event, "prepareAll", "Reintentar runs Preparar todo again");
+  assert.equal(byKey(tree, "prepRetry-hdfull"), undefined);
+  // the retry asks Kino again
+  const again = await screenEvent({ name: "prepareAll", state });
+  assert.equal(again.state.prep.movieplus.s, "SETTING_UP");
+  assert.equal(attempts, 4);
+});
+
+test("an older Kino's setupStatus without running keeps the target SETTING_UP", async () => {
+  await fresh({ bearer: "b" });
+  withPlugins({ setup: async () => ({ state: "SETTING_UP" }), setupStatus: async () => ({ ready: false, progress: 0.2 }) });
+  const started = await screenEvent({ name: "prepareAll", state: configState() });
+  const tick = await screenEvent({ name: "prepPoll", state: configState({ ...started.state }) });
+  assert.equal(tick.state.prep.movieplus.s, "SETTING_UP");
+  assert.equal(tick.state.prep.movieplus.p, 0.2);
+});
+
 test("a failing status poll never throws and stops after a bounded number of ticks", async () => {
   await fresh({ bearer: "b" });
   withPlugins({ setup: async () => ({ state: "SETTING_UP" }), setupStatus: async () => { throw Object.assign(new Error("x"), { code: "rate_limited" }); } });
@@ -282,10 +317,11 @@ test("Kino's screen rules drop no node of Preparar todo / the setup view (ES/EN 
   const { configView, setupView } = await import("../src/screenView.js");
   withPlugins({ setup: async () => ({ state: "SETTING_UP" }) });
   const prep = { movieplus: { s: "SETTING_UP", p: 0.3, l: "Descargando" }, hdfull: { s: "not_installed" } };
+  const failed = { movieplus: { s: "failed", l: "El servidor no responde" }, hdfull: { s: "failed" } };
   for (const lang of ["es", "en"]) {
     for (const device of ["phone", "tv"]) {
       globalThis.kino.lang = lang;
-      for (const v of [configView({ version: "3.1.7", device, prep }), setupView({ prep, device }), setupView({ device })]) {
+      for (const v of [configView({ version: "3.1.7", device, prep }), setupView({ prep, device }), setupView({ prep: failed, device }), setupView({ device })]) {
         assert.deepEqual(checkScreenTree(v, lang, undefined, { apiVersion: 27 }).dropped, [], `${lang} ${device}`);
       }
     }
