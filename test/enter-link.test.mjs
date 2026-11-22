@@ -43,11 +43,14 @@ test("Ingresar on a device with no Telegram identity → the 'Valida tu Telegram
 
   assert.equal(out.state.actError, "link", "the link banner: the 'Valida tu Telegram' gate");
   assert.deepEqual(seen, ["/session/challenge"], "the challenge went out, Kino's identity failed: /session never did");
-  assert.deepEqual(reports, ["activate_fail cause=identity_off why=no_tg via=enter"]);
+  assert.equal(reports.length, 1);
+  assert.match(reports[0], /^activate_fail cause=identity_off why=no_tg via=in at=id att=[0-9a-f]{6} ch=\d+ id=\d+ tot=\d+$/, "failed at Kino's identity (at=id), with the attempt");
   // The plugin's own log tells the whole story, in order.
   const log = k.logs.join("\n");
   assert.match(log, /screen: sign-in via=enter: Ingresar pressed/);
-  assert.match(log, /mint: challenge -> 200/);
+  assert.match(log, /mint: start att=[0-9a-f]{6}/);
+  assert.match(log, /mint: challenge -> 200 in \d+ ms/);
+  assert.match(log, /mint: FAILED at=id att=[0-9a-f]{6}/);
   assert.match(log, /mint: identity FAIL code=not_available msg=kino\.identity: this device was never validated/);
   assert.match(log, /screen: sign-in via=enter FAILED cause=identity_off why=no_tg -> banner=link code=not_available/);
   assert.ok(log.indexOf("Ingresar pressed") < log.indexOf("FAILED"), "pressed, then failed");
@@ -63,7 +66,7 @@ test("Ingresar when the device key fails: the same gate, but the board says why=
   const out = await P.screenEvent({ name: "enter", state: {} });
 
   assert.equal(out.state.actError, "link");
-  assert.deepEqual(reports, ["activate_fail cause=identity_off why=key_failed via=enter"]);
+  assert.match(reports.join("|"), /^activate_fail cause=identity_off why=key_failed via=in at=id att=[0-9a-f]{6} ch=\d+ id=\d+ tot=\d+$/);
   assert.match(k.logs.join("\n"), /FAILED cause=identity_off why=key_failed -> banner=link/);
 });
 
@@ -75,7 +78,7 @@ test("Reintentar on the gate reports via=activate and logs the banner it came fr
   const out = await P.screenEvent({ name: "activate", state: { actError: "link" } });
 
   assert.equal(out.state.actError, "link");
-  assert.deepEqual(reports, ["activate_fail cause=identity_off why=no_attest via=activate"]);
+  assert.match(reports.join("|"), /^activate_fail cause=identity_off why=no_attest via=ac at=id att=[0-9a-f]{6} ch=\d+ id=\d+ tot=\d+$/);
   assert.match(k.logs.join("\n"), /sign-in via=activate: Reintentar pressed \(last banner=link\)/);
 });
 
@@ -89,4 +92,35 @@ test("Ingresar that works logs OK and reports nothing", async () => {
   assert.deepEqual(seen, ["/session/challenge", "/session"]);
   assert.deepEqual(reports, []);
   assert.match(k.logs.join("\n"), /sign-in via=enter OK/);
+});
+
+test("a /session that times out: the board says at=se with each stage's ms, and both requests carried the attempt id", async () => {
+  const ok = async () => ({ id: "p".repeat(32), token: "gate.token", deviceKey: "dk", signature: "sig", author: "07DA-B67F-2ACF-B4D3", codeHash: "c0de" });
+  const { reports, k } = await welcomeDevice(ok);
+  const timeout = Object.assign(new Error("kino.fetch: timed out"), { code: "timeout" });
+  const real = k.kino.fetch;
+  k.kino.fetch = async (url, init = {}) => {
+    if (!url.endsWith("/session")) return real(url, init);
+    k.requests.push({ url, headers: { ...(init.headers || {}) } });
+    throw timeout;   // what kino.fetch throws when the request runs out of time
+  };
+
+  await P.screenEvent({ name: "enter", state: {} });
+
+  assert.equal(reports.length, 1);
+  const m = reports[0].match(/^activate_fail cause=err_timeout via=in at=se att=([0-9a-f]{6}) ch=\d+ id=\d+ se=\d+ tot=\d+$/);
+  assert.ok(m, reports[0]);
+  const sent = k.requests.filter((r) => r.url.startsWith(BACKEND + "/session")).map((r) => r.headers["X-Kino-Attempt"]);
+  assert.deepEqual(sent, [m[1], m[1]], "the challenge and the /session carried the report's attempt id (the backend logs it)");
+});
+
+test("a sign-in that works: its attempt id went to the backend, nothing reported", async () => {
+  const ok = async () => ({ id: "p".repeat(32), token: "gate.token", deviceKey: "dk", signature: "sig", author: "07DA-B67F-2ACF-B4D3", codeHash: "c0de" });
+  const { reports, k } = await welcomeDevice(ok);
+  await P.screenEvent({ name: "enter", state: {} });
+  assert.deepEqual(reports, []);
+  const ids = k.requests.filter((r) => r.url.startsWith(BACKEND + "/session")).map((r) => r.headers["X-Kino-Attempt"]);
+  assert.equal(ids.length, 2);
+  assert.match(ids[0], /^[0-9a-f]{6}$/);
+  assert.equal(ids[0], ids[1]);
 });

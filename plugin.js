@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.9";
+var PLUGIN_VERSION = "3.1.10";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -188,9 +188,10 @@ var t = (es, en6) => lang() === "en" ? en6 : es;
 function jsonBody(body) {
   return body === void 0 ? void 0 : { json: body };
 }
-async function rawBackend(method, path, body, bearer, timeoutMs = 2e4) {
+async function rawBackend(method, path, body, bearer, timeoutMs = 2e4, attempt) {
   const headers = { "Content-Type": "application/json", "X-Plugin-Version": PLUGIN_VERSION };
   if (bearer) headers["Authorization"] = "Bearer " + bearer;
+  if (attempt) headers["X-Kino-Attempt"] = attempt;
   return kino.fetch(serverUrl() + path, {
     method,
     headers,
@@ -227,15 +228,59 @@ function tokenMissing() {
 function isTokenMissing(e) {
   return !!e && (e.noToken === true || /answered without the token/.test(String(e.message || "")));
 }
+function newAttempt() {
+  const att = Math.floor(Math.random() * 16777216).toString(16).padStart(6, "0");
+  return { att, t0: Date.now(), at: "ch", ms: {} };
+}
+function stage(a, next) {
+  const now = Date.now();
+  a.ms[a.at] = now - (a.mark || a.t0);
+  a.mark = now;
+  a.at = next;
+}
+function withAttempt(e, a) {
+  try {
+    if (e && typeof e === "object" && !e.actAtt) {
+      a.ms[a.at] = Date.now() - (a.mark || a.t0);
+      e.actAtt = a.att;
+      e.actAt = a.at;
+      e.actMs = { ...a.ms };
+      e.actTot = Date.now() - a.t0;
+    }
+  } catch (_) {
+  }
+  return e;
+}
+function attemptFacts(e) {
+  if (!e || typeof e.actAtt !== "string" || !/^[0-9a-f]{6}$/.test(e.actAtt)) return "";
+  const ms = e.actMs || {};
+  const num = (v) => Number.isFinite(v) && v >= 0;
+  let out = " at=" + (["ch", "id", "se"].includes(e.actAt) ? e.actAt : "na") + " att=" + e.actAtt;
+  for (const k of ["ch", "id", "se"]) if (num(ms[k])) out += " " + k + "=" + Math.round(ms[k]);
+  if (num(e.actTot)) out += " tot=" + Math.round(e.actTot);
+  return out;
+}
 async function mintSession() {
-  const ch = await rawBackend("POST", "/session/challenge", void 0, null);
-  log2("mint: challenge -> " + ch.status);
+  const a = newAttempt();
+  try {
+    return await mintSteps(a);
+  } catch (e) {
+    withAttempt(e, a);
+    log2("mint: FAILED" + attemptFacts(e) + " code=" + (e && e.code) + " cause=" + (e && e.actCause || "-"));
+    throw e;
+  }
+}
+async function mintSteps(a) {
+  log2("mint: start att=" + a.att);
+  const ch = await rawBackend("POST", "/session/challenge", void 0, null, 2e4, a.att);
+  log2("mint: challenge -> " + ch.status + " in " + (Date.now() - a.t0) + " ms");
   if (!ch.ok) {
     const reason = reasonOf(ch);
     log2("mint: challenge FAIL status=" + ch.status + reason);
     throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondi\xF3 (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status + reason);
   }
   const challenge = ch.json().challenge;
+  stage(a, "id");
   let idn;
   try {
     idn = await kino.identity.telegram({ challenge });
@@ -245,6 +290,8 @@ async function mintSession() {
   }
   log2("mint: identity OK author=" + (idn && idn.author) + " token=" + !!(idn && idn.token) + " sig=" + !!(idn && idn.signature) + " dk=" + !!(idn && idn.deviceKey) + " ch=" + !!(idn && idn.codeHash));
   if (!idn || typeof idn.token !== "string" || !idn.token) throw tokenMissing();
+  stage(a, "se");
+  log2("mint: identity took " + a.ms.id + " ms");
   const res = await rawBackend("POST", "/session", {
     token: idn.token,
     challenge,
@@ -253,8 +300,8 @@ async function mintSession() {
     author: idn.author,
     codeHash: idn.codeHash,
     pluginId: PLUGIN_ID
-  }, null);
-  log2("mint: /session -> " + res.status);
+  }, null, 2e4, a.att);
+  log2("mint: /session -> " + res.status + " in " + (Date.now() - a.mark) + " ms");
   if (!res.ok) {
     const reason = reasonOf(res);
     log2("mint: /session FAIL status=" + res.status + reason);
@@ -304,10 +351,10 @@ function identityWhy(e) {
   if (m.includes("attest")) return "no_attest";
   return "unknown";
 }
-var VIA = /* @__PURE__ */ new Set(["enter", "open", "activate", "reauth", "setup"]);
+var VIA = { enter: "in", open: "op", activate: "ac", reauth: "ra", setup: "su" };
 function reportActivate(e, via) {
   const why4 = identityWhy(e);
-  const line = "activate_fail cause=" + activateCause(e) + (why4 ? " why=" + why4 : "") + (VIA.has(via) ? " via=" + via : "");
+  const line = "activate_fail cause=" + activateCause(e) + (why4 ? " why=" + why4 : "") + (VIA[via] ? " via=" + VIA[via] : "") + attemptFacts(e);
   try {
     kino.log.report(line);
   } catch (_) {

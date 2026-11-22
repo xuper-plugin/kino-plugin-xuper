@@ -47,9 +47,11 @@ function jsonBody(body) {
 // Every backend request names this plugin's version: Xuper 2.x and 3.x share the plugin id "xuper" and the backend
 // keeps nothing else that tells them apart, so its per-plugin counters (seed_stats) read this header (none: 2.x, or a
 // 3.x older than 3.0.2).
-async function rawBackend(method, path, body, bearer, timeoutMs = 20000) {
+async function rawBackend(method, path, body, bearer, timeoutMs = 20000, attempt) {
   const headers = { "Content-Type": "application/json", "X-Plugin-Version": PLUGIN_VERSION };
   if (bearer) headers["Authorization"] = "Bearer " + bearer;
+  // A sign-in's id: the backend logs it on its CHALLENGE / IN / OK / REJECT lines, and the failure report carries it too.
+  if (attempt) headers["X-Kino-Attempt"] = attempt;
   return kino.fetch(serverUrl() + path, {
     method, headers, body: jsonBody(body), cookies: false, timeoutMs,
   });
@@ -93,15 +95,73 @@ export function isTokenMissing(e) {
   return !!e && (e.noToken === true || /answered without the token/.test(String(e.message || "")));
 }
 
+/**
+ * The facts of one sign-in, for the failure report and the backend's lines: `att` (random hex, nothing personal; the
+ * backend logs it from X-Kino-Attempt), the stage it reached (`ch` challenge, `id` Kino's identity — the consent sheet
+ * waits there —, `se` /session) and each stage's milliseconds. Two-letter codes on purpose: Kino scrubs from a report any
+ * text of the running call (an event or route name like "enter" or "setup", even inside a longer word), and never one
+ * shorter than three characters.
+ */
+function newAttempt() {
+  const att = Math.floor(Math.random() * 0x1000000).toString(16).padStart(6, "0");
+  return { att, t0: Date.now(), at: "ch", ms: {} };
+}
+
+/** Closes stage `a.at` (its milliseconds) and opens `next`. */
+function stage(a, next) {
+  const now = Date.now();
+  a.ms[a.at] = now - (a.mark || a.t0);
+  a.mark = now;
+  a.at = next;
+}
+
+/** Tags a sign-in error with the attempt: the stage it failed in and how long each stage took (the failing one too). */
+function withAttempt(e, a) {
+  try {
+    if (e && typeof e === "object" && !e.actAtt) {
+      a.ms[a.at] = Date.now() - (a.mark || a.t0);
+      e.actAtt = a.att;
+      e.actAt = a.at;
+      e.actMs = { ...a.ms };
+      e.actTot = Date.now() - a.t0;
+    }
+  } catch (_) { /* frozen: the report goes without the attempt */ }
+  return e;
+}
+
+/** The attempt part of a report line (` at=se att=1a2b3c ch=340 id=15200 se=20001 tot=35541`), "" for an error of no sign-in. */
+export function attemptFacts(e) {
+  if (!e || typeof e.actAtt !== "string" || !/^[0-9a-f]{6}$/.test(e.actAtt)) return "";
+  const ms = e.actMs || {};
+  const num = (v) => Number.isFinite(v) && v >= 0;
+  let out = " at=" + (["ch", "id", "se"].includes(e.actAt) ? e.actAt : "na") + " att=" + e.actAtt;
+  for (const k of ["ch", "id", "se"]) if (num(ms[k])) out += " " + k + "=" + Math.round(ms[k]);
+  if (num(e.actTot)) out += " tot=" + Math.round(e.actTot);
+  return out;
+}
+
 async function mintSession() {
-  const ch = await rawBackend("POST", "/session/challenge", undefined, null);
-  log("mint: challenge -> " + ch.status);
+  const a = newAttempt();
+  try {
+    return await mintSteps(a);
+  } catch (e) {
+    withAttempt(e, a);
+    log("mint: FAILED" + attemptFacts(e) + " code=" + (e && e.code) + " cause=" + ((e && e.actCause) || "-"));
+    throw e;
+  }
+}
+
+async function mintSteps(a) {
+  log("mint: start att=" + a.att);
+  const ch = await rawBackend("POST", "/session/challenge", undefined, null, 20000, a.att);
+  log("mint: challenge -> " + ch.status + " in " + (Date.now() - a.t0) + " ms");
   if (!ch.ok) {
     const reason = reasonOf(ch);   // the backend names one in `detail` (e.g. rate_limited)
     log("mint: challenge FAIL status=" + ch.status + reason);
     throw withCause(kino.error("unavailable", t("Xuper: el servidor no respondió (" + ch.status + ")", "Xuper: the server did not answer (" + ch.status + ")")), "challenge_" + ch.status + reason);
   }
   const challenge = ch.json().challenge;
+  stage(a, "id");
   let idn;
   try {
     idn = await kino.identity.telegram({ challenge });   // only answers inside a screen call
@@ -112,11 +172,13 @@ async function mintSession() {
   log("mint: identity OK author=" + (idn && idn.author) + " token=" + !!(idn && idn.token) +
       " sig=" + !!(idn && idn.signature) + " dk=" + !!(idn && idn.deviceKey) + " ch=" + !!(idn && idn.codeHash));
   if (!idn || typeof idn.token !== "string" || !idn.token) throw tokenMissing();
+  stage(a, "se");
+  log("mint: identity took " + a.ms.id + " ms");
   const res = await rawBackend("POST", "/session", {
     token: idn.token, challenge, deviceKey: idn.deviceKey,
     signature: idn.signature, author: idn.author, codeHash: idn.codeHash, pluginId: PLUGIN_ID,
-  }, null);
-  log("mint: /session -> " + res.status);
+  }, null, 20000, a.att);
+  log("mint: /session -> " + res.status + " in " + (Date.now() - a.mark) + " ms");
   if (!res.ok) {
     const reason = reasonOf(res);   // the backend names one in `detail` (bad_proof, bad_token, unofficial_plugin…)
     log("mint: /session FAIL status=" + res.status + reason);
@@ -179,20 +241,26 @@ export function identityWhy(e) {
   return "unknown";
 }
 
-/** The trigger words a report may carry (`via=`): the button or event that started the sign-in. */
-const VIA = new Set(["enter", "open", "activate", "reauth", "setup"]);
+/**
+ * What started the sign-in, as the two-letter code a report carries (`via=`): Kino scrubs a report of any text of the
+ * running call, and the event or route names ARE that text ("enter", "setup" arrived as `via=[private]`), so the words
+ * travel coded: in enter (the welcome's "Ingresar"), op open (the sign-in Xuper does by itself), ac activate
+ * ("Reintentar"), ra reauth (Ajustes), su setup (Kino's setup run).
+ */
+const VIA = { enter: "in", open: "op", activate: "ac", reauth: "ra", setup: "su" };
 
 /**
  * Tells Kino's error board (GlitchTip; telemetry is on) WHY an activation failed, as a non-fatal degraded report
  * (`kino.log.report`, throttled to once an hour per device): the fleet's cause distribution shows up without a thrown
  * error, so "No se pudo activar" stops being a black box. The line carries only fixed words, never anything private:
- * `cause=` (activateCause), `why=` (identityWhy, for a not_available identity) and `via=` — what started the sign-in:
- * enter (the welcome's "Ingresar"), open (the sign-in Xuper does by itself), activate ("Reintentar"), reauth (Ajustes),
- * setup (Kino's setup run).
+ * `cause=` (activateCause), `why=` (identityWhy, for a not_available identity), `via=` — what started the sign-in, coded
+ * (VIA: in Ingresar, op open, ac Reintentar, ra Ajustes, su Kino's setup run) — and, for a failed sign-in, the attempt
+ * (attemptFacts: the stage it failed in, `att=` — the backend logs the same id —, each stage's ms and the total).
  */
 export function reportActivate(e, via) {
   const why = identityWhy(e);
-  const line = "activate_fail cause=" + activateCause(e) + (why ? " why=" + why : "") + (VIA.has(via) ? " via=" + via : "");
+  const line = "activate_fail cause=" + activateCause(e) + (why ? " why=" + why : "") + (VIA[via] ? " via=" + VIA[via] : "") +
+    attemptFacts(e);
   try { kino.log.report(line); } catch (_) { /* telemetry off, or an older Kino */ }
 }
 
