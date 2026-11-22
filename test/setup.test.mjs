@@ -126,8 +126,30 @@ test("setupStatus is not ready while the reauth-needed flag is set", async () =>
   const st = await P.setupStatus();
   assert.equal(st.ready, false);
   assert.equal(typeof st.label, "string");
+  assert.equal(k.calls.n, 0, "identity untouched");
+  assert.equal(k.calls.vault, undefined, "vault untouched");
   api.clearReauthNeeded();
   assert.equal((await P.setupStatus()).ready, true);
+});
+
+test("setupRun with the reauth flag set and a valid session does a real sign-in, clears the flag, then ready", async () => {
+  const k = await fresh({ bearer: "old" });
+  api.markReauthNeeded("consent");
+  assert.equal((await P.setupRun({ step: 0 })).done, true);
+  assert.equal(k.calls.n, 1, "a fresh sign-in ran");
+  assert.equal(api.reauthNeeded(), false);
+  assert.equal(k.store.get("o2:bearer"), "fresh-bearer");
+  assert.equal((await P.setupStatus()).ready, true);
+});
+
+test("setupRun with the reauth flag set and the sign-in failing: step error, flag stays, session kept, intro untouched", async () => {
+  const k = await fresh({ bearer: "old", identity: async () => { throw Object.assign(new Error("x"), { code: "permission_denied" }); } });
+  api.markReauthNeeded("consent");
+  await assert.rejects(P.setupRun({ step: 0 }), (e) => /identidad/i.test(e.userMessage));
+  assert.equal(api.reauthNeeded(), true);
+  assert.equal(k.store.get("o2:bearer"), "old");
+  assert.equal(api.introSeen(), false);
+  assert.equal((await P.setupStatus()).ready, false);
 });
 
 // ── Preparar todo ──

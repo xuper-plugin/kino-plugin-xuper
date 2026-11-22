@@ -6,7 +6,7 @@
 //    makes Kino ask the person), then follows them with `kino.plugins.setupStatus`. The result per target lives in the
 //    screen state as `prep[key] = { s, p?, l? }` (s: SETTING_UP | READY | not_installed | no_setup | busy | rate_limited |
 //    timeout | error); a target the person refused is `null` (nothing to say).
-import { ensureBearer, currentBearer, notMemberActive, markIntroSeen, reportActivate, activateBanner, markReauthNeeded, reauthNeeded, notMemberText } from "./api.js";
+import { ensureBearer, reauth, currentBearer, notMemberActive, markIntroSeen, reportActivate, activateBanner, markReauthNeeded, reauthNeeded, notMemberText } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
 import { PREP_TARGETS, lang } from "./config.js";
 
@@ -32,9 +32,10 @@ export async function setupStatus() {
 
 /** `setupRun({ step })`: the activation, in one step. Throws a step error carrying the per-cause message. */
 export async function setupRun() {
-  if (await currentBearer()) return { done: true };   // already activated: the intro state is not touched
+  const stale = reauthNeeded();   // a session is stored but a re-activation failed: only a fresh sign-in clears the flag
+  if (!stale && await currentBearer()) return { done: true };   // already activated: the intro state is not touched
   try {
-    await ensureBearer();
+    if (stale) await reauth(); else await ensureBearer();   // reauth mints fresh and keeps the old session if it fails
     markIntroSeen();   // only a successful sign-in stands in for "Ingresar" (setupView still offers Apoyar)
     await syncReauthNotice();
     return { done: true };
