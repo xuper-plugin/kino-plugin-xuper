@@ -256,16 +256,16 @@ export function identityWhy(e) {
  * What started the sign-in, as the two-letter code a report carries (`via=`): Kino scrubs a report of any text of the
  * running call, and the event or route names ARE that text ("enter", "setup" arrived as `via=[private]`), so the words
  * travel coded: in enter (the welcome's "Ingresar"), op open (the sign-in Xuper does by itself), ac activate
- * ("Reintentar"), ra reauth (Ajustes), su setup (Kino's setup run).
+ * ("Reintentar"), ra reauth (Ajustes).
  */
-const VIA = { enter: "in", open: "op", activate: "ac", reauth: "ra", setup: "su" };
+const VIA = { enter: "in", open: "op", activate: "ac", reauth: "ra" };
 
 /**
  * Tells Kino's error board (GlitchTip; telemetry is on) WHY an activation failed, as a non-fatal degraded report
  * (`kino.log.report`, throttled to once an hour per device): the fleet's cause distribution shows up without a thrown
  * error, so "No se pudo activar" stops being a black box. The line carries only fixed words, never anything private:
  * `cause=` (activateCause), `why=` (identityWhy, for a not_available identity), `via=` — what started the sign-in, coded
- * (VIA: in Ingresar, op open, ac Reintentar, ra Ajustes, su Kino's setup run) — and, for a failed sign-in, the attempt
+ * (VIA: in Ingresar, op open, ac Reintentar, ra Ajustes) — and, for a failed sign-in, the attempt
  * (attemptFacts: the stage it failed in, `att=` — the backend logs the same id —, each stage's ms and the total).
  */
 export function reportActivate(e, via) {

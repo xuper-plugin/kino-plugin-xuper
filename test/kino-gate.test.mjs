@@ -47,10 +47,6 @@ test("Kino 0.9.90 (below the 0.9.91 floor): the screen is 'Actualiza Kino', noth
   assert.deepEqual(await P.search({ q: "batman" }), []);
   await assert.rejects(P.resolve("vod:1"), (e) => /0\.9\.91/.test(e.userMessage || e.message));
   await assert.rejects(P.episodes("vod:1"));
-  const status = await P.setupStatus();
-  assert.equal(status.ready, false);
-  assert.match(status.label, /Actualiza|Kino 0\.9\.91/);
-  await assert.rejects(P.setupRun({}));
   assert.equal(k.requests.filter((r) => r.url.startsWith(BACKEND)).length, 0, "no backend request on a too-old Kino");
 });
 

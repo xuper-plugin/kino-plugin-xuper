@@ -77,16 +77,16 @@ test("reportActivate: carries why= for a not_available identity and via= (coded)
   for (const line of reports) assert.match(line, /^activate_fail( [a-z]+=[a-z0-9_:]+)+$/);
 });
 
-test("reportActivate: Kino's setup run is via=su, and a failed sign-in carries its attempt (stage, att, each stage's ms)", () => {
+test("reportActivate: a failed sign-in carries its attempt (stage, att, each stage's ms)", () => {
   reports.length = 0;
   const e = Object.assign(new Error("timed out"), { code: "timeout", actAtt: "0a1b2c", actAt: "se", actMs: { ch: 312.4, id: 15020, se: 20001 }, actTot: 35333 });
-  reportActivate(e, "setup");
-  assert.deepEqual(reports, ["activate_fail cause=err_timeout via=su at=se att=0a1b2c ch=312 id=15020 se=20001 tot=35333"]);
+  reportActivate(e, "enter");
+  assert.deepEqual(reports, ["activate_fail cause=err_timeout via=in at=se att=0a1b2c ch=312 id=15020 se=20001 tot=35333"]);
   // A made-up attempt id or stage is never echoed.
   reports.length = 0;
   reportActivate({ code: "timeout", actAtt: "not hex", actAt: "se" }, "open");
   reportActivate({ code: "timeout", actAtt: "abcdef", actAt: "zz", actMs: { ch: -1 } }, "open");
   assert.deepEqual(reports, ["activate_fail cause=err_timeout via=op", "activate_fail cause=err_timeout via=op at=na att=abcdef"]);
   // Every value is two letters or digits: none can match a text of the running call that Kino scrubs (3+ characters).
-  for (const k of ["in", "op", "ac", "ra", "su"]) assert.equal(k.length, 2);
+  for (const k of ["in", "op", "ac", "ra"]) assert.equal(k.length, 2);
 });

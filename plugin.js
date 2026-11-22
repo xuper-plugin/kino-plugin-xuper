@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.11";
+var PLUGIN_VERSION = "3.1.12";
 var MIN_KINO_FLOOR = "0.9.91";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
@@ -32,9 +32,9 @@ function canRelinkTelegram() {
     return false;
   }
 }
-function localTitle(t3) {
-  if (t3 && typeof t3 === "object") return String((lang() === "en" ? t3.en : t3.es) || t3.es || t3.en || "");
-  return String(t3 == null ? "" : t3);
+function localTitle(t2) {
+  if (t2 && typeof t2 === "object") return String((lang() === "en" ? t2.en : t2.es) || t2.es || t2.en || "");
+  return String(t2 == null ? "" : t2);
 }
 var SECTIONS = [
   { name: "populares", title: "Populares", titleEn: "Popular", genre: "otros" },
@@ -44,17 +44,6 @@ var SECTIONS = [
   { name: "ninos", title: "Ni\xF1os", titleEn: "Kids", genre: "infantil" },
   { name: "adultos", title: "Adultos", titleEn: "Adults", genre: "otros", adult: true }
 ];
-var PREP_TARGETS = Object.freeze([
-  { key: "movieplus", repo: "xuper-plugin/kino-plugin-movieplus", name: "Movie+" },
-  { key: "hdfull", repo: "xuper-plugin/kino-plugin-hdfull", name: "HDFull" }
-]);
-function canPrepareOthers() {
-  try {
-    return typeof kino !== "undefined" && !!kino && !!kino.plugins && typeof kino.plugins.setup === "function";
-  } catch (_) {
-    return false;
-  }
-}
 
 // src/store.js
 var KEY_PREFIX = "o2:";
@@ -78,10 +67,10 @@ function getText(key) {
   }
 }
 function getJson(key) {
-  const t3 = getText(key);
-  if (t3 === null) return null;
+  const t2 = getText(key);
+  if (t2 === null) return null;
   try {
-    return JSON.parse(t3);
+    return JSON.parse(t2);
   } catch (_) {
     remove(key);
     return null;
@@ -433,7 +422,7 @@ function identityWhy(e) {
   if (m.includes("attest")) return "no_attest";
   return "unknown";
 }
-var VIA = { enter: "in", open: "op", activate: "ac", reauth: "ra", setup: "su" };
+var VIA = { enter: "in", open: "op", activate: "ac", reauth: "ra" };
 function reportActivate(e, via) {
   const why4 = identityWhy(e);
   const line = "activate_fail cause=" + activateCause(e) + (why4 ? " why=" + why4 : "") + (VIA[via] ? " via=" + VIA[via] : "") + attemptFacts(e);
@@ -1277,12 +1266,12 @@ var TRAILING_NUMBER = /[\s._-]*\d+$/;
 var plainTitle = (s) => s.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
 function isGenericTitle(s) {
   if (typeof s !== "string") return true;
-  const t3 = plainTitle(s);
-  if (GENERIC_TITLE.test(t3)) return true;
-  const cut = t3.lastIndexOf("_");
+  const t2 = plainTitle(s);
+  if (GENERIC_TITLE.test(t2)) return true;
+  const cut = t2.lastIndexOf("_");
   if (cut < 0) return false;
-  const series = t3.slice(0, cut).trim();
-  const rest = t3.slice(cut + 1).trim();
+  const series = t2.slice(0, cut).trim();
+  const rest = t2.slice(cut + 1).trim();
   return GENERIC_TITLE.test(rest) || TRAILING_NUMBER.test(rest) && rest.replace(TRAILING_NUMBER, "").trim() === series;
 }
 function episodesAnswer(m, raw, english) {
@@ -1614,9 +1603,9 @@ function bytesToBase64(bytes) {
   return out;
 }
 var B64_LOOKUP = (() => {
-  const t3 = new Int16Array(256).fill(-1);
-  for (let i = 0; i < B64_ALPHABET.length; i++) t3[B64_ALPHABET.charCodeAt(i)] = i;
-  return t3;
+  const t2 = new Int16Array(256).fill(-1);
+  for (let i = 0; i < B64_ALPHABET.length; i++) t2[B64_ALPHABET.charCodeAt(i)] = i;
+  return t2;
 })();
 function base64ToBytes(b642) {
   let clean = "";
@@ -2294,8 +2283,8 @@ function signRequest({ url, context }, nowMs) {
 // src/sources/adult.js
 var ADULT_RE = /adult|xxx|porn|erotic|erotik|hentai|playboy|hustler|brazzers|\+ ?18(?!\d)|(?:^|\D)18 ?\+|(?:^|[^a-z])sex(?:y|o)?(?![a-z])/;
 function isAdultTitle(title) {
-  const t3 = String(title == null ? "" : title).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  return ADULT_RE.test(t3);
+  const t2 = String(title == null ? "" : title).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return ADULT_RE.test(t2);
 }
 
 // src/seeds.js
@@ -3153,8 +3142,8 @@ async function mintAnonymous({ requestMs, validateColumn }) {
 var ALL_CHANNELS = "ChannelList";
 var INT2 = /^[+-]?\d+$/;
 var intOrNull = (v) => {
-  const t3 = str3(v);
-  return INT2.test(t3) ? Number(t3) : null;
+  const t2 = str3(v);
+  return INT2.test(t2) ? Number(t2) : null;
 };
 function logoOf(c) {
   for (const k of ["logo", "icon", "pic", "poster", "image", "cover", "verImg", "horImg"]) {
@@ -3460,7 +3449,7 @@ function slimHit(raw) {
   return { contentId: c, name, type };
 }
 var SERIES_TYPES = /* @__PURE__ */ new Set(["series", "tv", "variety", "anime", "0"]);
-var isSeriesType = (t3) => SERIES_TYPES.has(str3(t3).toLowerCase());
+var isSeriesType = (t2) => SERIES_TYPES.has(str3(t2).toLowerCase());
 function titleMatchScore(query, title) {
   const nq = normTitle(query), nt = normTitle(title);
   if (nq === "" || nt === "") return 0;
@@ -3468,10 +3457,10 @@ function titleMatchScore(query, title) {
   const qs2 = new Set(titleTokens(query)), ts = new Set(titleTokens(title));
   if (qs2.size === 0 || ts.size === 0) return 0;
   let inter = 0;
-  for (const t3 of qs2) if (ts.has(t3)) inter++;
+  for (const t2 of qs2) if (ts.has(t2)) inter++;
   const union = (/* @__PURE__ */ new Set([...qs2, ...ts])).size;
   const jac = inter / union;
-  const subset = [...qs2].every((t3) => ts.has(t3));
+  const subset = [...qs2].every((t2) => ts.has(t2));
   return subset ? 0.8 + 0.2 * jac : jac;
 }
 async function searchVod(title) {
@@ -3657,7 +3646,7 @@ function optInt2(v) {
   return 0;
 }
 var imageUrl = (path, size) => typeof path !== "string" || blank3(path) || path === "null" ? "" : `${IMG}/${size}${path}`;
-var plainWords = (t3) => String(t3).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+var plainWords = (t2) => String(t2).toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 function parseSeriesByImdb(body) {
   const o = isObj5(body) ? body : null;
   const tv = o && Array.isArray(o.tv_results) && isObj5(o.tv_results[0]) ? o.tv_results[0] : null;
@@ -3754,8 +3743,8 @@ var SEASON = new RegExp(SEASON_SOURCE, "giu");
 var BRACKETS = /[([{][^)\]}]*[)\]}]/g;
 function cleanSeriesTitle(title) {
   if (typeof title !== "string") return "";
-  const t3 = title.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
-  return t3.length >= 2 ? t3 : "";
+  const t2 = title.replace(BRACKETS, " ").replace(SEASON, " ").replace(LANGUAGE, " ").replace(/[\s_.:;,|/\\-]+/g, " ").trim();
+  return t2.length >= 2 ? t2 : "";
 }
 var ENDS_IN_DIGIT = /[0-9]\s*$/;
 var tails = null;
@@ -3826,19 +3815,19 @@ var TRAILING_NUMBER2 = /[\s._-]*\d+$/;
 var plainTitle2 = (s) => s.toLowerCase().normalize("NFD").replace(/\p{Mn}+/gu, "").replace(/\s+/g, " ").trim();
 function isGenericTitle2(s) {
   if (typeof s !== "string") return true;
-  const t3 = plainTitle2(s);
-  if (GENERIC_TITLE2.test(t3)) return true;
-  const cut = t3.lastIndexOf("_");
+  const t2 = plainTitle2(s);
+  if (GENERIC_TITLE2.test(t2)) return true;
+  const cut = t2.lastIndexOf("_");
   if (cut < 0) return false;
-  const series = t3.slice(0, cut).trim();
-  const rest = t3.slice(cut + 1).trim();
+  const series = t2.slice(0, cut).trim();
+  const rest = t2.slice(cut + 1).trim();
   return GENERIC_TITLE2.test(rest) || TRAILING_NUMBER2.test(rest) && rest.replace(TRAILING_NUMBER2, "").trim() === series;
 }
 var str4 = (v) => typeof v === "string" ? v : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
 function toIntOrNull2(v) {
-  const t3 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
-  if (t3 === null || !INT4.test(t3.trim())) return null;
-  const n = Number(t3.trim());
+  const t2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+  if (t2 === null || !INT4.test(t2.trim())) return null;
+  const n = Number(t2.trim());
   return n >= -2147483648 && n <= 2147483647 ? n || 0 : null;
 }
 function rawDetail(detail, seriesId) {
@@ -3948,8 +3937,8 @@ function pickPortrait(posterList) {
 }
 function pickBackdrop(posterList) {
   if (!Array.isArray(posterList)) return void 0;
-  for (const t3 of ["stage", "poster"]) {
-    const p = posterList.find((x) => x && x.fileUrl && typeOf(x) === t3);
+  for (const t2 of ["stage", "poster"]) {
+    const p = posterList.find((x) => x && x.fileUrl && typeOf(x) === t2);
     if (p) return p.fileUrl;
   }
   return void 0;
@@ -4152,7 +4141,7 @@ function fromLegacyHome(legacy, opts) {
       return y;
     });
     sec.slides = slides;
-    const railTitle = (t3) => rec ? t3.slice(0, 200) : t3;
+    const railTitle = (t2) => rec ? t2.slice(0, 200) : t2;
     sec.rails = railsOf(s.rows, adult, itemOpts).map((r) => {
       const rail = r.title ? { title: railTitle(r.title), items: r.items.map(idx) } : { items: r.items.map(idx) };
       if (rec && r.columnId) rail.ref = colRef(r.columnId, adult);
@@ -4174,7 +4163,7 @@ function fromLegacyHome(legacy, opts) {
   }
   return { schema: SCHEMA, items, sections };
 }
-var teamObj = (t3) => t3 && typeof t3 === "object" ? t3 : null;
+var teamObj = (t2) => t2 && typeof t2 === "object" ? t2 : null;
 function fromLegacyMatches(legacy) {
   const out = [];
   for (const x of legacy && legacy.matches || []) {
@@ -4187,8 +4176,8 @@ function fromLegacyMatches(legacy) {
       y.a = team(a);
       y.b = team(b);
     } else {
-      const t3 = String(x.gameName || "").trim().slice(0, 80);
-      if (t3) y.title = t3;
+      const t2 = String(x.gameName || "").trim().slice(0, 80);
+      if (t2) y.title = t2;
     }
     if (x.channelName) y.ch = String(x.channelName);
     out.push(y);
@@ -4196,9 +4185,9 @@ function fromLegacyMatches(legacy) {
   return { schema: SCHEMA, matches: out };
 }
 function team(o) {
-  const t3 = { n: String(o.teamName || o.teamAlias || "?") };
-  if (HTTPS.test(o.teamLogo || "")) t3.l = String(o.teamLogo);
-  return t3;
+  const t2 = { n: String(o.teamName || o.teamAlias || "?") };
+  if (HTTPS.test(o.teamLogo || "")) t2.l = String(o.teamLogo);
+  return t2;
 }
 function canonicalText(obj) {
   const rest = {};
@@ -4341,10 +4330,10 @@ function validateMatches(m2) {
       return;
     }
     for (const side of ["a", "b"]) {
-      const t3 = m[side];
-      if (t3 === void 0) continue;
-      if (!t3 || typeof t3.n !== "string") bad(at2 + "." + side);
-      else if (t3.l !== void 0 && !httpsUrl(t3.l)) bad(at2 + "." + side + ".l is not https");
+      const t2 = m[side];
+      if (t2 === void 0) continue;
+      if (!t2 || typeof t2.n !== "string") bad(at2 + "." + side);
+      else if (t2.l !== void 0 && !httpsUrl(t2.l)) bad(at2 + "." + side + ".l is not https");
     }
     if (m.kickoff !== void 0 && !Number.isFinite(m.kickoff)) bad(at2 + ".kickoff");
   });
@@ -4434,13 +4423,13 @@ function matchStart(m) {
   return parseUtcTime(m && m.time);
 }
 function isLiveMatch(m, now = Date.now()) {
-  const t3 = matchStart(m);
-  return Number.isFinite(t3) && now >= t3 - LIVE_BEFORE_MS && now <= t3 + LIVE_AFTER_MS;
+  const t2 = matchStart(m);
+  return Number.isFinite(t2) && now >= t2 - LIVE_BEFORE_MS && now <= t2 + LIVE_AFTER_MS;
 }
 function visibleMatches(list, now = Date.now()) {
   return (list || []).filter((m) => {
-    const t3 = matchStart(m);
-    return !Number.isFinite(t3) || t3 + HIDE_AFTER_MS >= now;
+    const t2 = matchStart(m);
+    return !Number.isFinite(t2) || t2 + HIDE_AFTER_MS >= now;
   });
 }
 
@@ -4491,15 +4480,15 @@ function log5(m) {
   } catch (_) {
   }
 }
-var sha256 = (t3) => kino.crypto.hash("sha256", t3);
+var sha256 = (t2) => kino.crypto.hash("sha256", t2);
 var backoffMs = (n) => BACKOFF_MS[Math.min(Math.max(n | 0, 1), BACKOFF_MS.length) - 1];
 var inBackoff = (m, now) => {
   const f = saneAt(m && m.failAt, now);
   return !!f && now - f < backoffMs(m.failN);
 };
 var dueSince = (stamp2, ttl, now) => {
-  const t3 = saneAt(stamp2, now);
-  return !t3 || now - t3 >= ttl;
+  const t2 = saneAt(stamp2, now);
+  return !t2 || now - t2 >= ttl;
 };
 var indexMissing = (ixm, now) => {
   const u = Number(ixm && ixm.missingUntil) || 0;
@@ -4517,11 +4506,11 @@ function read(name) {
   const m = getJson(p.meta);
   const l0 = L0[name];
   if (l0 && (!m || !m.h || m.h === l0.h)) return l0.v;
-  const t3 = getText(p.key);
-  if (t3 === null) return l0 ? l0.v : null;
+  const t2 = getText(p.key);
+  if (t2 === null) return l0 ? l0.v : null;
   let v;
   try {
-    v = JSON.parse(t3);
+    v = JSON.parse(t2);
   } catch (_) {
     v = null;
   }
@@ -5678,9 +5667,9 @@ var THEMES = [
   ["v.ent", /\bentretenimiento\b|\bentertainment\b|\bvariedad\w*|\brealit\w*|\bfashion\b|\bmoda\b|\blifestyle\b|\bestilo de vida\b|\bcocina\b|\bfood\b|\bviajes?\b|\btravel\b|\bcomedia\b|\bhumor\b/],
   ["v.movies", /\bcine\w*|\bpeliculas?\b|\bmovies?\b|\bfilms?\b|\bseries\b|\bcinema\b|\bestrenos?\b|\bhbo\b|\bcinemax\b|\bstar channel\b|\bwarner\b|\buniversal\b|\bparamount\b|\bsony\b|\brakuten\b|\brun ?time\b|\bamc\b|\baxn\b|\btcm\b|\bmgm\b|\bgolden\b|\bcinecanal\b|\bterror\b|\bhorror\b|\baccion\b|\baction\b|\bsuspenso\b|\bthrillers?\b|\bwestern\b|\bsitcoms?\b/]
 ];
-function titleText(t3) {
-  if (t3 && typeof t3 === "object") return [t3.es, t3.en].filter(Boolean).join(" ");
-  return String(t3 == null ? "" : t3);
+function titleText(t2) {
+  if (t2 && typeof t2 === "object") return [t2.es, t2.en].filter(Boolean).join(" ");
+  return String(t2 == null ? "" : t2);
 }
 var CACHE_MAX = 4e3;
 var cache = /* @__PURE__ */ new Map();
@@ -5742,9 +5731,9 @@ function rules(srcId, cat, raw) {
   return at2(null);
 }
 var localOf = (v) => lang() === "en" ? v.en : v.es;
-function rawTitle(t3) {
-  if (t3 && typeof t3 === "object") return String((lang() === "en" ? t3.en : t3.es) || t3.es || t3.en || "");
-  return String(t3 == null ? "" : t3);
+function rawTitle(t2) {
+  if (t2 && typeof t2 === "object") return String((lang() === "en" ? t2.en : t2.es) || t2.es || t2.en || "");
+  return String(t2 == null ? "" : t2);
 }
 function hexEnc(s) {
   const a = encodeURIComponent(String(s == null ? "" : s));
@@ -6031,9 +6020,9 @@ function parseServers(text2) {
   const out = [];
   const seen = /* @__PURE__ */ new Set();
   for (const line of String(text2).split(/\r?\n/)) {
-    const t3 = line.trim();
-    if (!t3 || t3.startsWith("#")) continue;
-    const s = parseServerLine(t3);
+    const t2 = line.trim();
+    if (!t2 || t2.startsWith("#")) continue;
+    const s = parseServerLine(t2);
     if (!s) continue;
     if (!HOST_ALLOWLIST.has(hostnameOf(s.url))) continue;
     const key = s.url + "|" + s.username;
@@ -6506,7 +6495,7 @@ function slot(name, id, title) {
     probeTimeoutMs: PROBE_MS,
     skipAdult: true,
     rankCat: rankSupertv,
-    keepCat: (t3) => !EVENT_RE.test(t3),
+    keepCat: (t2) => !EVENT_RE.test(t2),
     // no event, PPV or replay category: their slots differ per panel
     maxCats: MAX_CATS,
     secondary: {
@@ -7526,7 +7515,7 @@ function noCopy(id) {
   return e;
 }
 var usableMeta = (m) => m && typeof m.id === "string" && m.id && String(m.name || m.title || "").trim();
-var titleKey = (t3) => String(t3 || "").toLowerCase().replace(/\s+/g, " ").trim();
+var titleKey = (t2) => String(t2 || "").toLowerCase().replace(/\s+/g, " ").trim();
 function makeStremio(cfg) {
   const base = String(cfg.base || "").replace(/\/+$/, "");
   const streamSort = cfg.streamSort || "hls";
@@ -7723,9 +7712,9 @@ function isPlaceholder(m) {
   return /(^|_)leaf_expired[:_]|expired:notice/i.test(String(m && m.id || "")) || /subscription expired/i.test(String(m && m.name || ""));
 }
 function eventOf(m) {
-  const t3 = Date.parse(String(m && m.released || ""));
+  const t2 = Date.parse(String(m && m.released || ""));
   const p = /^nuvio_sport_([a-z0-9]{1,12})_/.exec(String(m && m.id || ""));
-  return { start: t3 > 0 ? t3 : 0, origin: p ? p[1] : "" };
+  return { start: t2 > 0 ? t2 : 0, origin: p ? p[1] : "" };
 }
 var nuvio_sports_default = makeStremio({
   id: "nuvio-sports",
@@ -7951,13 +7940,13 @@ function discoverEvents() {
 }
 var B642 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var B64_VAL = (() => {
-  const t3 = new Int16Array(128).fill(-1);
-  for (let i = 0; i < B642.length; i++) t3[B642.charCodeAt(i)] = i;
-  t3[43] = 62;
-  t3[45] = 62;
-  t3[47] = 63;
-  t3[95] = 63;
-  return t3;
+  const t2 = new Int16Array(128).fill(-1);
+  for (let i = 0; i < B642.length; i++) t2[B642.charCodeAt(i)] = i;
+  t2[43] = 62;
+  t2[45] = 62;
+  t2[47] = 63;
+  t2[95] = 63;
+  return t2;
 })();
 function b64Text(s) {
   const str6 = String(s || "");
@@ -8078,16 +8067,16 @@ function log8(m) {
   } catch (_) {
   }
 }
-function sha1(t3) {
-  if (t3.length <= 4e6) {
+function sha1(t2) {
+  if (t2.length <= 4e6) {
     try {
-      return String(kino.crypto.hash("sha1", t3)).slice(0, 16);
+      return String(kino.crypto.hash("sha1", t2)).slice(0, 16);
     } catch (_) {
     }
   }
   let a = 5381, b = 52711;
-  for (let i = 0; i < t3.length; i++) {
-    const c = t3.charCodeAt(i);
+  for (let i = 0; i < t2.length; i++) {
+    const c = t2.charCodeAt(i);
     a = (a * 33 ^ c) >>> 0;
     b = (b * 31 ^ c) >>> 0;
   }
@@ -8119,8 +8108,8 @@ function meta() {
 }
 function carry(left) {
   const m = metaCache;
-  for (const t3 of left.touched) {
-    const kind = t3.slice(0, 1), id = t3.slice(2);
+  for (const t2 of left.touched) {
+    const kind = t2.slice(0, 1), id = t2.slice(2);
     const mine = left.value[kind][id], theirs = m.value[kind][id];
     if (!mine) continue;
     if (theirs && saneAt(theirs.at) > saneAt(mine.at)) {
@@ -8131,7 +8120,7 @@ function carry(left) {
       continue;
     }
     m.value[kind][id] = mine;
-    m.touched.add(t3);
+    m.touched.add(t2);
   }
   m.dirty = m.touched.size > 0;
 }
@@ -8160,8 +8149,8 @@ function writeMeta() {
   if (!m || !m.dirty) return;
   const stored = readMeta();
   const now = Date.now();
-  for (const t3 of m.touched) {
-    const kind = t3.slice(0, 1), id = t3.slice(2);
+  for (const t2 of m.touched) {
+    const kind = t2.slice(0, 1), id = t2.slice(2);
     const mine = m.value[kind][id], theirs = stored[kind][id];
     if (!mine) continue;
     if (theirs && saneAt(theirs.at, now) > saneAt(mine.at, now)) continue;
@@ -8205,9 +8194,9 @@ function catsBackoffMs(failN) {
   return CATS_BACKOFF_MS[Math.min(Math.max(Number(failN) || 1, 1), CATS_BACKOFF_MS.length) - 1];
 }
 function catsInBackoff(src, now) {
-  const t3 = now || Date.now();
-  const f = saneAt(catsFailAt(src), t3);
-  return !!f && t3 - f < catsBackoffMs(catsFailN(src));
+  const t2 = now || Date.now();
+  const f = saneAt(catsFailAt(src), t2);
+  return !!f && t2 - f < catsBackoffMs(catsFailN(src));
 }
 function setCats(src, cats) {
   const now = Date.now();
@@ -8400,9 +8389,9 @@ function failList(key) {
   touch("l", key, { at: m.at, h: m.h, n: m.n, w: m.w, failAt: Date.now(), failN: (m.failN || 0) + 1, ...m.p ? { p: 1 } : {} });
 }
 function inBackoff2(failAt, now) {
-  const t3 = now || Date.now();
-  const f = saneAt(failAt, t3);
-  return !!f && t3 - f < FAIL_BACKOFF_MS;
+  const t2 = now || Date.now();
+  const f = saneAt(failAt, t2);
+  return !!f && t2 - f < FAIL_BACKOFF_MS;
 }
 function dropLists(src) {
   const now = Date.now();
@@ -8452,10 +8441,10 @@ var MEMBERS_MAX = 400;
 var REDIRECTS_MAX = 64;
 var SAMPLES_MAX = 8;
 function hk(s) {
-  const t3 = String(s);
+  const t2 = String(s);
   let a = 5381, b = 52711;
-  for (let i = 0; i < t3.length; i++) {
-    const c = t3.charCodeAt(i);
+  for (let i = 0; i < t2.length; i++) {
+    const c = t2.charCodeAt(i);
     a = (a * 33 ^ c) >>> 0;
     b = (b * 31 ^ c) >>> 0;
   }
@@ -8810,44 +8799,44 @@ function strip(title, cc, brackets) {
 function parse(title, cc, brackets) {
   let s = String(title);
   let lead = null, changed2 = false;
-  const went = (t3) => {
-    if (t3.iso && t3.iso !== cc && !NEUTRAL.has(t3.iso) && !UNNAMED.has(t3.iso) && !lead) lead = t3.iso;
+  const went = (t2) => {
+    if (t2.iso && t2.iso !== cc && !NEUTRAL.has(t2.iso) && !UNNAMED.has(t2.iso) && !lead) lead = t2.iso;
     changed2 = true;
   };
   const strongBar = (b) => STRONG.includes(b);
   for (let i = 0; i < 4; i++) {
     const before = s;
     let m = LEAD_WRAPPED.exec(s);
-    let t3 = m && tagOf(m[2], strongBar(m[1]) && strongBar(m[3]));
-    if (t3) {
-      went(t3);
+    let t2 = m && tagOf(m[2], strongBar(m[1]) && strongBar(m[3]));
+    if (t2) {
+      went(t2);
       s = s.slice(m[0].length);
     }
     m = LEAD_BAR.exec(s);
     const rest = m ? s.slice(m[0].length) : "";
-    t3 = m && (tagOf(m[1], false) || !OPENS_WRAP.test(rest) && /\p{L}{2}/u.test(rest) && !tagOf(rest, false) && tagOf(m[1], strongBar(m[2])));
-    if (t3) {
-      went(t3);
+    t2 = m && (tagOf(m[1], false) || !OPENS_WRAP.test(rest) && /\p{L}{2}/u.test(rest) && !tagOf(rest, false) && tagOf(m[1], strongBar(m[2])));
+    if (t2) {
+      went(t2);
       s = rest;
     }
     m = LEAD_BRACKET.exec(s);
-    t3 = m && tagOf(m[1], false);
-    if (t3) {
-      went(t3);
+    t2 = m && tagOf(m[1], false);
+    if (t2) {
+      went(t2);
       s = s.slice(m[0].length);
     }
     m = LEAD_MARK.exec(s);
-    t3 = m && tagOf(m[1], false);
-    if (t3 && t3.iso) {
-      went(t3);
+    t2 = m && tagOf(m[1], false);
+    if (t2 && t2.iso) {
+      went(t2);
       s = s.slice(m[0].length);
     }
     if (s === before) break;
   }
   s = s.replace(WRAPPED, (all, b1, tok, b2) => {
-    const t3 = tagOf(tok, strongBar(b1) && strongBar(b2));
-    if (!t3) return all;
-    went(t3);
+    const t2 = tagOf(tok, strongBar(b1) && strongBar(b2));
+    if (!t2) return all;
+    went(t2);
     return " ";
   });
   const tm = TRAIL_BAR.exec(s);
@@ -8858,8 +8847,8 @@ function parse(title, cc, brackets) {
   }
   if (brackets) {
     s = s.replace(BRACKETED, (all, tok) => {
-      const t3 = tagOf(tok, false);
-      if (!t3 || t3.iso && cc && t3.iso !== cc && !NEUTRAL.has(t3.iso)) return all;
+      const t2 = tagOf(tok, false);
+      if (!t2 || t2.iso && cc && t2.iso !== cc && !NEUTRAL.has(t2.iso)) return all;
       changed2 = true;
       return " ";
     });
@@ -8880,8 +8869,8 @@ function head(title, o) {
 }
 function candidates(title, o) {
   const out = [];
-  const add = (t3) => {
-    if (t3 && !out.includes(t3)) out.push(t3);
+  const add = (t2) => {
+    if (t2 && !out.includes(t2)) out.push(t2);
   };
   for (const b of o.copies ? [o.copies(title), title] : [title]) {
     for (const brackets of [true, false]) {
@@ -8893,12 +8882,12 @@ function candidates(title, o) {
   add(title);
   return out;
 }
-var sameKey = (t3) => (/^[\x20-\x7e]*$/.test(t3) ? t3.toLowerCase() : fold4(t3)).replace(/\s+/g, " ").trim();
+var sameKey = (t2) => (/^[\x20-\x7e]*$/.test(t2) ? t2.toLowerCase() : fold4(t2)).replace(/\s+/g, " ").trim();
 function shownTitles(items, opts) {
   const o = { cc: opts && opts.cc || null, en: !!(opts && opts.en), copies: opts && typeof opts.copies === "function" ? opts.copies : null };
   const list = Array.isArray(items) ? items : [];
   const titles = list.map((c) => String(c && c.title != null ? c.title : ""));
-  const first = titles.map((t3) => head(t3, o));
+  const first = titles.map((t2) => head(t2, o));
   const cands = list.map(() => null);
   const level = list.map(() => 0);
   const shownOf = (i) => cands[i] ? cands[i][level[i]] : first[i];
@@ -8924,8 +8913,8 @@ function shownTitles(items, opts) {
     if (!moved) break;
   }
   return list.map((c, i) => {
-    const t3 = shownOf(i);
-    return t3 === titles[i] ? c : { ...c, title: t3 };
+    const t2 = shownOf(i);
+    return t2 === titles[i] ? c : { ...c, title: t2 };
   });
 }
 
@@ -9093,8 +9082,8 @@ var GENERIC_NUMBER = /^(?:canal|tv|tele|television|channel)? ?\d+$/;
 var SEC_SLOT = /\b(?:eventos?|events?|ppv|alternativ[ao]s?|backup|respaldo|extra|replay)\s*\d{1,3}\b|\bsolo (?:eventos|funciona)\b/;
 var SEC_PER_GROUP = 2;
 function isSlotTitle(title) {
-  const t3 = fold5(title).replace(/\b24\s*[/.]\s*7\b/g, "247").replace(/\s+/g, " ").trim();
-  return SLOT.test(t3 + " ") || /\bvs\b/.test(t3);
+  const t2 = fold5(title).replace(/\b24\s*[/.]\s*7\b/g, "247").replace(/\s+/g, " ").trim();
+  return SLOT.test(t2 + " ") || /\bvs\b/.test(t2);
 }
 function isSecondarySlot(title) {
   return isSlotTitle(title) || SEC_SLOT.test(fold5(title));
@@ -9169,33 +9158,33 @@ function bareCountry(s, cc) {
   return head2 + " " + NAMES2[country2].split("|")[0];
 }
 function qualityOf(title) {
-  const t3 = fold5(title);
-  if (/\buhd\b|\b4k\b|2160/.test(t3)) return 4;
-  if (/\bfhd\b|1080/.test(t3)) return 3;
-  if (/\bhd\b|720/.test(t3)) return 2;
-  if (/\bsd\b|480|\blow\b|\blq\b/.test(t3)) return 0;
+  const t2 = fold5(title);
+  if (/\buhd\b|\b4k\b|2160/.test(t2)) return 4;
+  if (/\bfhd\b|1080/.test(t2)) return 3;
+  if (/\bhd\b|720/.test(t2)) return 2;
+  if (/\bsd\b|480|\blow\b|\blq\b/.test(t2)) return 0;
   return 1;
 }
 function copyOf(title) {
-  const t3 = fold5(title);
-  const m = /\bopc(?:ion)?\.?\s*(\d{1,2})\b|\boption\s*(\d{1,2})\b|\(\s*(\d)\s*\)\s*$/.exec(t3);
+  const t2 = fold5(title);
+  const m = /\bopc(?:ion)?\.?\s*(\d{1,2})\b|\boption\s*(\d{1,2})\b|\(\s*(\d)\s*\)\s*$/.exec(t2);
   if (m) return Number(m[1] || m[2] || m[3]);
-  const r = /\brepuesto\s*(\d{0,2})/.exec(t3);
+  const r = /\brepuesto\s*(\d{0,2})/.exec(t2);
   if (r) return 1 + (Number(r[1]) || 1);
-  return /\balternativ[ao]\b(?!\s*\d)/.test(t3) ? 2 : 1;
+  return /\balternativ[ao]\b(?!\s*\d)/.test(t2) ? 2 : 1;
 }
 function shownTitle(title) {
-  const t3 = String(title == null ? "" : title);
-  const out = t3.replace(SHOWN_COPY, "").replace(/\s+/g, " ").replace(/(?:\s*[-–|·:])+\s*$/u, "").trim();
-  return out || t3;
+  const t2 = String(title == null ? "" : title);
+  const out = t2.replace(SHOWN_COPY, "").replace(/\s+/g, " ").replace(/(?:\s*[-–|·:])+\s*$/u, "").trim();
+  return out || t2;
 }
 function versionOf(title) {
   const m = /[[(]\s*v(\d)\s*[\])]/.exec(fold5(title));
   return m ? Number(m[1]) : 1;
 }
 function penaltyOf(title) {
-  const t3 = fold5(title);
-  return (/geo\s*-?\s*blocked/.test(t3) ? 2 : 0) + (/inestable|unstable/.test(t3) ? 1 : 0) + (/\bnot?\s*24\s*[/.]?\s*7/.test(t3) ? 1 : 0);
+  const t2 = fold5(title);
+  return (/geo\s*-?\s*blocked/.test(t2) ? 2 : 0) + (/inestable|unstable/.test(t2) ? 1 : 0) + (/\bnot?\s*24\s*[/.]?\s*7/.test(t2) ? 1 : 0);
 }
 var QUALITY_LABEL = ["SD", "", "HD", "FHD", "4K"];
 function memberLabel(srcName, title, en6) {
@@ -9283,8 +9272,8 @@ var LIVE_TAG = /^\s*(?:live|en vivo|en directo|directo|ao vivo)\s*[:|-]\s*/;
 var SLOT_PREFIX = /^(?:(?:ppv|main|event|evento|epl|ucl|uel|mls|nfl|nba|nhl|mlb|ufc|match|game|partido)\s*)+\d{1,3}\s*:\s*/;
 var MATCHUP = /^(.+?)\s+(?:vs?\.?|-|at|@)\s+(.+)$/;
 function eventKey2(title) {
-  const t3 = fold5(title).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ").replace(/\s+/g, " ").trim();
-  const parts2 = t3.split(/\s+[·—|]\s+/).map((p) => p.trim().replace(LIVE_TAG, "").replace(SLOT_PREFIX, "").trim());
+  const t2 = fold5(title).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ").replace(/\s+/g, " ").trim();
+  const parts2 = t2.split(/\s+[·—|]\s+/).map((p) => p.trim().replace(LIVE_TAG, "").replace(SLOT_PREFIX, "").trim());
   const sides = (p) => {
     const mm = MATCHUP.exec(p);
     return !!(mm && /[a-z0-9]/.test(mm[1]) && /[a-z0-9]/.test(mm[2]));
@@ -9490,8 +9479,8 @@ function pair(p, fallback) {
   return Array.isArray(p) && p[0] > 0 && p[1] >= p[0] ? { fresh: p[0], maxStale: p[1] } : fallback;
 }
 function catPolicy(src) {
-  const t3 = src && src.catTtl;
-  if (t3 && t3.fresh > 0) return { fresh: t3.fresh, maxStale: Math.max(t3.fresh, t3.maxStale || t3.fresh) };
+  const t2 = src && src.catTtl;
+  if (t2 && t2.fresh > 0) return { fresh: t2.fresh, maxStale: Math.max(t2.fresh, t2.maxStale || t2.fresh) };
   const p = POLICY[src && src.id] || DEFAULT_POLICY;
   return pair(p.cats, { fresh: D2, maxStale: 7 * D2 });
 }
@@ -9500,8 +9489,8 @@ function listPolicy(src, rawCat) {
   if (src && typeof src.listTtl === "function") {
     const s = codeCategories(src) ? null : catsOf(src.id);
     const cat = s && s.cats.find((c) => c && c.id === String(rawCat)) || null;
-    const t3 = src.listTtl(String(rawCat), cat);
-    if (t3 && t3.fresh > 0) return { fresh: t3.fresh, maxStale: Math.max(t3.fresh, t3.maxStale || t3.fresh), code: false };
+    const t2 = src.listTtl(String(rawCat), cat);
+    if (t2 && t2.fresh > 0) return { fresh: t2.fresh, maxStale: Math.max(t2.fresh, t2.maxStale || t2.fresh), code: false };
   }
   const p = POLICY[src && src.id] || DEFAULT_POLICY;
   const per = p.lists && p.lists[String(rawCat)];
@@ -9531,12 +9520,12 @@ var activeSources = () => {
   return SOURCES2.filter((s) => !off.has(s.id) && inUse(s));
 };
 var lazyMember = (s) => !!(s && s.src && s.src.secondaryOf);
-function titleOf(t3, id) {
-  if (t3 && typeof t3 === "object" && !Array.isArray(t3)) {
-    const es = String(t3.es || t3.en || "").trim(), enT = String(t3.en || t3.es || "").trim();
+function titleOf(t2, id) {
+  if (t2 && typeof t2 === "object" && !Array.isArray(t2)) {
+    const es = String(t2.es || t2.en || "").trim(), enT = String(t2.en || t2.es || "").trim();
     return es ? { es, en: enT } : id;
   }
-  return String(t3 || id);
+  return String(t2 || id);
 }
 function normCats(list) {
   const out = [];
@@ -9803,8 +9792,8 @@ async function exposedIdOf(categoryId) {
   const i = id.indexOf(".");
   if (i <= 0 || isVirtualId(id)) return "";
   const to = ex.byRaw.get(id.slice(0, i) + "" + hexDec(id.slice(i + 1)));
-  const t3 = to && ex.all.get(to);
-  return t3 && !t3.hidden ? to : "";
+  const t2 = to && ex.all.get(to);
+  return t2 && !t2.hidden ? to : "";
 }
 async function categoryList(opts) {
   const o = opts || {};
@@ -10217,11 +10206,11 @@ var notLive = () => kino.error("unavailable", en4() ? "Xuper: not a live channel
 var shortWhy = (e) => String(e && e.code || "error").slice(0, 40);
 async function probeStream(out, opts) {
   const o = opts || {};
-  const t3 = o.bound > 0 ? Math.max(MIN_TIMEOUT_MS, Math.min(PROBE_TIMEOUT_MS, o.bound)) : PROBE_TIMEOUT_MS;
-  const get4 = () => liveFetch(out.url, { method: "GET", headers: { ...out.headers || {} }, cookies: false, redirect: "manual", timeoutMs: t3, maxBytes: 4096 });
+  const t2 = o.bound > 0 ? Math.max(MIN_TIMEOUT_MS, Math.min(PROBE_TIMEOUT_MS, o.bound)) : PROBE_TIMEOUT_MS;
+  const get4 = () => liveFetch(out.url, { method: "GET", headers: { ...out.headers || {} }, cookies: false, redirect: "manual", timeoutMs: t2, maxBytes: 4096 });
   let r;
   try {
-    r = await (o.alone === false ? get4() : within(t3 + 200, get4));
+    r = await (o.alone === false ? get4() : within(t2 + 200, get4));
   } catch (e) {
     return e && e.code === "network" && refusal2(statusIn(e)) ? "dead" : "unknown";
   }
@@ -10765,8 +10754,8 @@ function subtitlesOf(list) {
 }
 var EP_INT = /^[+-]?\d+$/;
 var toEpInt = (v) => {
-  const t3 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
-  return t3 !== null && EP_INT.test(t3.trim()) ? Number(t3.trim()) || 0 : null;
+  const t2 = typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+  return t2 !== null && EP_INT.test(t2.trim()) ? Number(t2.trim()) || 0 : null;
 };
 function toEpisodes(detail, seriesId, type) {
   const d = detail || {};
@@ -10817,13 +10806,13 @@ async function enrichEpisodes(answer, detail, seriesId) {
     const deadline2 = (Number.isFinite(started) ? started : Date.now()) + ENRICH_DEADLINE_MS;
     const { extra, series } = await enrich(raw, makeTmdb(), deadline2);
     for (const ep of answer.episodes) {
-      const t3 = extra.get(ep.number);
-      if (!t3) continue;
-      if (t3.title && isGenericTitle2(ep.title)) ep.title = t3.title;
-      if (t3.still && !ep.still) ep.still = t3.still;
-      if (t3.overview && !ep.overview) ep.overview = t3.overview;
-      if (t3.airDate) ep.airDate = t3.airDate;
-      if (t3.runtimeMinutes) ep.runtimeMinutes = t3.runtimeMinutes;
+      const t2 = extra.get(ep.number);
+      if (!t2) continue;
+      if (t2.title && isGenericTitle2(ep.title)) ep.title = t2.title;
+      if (t2.still && !ep.still) ep.still = t2.still;
+      if (t2.overview && !ep.overview) ep.overview = t2.overview;
+      if (t2.airDate) ep.airDate = t2.airDate;
+      if (t2.runtimeMinutes) ep.runtimeMinutes = t2.runtimeMinutes;
     }
     const imdb = IMDB_ID2.test(raw.imdb || "") ? raw.imdb : "";
     if (series && series.tmdbId > 0) {
@@ -11298,99 +11287,6 @@ function introView(device) {
     }
   };
 }
-function prepMessage(entry, name, E3) {
-  switch (entry.s) {
-    case "SETTING_UP":
-      return [entry.l || (E3 ? "Setting up\u2026" : "Configurando\u2026"), entry.l || "Setting up\u2026"];
-    case "READY":
-      return [`${name} listo`, `${name} ready`];
-    case "failed":
-      return [entry.l || `No se pudo preparar ${name}. Toca Reintentar.`, entry.l || `Could not prepare ${name}. Tap Try again.`];
-    case "not_installed":
-      return [`${name} no est\xE1 instalado, o est\xE1 apagado.`, `${name} is not installed, or it is switched off.`];
-    case "no_setup":
-      return [`${name} necesita actualizarse a su versi\xF3n m\xE1s reciente.`, `${name} needs updating to its latest version.`];
-    case "busy":
-      return ["Kino est\xE1 con otra pregunta; int\xE9ntalo en un momento.", "Kino is busy with another question; try again in a moment."];
-    case "rate_limited":
-      return ["Demasiados intentos seguidos; espera unos segundos.", "Too many tries in a row; wait a few seconds."];
-    case "timeout":
-      return ["No se confirm\xF3 a tiempo. Toca de nuevo para preparar.", "It was not confirmed in time. Tap again to prepare."];
-    default:
-      return [`No se pudo preparar ${name}. Int\xE9ntalo de nuevo.`, `Could not prepare ${name}. Try again.`];
-  }
-}
-function prepareCard(prep) {
-  if (!canPrepareOthers()) return null;
-  const E3 = en5();
-  const rows = [];
-  for (const target of PREP_TARGETS) {
-    const entry = prep && prep[target.key];
-    if (!entry) continue;
-    const [text2, textEn] = prepMessage(entry, target.name, E3);
-    rows.push({ type: "Column", key: "prepRow-" + target.key, gap: 4, children: [
-      { type: "Text", key: "prepName-" + target.key, style: "h4", text: target.name, textEn: target.name },
-      ...entry.s === "SETTING_UP" ? [{ type: "LinearProgressIndicator", key: "prepBar-" + target.key, ...typeof entry.p === "number" ? { value: entry.p } : {} }] : [],
-      { type: "Text", key: "prepMsg-" + target.key, ...entry.s === "READY" ? {} : { color: "muted" }, style: "caption", text: E3 ? textEn : text2, textEn },
-      ...entry.s === "not_installed" ? [{
-        type: "TextButton",
-        key: "prepInstall-" + target.key,
-        icon: "download",
-        labelText: E3 ? "Install " + target.name : "Instalar " + target.name,
-        labelTextEn: "Install " + target.name,
-        onPressed: { go: { installPlugin: { repo: target.repo } } }
-      }] : [],
-      ...entry.s === "failed" ? [{
-        type: "TextButton",
-        key: "prepRetry-" + target.key,
-        icon: "refresh",
-        labelText: E3 ? "Try again" : "Reintentar",
-        labelTextEn: "Try again",
-        onPressed: { event: "prepareAll", timeoutMs: PRESS_MS }
-      }] : []
-    ] });
-  }
-  return { type: "Card", key: "cfgPrep", children: [
-    { type: "Text", key: "cfgPrepTitle", style: "h4", text: E3 ? "Prepare everything" : "Preparar todo", textEn: "Prepare everything" },
-    {
-      type: "Text",
-      key: "cfgPrepHint",
-      color: "muted",
-      text: E3 ? "Kino will ask you to confirm, then it sets up Movie+ and HDFull so they are ready to use." : "Kino te pedir\xE1 confirmar y deja Movie+ y HDFull listos para usar.",
-      textEn: "Kino will ask you to confirm, then it sets up Movie+ and HDFull so they are ready to use."
-    },
-    {
-      type: "ElevatedButton",
-      key: "prepAll",
-      icon: "bolt",
-      labelText: E3 ? "Prepare everything" : "Preparar todo",
-      labelTextEn: "Prepare everything",
-      onPressed: { event: "prepareAll", timeoutMs: PRESS_MS }
-    },
-    ...rows
-  ] };
-}
-function setupView({ prep, device } = {}) {
-  const E3 = en5();
-  const card2 = prepareCard(prep);
-  return {
-    type: "Scaffold",
-    appBar: appBar(),
-    body: scrollPage("setup-scroll", 16, [
-      { type: "Text", key: "setupTitle", style: "h3", text: E3 ? "Xuper is ready" : "Xuper est\xE1 listo", textEn: "Xuper is ready" },
-      ...card2 ? [card2] : [],
-      supportButton("setupSupport", E3, device),
-      {
-        type: "ElevatedButton",
-        key: "setupContinue",
-        icon: "arrow_forward",
-        labelText: E3 ? "Continue" : "Continuar",
-        labelTextEn: "Continue",
-        onPressed: { go: { close: true } }
-      }
-    ])
-  };
-}
 function welcomeView({ error, device } = {}) {
   const E3 = en5();
   if (error === "member") return groupGateView(E3, device);
@@ -11777,9 +11673,9 @@ function groupByLeague(matches2) {
 }
 var pad2 = (n) => String(n).padStart(2, "0");
 function localStart(m) {
-  const t3 = matchStart(m);
-  if (!Number.isFinite(t3)) return null;
-  const d = new Date(t3);
+  const t2 = matchStart(m);
+  if (!Number.isFinite(t2)) return null;
+  const d = new Date(t2);
   return { date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`, hm: `${pad2(d.getHours())}:${pad2(d.getMinutes())}` };
 }
 var hhmm = (m) => {
@@ -11789,9 +11685,9 @@ var hhmm = (m) => {
   const i = s.indexOf(" ");
   return i >= 0 ? s.slice(i + 1, i + 6) : s.slice(0, 5);
 };
-var teamName = (t3) => String(t3 && t3.n || "?");
-var teamCell = (t3, n, side) => {
-  const logo = t3 && HTTP2.test(t3.l || "") ? t3.l : null;
+var teamName = (t2) => String(t2 && t2.n || "?");
+var teamCell = (t2, n, side) => {
+  const logo = t2 && HTTP2.test(t2.l || "") ? t2.l : null;
   return {
     type: "Column",
     key: `tc-${n}-${side}`,
@@ -11800,7 +11696,7 @@ var teamCell = (t3, n, side) => {
     crossAxisAlignment: "center",
     children: [
       logo ? { type: "Image", key: `fl-${n}-${side}`, url: logo, h: 32, aspect: "3:2", fit: "contain" } : { type: "Icon", key: `fi-${n}-${side}`, name: "sports", size: 30 },
-      { type: "Text", key: `fn-${n}-${side}`, text: teamName(t3).slice(0, 18), textEn: teamName(t3).slice(0, 18), style: "caption", textAlign: "center", maxLines: 2 }
+      { type: "Text", key: `fn-${n}-${side}`, text: teamName(t2).slice(0, 18), textEn: teamName(t2).slice(0, 18), style: "caption", textAlign: "center", maxLines: 2 }
     ]
   };
 };
@@ -11874,8 +11770,8 @@ function clockMs(matches2, now) {
   if (list.some((m) => isLiveMatch(m, now))) return 6e4;
   let next = Infinity;
   for (const m of list) {
-    const t3 = matchStart(m);
-    if (Number.isFinite(t3) && t3 - LIVE_BEFORE_MS > now) next = Math.min(next, t3 - LIVE_BEFORE_MS - now);
+    const t2 = matchStart(m);
+    if (Number.isFinite(t2) && t2 - LIVE_BEFORE_MS > now) next = Math.min(next, t2 - LIVE_BEFORE_MS - now);
   }
   return Math.max(6e4, Math.min(30 * MIN4, Number.isFinite(next) ? next + 1e3 : 30 * MIN4));
 }
@@ -12303,8 +12199,8 @@ function contribCard(c, now) {
   ] };
 }
 var ordinalEn = (n) => {
-  const t3 = n % 100, u = n % 10;
-  return n + (t3 >= 11 && t3 <= 13 ? "th" : u === 1 ? "st" : u === 2 ? "nd" : u === 3 ? "rd" : "th");
+  const t2 = n % 100, u = n % 10;
+  return n + (t2 >= 11 && t2 <= 13 ? "th" : u === 1 ? "st" : u === 2 ? "nd" : u === 3 ? "rd" : "th");
 };
 function devicesCard(d, now, device) {
   const used = Math.max(0, Math.floor(Number(d.used) || 0)), max = Math.max(1, Math.floor(Number(d.max) || 0));
@@ -12357,9 +12253,8 @@ function devicesCard(d, now, device) {
     }] }
   ] };
 }
-function configView({ version, device = "phone", ages = null, now = Date.now(), seeds = null, contrib = null, devices = null, prep = null } = {}) {
+function configView({ version, device = "phone", ages = null, now = Date.now(), seeds = null, contrib = null, devices = null } = {}) {
   const E3 = en5();
-  const prepCard = prepareCard(prep);
   const a = ages || {};
   const lines = [[["Cat\xE1logo", "Catalog"], a.catalog], [["Partidos", "Matches"], a.matches]];
   return {
@@ -12405,7 +12300,6 @@ function configView({ version, device = "phone", ages = null, now = Date.now(), 
         },
         supportButton("cfgSupportBtn", E3, device)
       ] },
-      ...prepCard ? [prepCard] : [],
       ...devices ? [devicesCard(devices, now, device)] : [],
       xuperSessionCard(seeds),
       contribCard(contrib, now),
@@ -12603,72 +12497,6 @@ async function afterHome(homeStartedAt) {
   return await maybeContributeTrial({ deadline: deadline2 }) || null;
 }
 
-// src/setup.js
-var t2 = (es, en6) => lang() === "en" ? en6 : es;
-var POLL_MAX = 150;
-function setupErrorText(banner) {
-  if (banner === "member") return notMemberText();
-  if (banner === "update") return t2("Para activar Xuper necesitas la versi\xF3n m\xE1s reciente de Kino. Actualiza Kino y vuelve a intentarlo.", "To activate Xuper you need the latest version of Kino. Update Kino and try again.");
-  if (banner === "consent") return t2("Xuper necesita tu identidad de Kino y ahora est\xE1 apagada. Act\xEDvala en Kino \u25B8 Ajustes \u25B8 Plugins \u25B8 Xuper (el permiso de identidad), y vuelve a abrir Xuper.", "Xuper needs your Kino identity, and it is off. Turn it on in Kino \u25B8 Settings \u25B8 Plugins \u25B8 Xuper (the identity permission), then open Xuper again.");
-  if (banner === "link") return t2("Este aparato todav\xEDa no est\xE1 validado con una cuenta de Telegram. Valida tu Telegram en Kino y vuelve.", "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back.");
-  return t2("No se pudo conectar con el servidor de Xuper. Int\xE9ntalo de nuevo en un momento.", "Could not reach Xuper's server. Try again in a moment.");
-}
-async function setupStatus() {
-  if (notMemberActive()) return { ready: false, label: setupErrorText("member") };
-  if (await currentBearer()) return { ready: true };
-  return { ready: false, label: t2("Falta activar Xuper (iniciar sesi\xF3n)", "Xuper needs activating (signing in)") };
-}
-async function setupRun() {
-  const stale = reauthNeeded() || notMemberActive();
-  if (!stale && await currentBearer()) return { done: true };
-  try {
-    if (stale) await reauth();
-    else await ensureBearer();
-    markIntroSeen();
-    await syncReauthNotice();
-    return { done: true };
-  } catch (e) {
-    reportActivate(e, "setup");
-    const banner = activateBanner(e);
-    markReauthNeeded(banner);
-    await syncReauthNotice();
-    throw kino.error(e && e.code || "unavailable", "Xuper: setup failed (" + banner + ")", { userMessage: setupErrorText(banner) });
-  }
-}
-var KNOWN = ["not_installed", "no_setup", "busy", "rate_limited", "timeout"];
-async function prepareAll() {
-  const prep = {};
-  for (const target of PREP_TARGETS) {
-    try {
-      const r = await kino.plugins.setup(target.repo);
-      prep[target.key] = { s: r && r.state === "READY" ? "READY" : "SETTING_UP" };
-    } catch (e) {
-      const code = e && e.code;
-      prep[target.key] = code === "refused" ? null : { s: KNOWN.includes(code) ? code : "error" };
-    }
-  }
-  return prep;
-}
-function prepActive(state2) {
-  const prep = state2 && state2.prep;
-  return !!prep && !state2.prepStop && PREP_TARGETS.some((x) => prep[x.key] && prep[x.key].s === "SETTING_UP");
-}
-async function prepPoll(state2) {
-  const prep = { ...state2.prep || {} };
-  for (const target of PREP_TARGETS) {
-    const cur = prep[target.key];
-    if (!cur || cur.s !== "SETTING_UP") continue;
-    try {
-      const st = await kino.plugins.setupStatus(target.repo);
-      const label = st && typeof st.label === "string" ? { l: st.label.slice(0, 120) } : {};
-      prep[target.key] = st && st.ready ? { s: "READY" } : st && st.running === false ? { s: "failed", ...label } : { s: "SETTING_UP", ...st && typeof st.progress === "number" ? { p: Math.max(0, Math.min(1, st.progress)) } : {}, ...label };
-    } catch (_) {
-    }
-  }
-  const n = (Number(state2.prepN) || 0) + 1;
-  return { prep, prepN: n, ...n >= POLL_MAX ? { prepStop: true } : {} };
-}
-
 // src/devices.js
 var TIMEOUT_MS = 4e3;
 var MAX_ROWS = 12;
@@ -12716,7 +12544,6 @@ async function loadDevices() {
 
 // src/screen.js
 var HIDE_BUSY = [{ hide: "busy" }];
-var PREP_TIMER = { ms: 2e3, event: "prepPoll" };
 var TICK_HIDE_BUSY = { ui: { hidden: { busy: true } } };
 var EMPTY_VIEW = { slides: [], rails: [], genres: [], all: [] };
 var LC_FILL_MAX_TICKS = 8;
@@ -12804,10 +12631,6 @@ async function screen(arg) {
     if (!introSeen()) return introView(device);
     return state2.actError ? welcomeView({ error: state2.actError, device }) : loadingView(device);
   }
-  if (arg && arg.route && arg.route.name === "setup") {
-    const view2 = setupView({ prep: state2.prep, device });
-    return prepActive(state2) ? { ...view2, every: [PREP_TIMER] } : view2;
-  }
   const nav = navName(state2.nav);
   if (nav === "config") {
     const view2 = configView({
@@ -12817,12 +12640,10 @@ async function screen(arg) {
       now: Date.now(),
       seeds: sessionStatus(),
       contrib: contribInfo(),
-      devices: devicesNow(),
-      prep: state2.prep
+      devices: devicesNow()
     });
     const every = [];
     if (!devicesAsked() && !state2.devTried) every.push({ ms: 1e3, event: "devices" });
-    if (prepActive(state2)) every.push(PREP_TIMER);
     return every.length ? { ...view2, every } : view2;
   }
   if (nav === "deportes") {
@@ -12956,10 +12777,6 @@ async function onEvent(e, val, state2) {
       } catch (e2) {
         return { state: { actError: await signInFailed(e2, "enter") } };
       }
-    case "prepareAll":
-      return { state: { prep: await prepareAll(), prepN: null, prepStop: null }, ui: HIDE_BUSY };
-    case "prepPoll":
-      return { state: await prepPoll(state2) };
     case "reauth":
       slog("sign-in via=reauth: Reautenticar pressed");
       try {
@@ -13153,7 +12970,6 @@ async function screenEvent(ev) {
     if (e === "lvRefresh") return { state: { lvStop: true, ...TICK_HIDE_BUSY } };
     if (e === "lcFill") return { state: { lcTried: true, ...TICK_HIDE_BUSY } };
     if (e === "devices") return { state: { devTried: true } };
-    if (e === "prepPoll") return { state: { prepStop: true } };
     return { ui: HIDE_BUSY };
   }
 }
@@ -13260,16 +13076,6 @@ async function liveChannels2(arg) {
   if (old()) throw updateKinoError();
   return liveChannels(arg);
 }
-async function setupStatus2() {
-  await begin("setupStatus");
-  if (old()) return { ready: false, label: updateKinoText() };
-  return setupStatus();
-}
-async function setupRun2(arg) {
-  await begin("setupRun");
-  if (old()) throw updateKinoError();
-  return setupRun(arg);
-}
 async function job() {
   beginCall();
   return syncReauthNotice();
@@ -13288,7 +13094,5 @@ export {
   resolve3 as resolve,
   screen2 as screen,
   screenEvent2 as screenEvent,
-  search2 as search,
-  setupRun2 as setupRun,
-  setupStatus2 as setupStatus
+  search2 as search
 };

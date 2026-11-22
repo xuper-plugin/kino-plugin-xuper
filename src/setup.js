@@ -1,18 +1,11 @@
-// setup.js — Xuper and Kino's plugin setup (apiVersion 30; the manifest keeps "29": {} for go.relinkTelegram).
-// 1. Xuper's own setup is its activation: `setupStatus` (ready = a session is stored; cheap, also asked at app start, so it
-//    never touches kino.identity or the vault) and `setupRun` (person-started: step 0 signs in through identity, with the
-//    per-cause message of the welcome view when it fails).
-// 2. "Preparar todo": from a press (a screen event) Xuper asks Kino to set up Movie+ and HDFull (`kino.plugins.setup`, which
-//    makes Kino ask the person), then follows them with `kino.plugins.setupStatus`. The result per target lives in the
-//    screen state as `prep[key] = { s, p?, l? }` (s: SETTING_UP | READY | failed | not_installed | no_setup | busy |
-//    rate_limited | timeout | error); a target the person refused is `null` (nothing to say). `failed`: Kino's setupStatus
-//    says not ready AND not running (its setup stopped without finishing), so the row offers Preparar todo again.
+// setup.js — Xuper's own setup in Kino (apiVersion 30) is its activation: `setupStatus` (ready = a session is stored; cheap,
+// also asked at app start, so it never touches kino.identity or the vault) and `setupRun` (person-started: signs in through
+// identity, with the per-cause message of the welcome view when it fails). Other plugins set themselves up on their own.
 import { ensureBearer, reauth, currentBearer, notMemberActive, markIntroSeen, reportActivate, activateBanner, markReauthNeeded, reauthNeeded, notMemberText } from "./api.js";
 import { syncReauthNotice } from "./reauthNotice.js";
-import { PREP_TARGETS, lang } from "./config.js";
+import { lang } from "./config.js";
 
 const t = (es, en) => (lang() === "en" ? en : es);
-const POLL_MAX = 150;   // the status timer ends by itself after this many ticks (~5 min at 2 s)
 
 /** The sentence for an activation failure, by the same cause as the welcome view's banner. */
 export function setupErrorText(banner) {
@@ -41,7 +34,7 @@ export async function setupRun() {
   if (!stale && await currentBearer()) return { done: true };   // already activated: the intro state is not touched
   try {
     if (stale) await reauth(); else await ensureBearer();   // reauth mints fresh and keeps the old session if it fails
-    markIntroSeen();   // only a successful sign-in stands in for "Ingresar" (setupView still offers Apoyar)
+    markIntroSeen();   // only a successful sign-in stands in for "Ingresar"
     await syncReauthNotice();
     return { done: true };
   } catch (e) {
@@ -51,49 +44,4 @@ export async function setupRun() {
     await syncReauthNotice();
     throw kino.error((e && e.code) || "unavailable", "Xuper: setup failed (" + banner + ")", { userMessage: setupErrorText(banner) });
   }
-}
-
-const KNOWN = ["not_installed", "no_setup", "busy", "rate_limited", "timeout"];
-
-/** "Preparar todo": asks Kino to set up each target, one after the other (each has its own confirmation). → the new `prep`. */
-export async function prepareAll() {
-  const prep = {};
-  for (const target of PREP_TARGETS) {
-    try {
-      const r = await kino.plugins.setup(target.repo);
-      prep[target.key] = { s: r && r.state === "READY" ? "READY" : "SETTING_UP" };
-    } catch (e) {
-      const code = e && e.code;
-      prep[target.key] = code === "refused" ? null : { s: KNOWN.includes(code) ? code : "error" };
-    }
-  }
-  return prep;
-}
-
-/** Whether some target is still setting up (the view keeps its poll timer while true and the ticks are not spent). */
-export function prepActive(state) {
-  const prep = state && state.prep;
-  return !!prep && !state.prepStop && PREP_TARGETS.some((x) => prep[x.key] && prep[x.key].s === "SETTING_UP");
-}
-
-/**
- * One poll tick: where each target still setting up stands (`kino.plugins.setupStatus`, from the screen's timer). → a state
- * patch. Not ready and `running === false` (Kino's own loop for it stopped: a step failed, or it was switched off) is `failed`,
- * with the target's own words, and the poll stops following it; an older Kino without `running` keeps it SETTING_UP.
- */
-export async function prepPoll(state) {
-  const prep = { ...(state.prep || {}) };
-  for (const target of PREP_TARGETS) {
-    const cur = prep[target.key];
-    if (!cur || cur.s !== "SETTING_UP") continue;
-    try {
-      const st = await kino.plugins.setupStatus(target.repo);
-      const label = st && typeof st.label === "string" ? { l: st.label.slice(0, 120) } : {};
-      prep[target.key] = st && st.ready ? { s: "READY" }
-        : st && st.running === false ? { s: "failed", ...label }
-        : { s: "SETTING_UP", ...(st && typeof st.progress === "number" ? { p: Math.max(0, Math.min(1, st.progress)) } : {}), ...label };
-    } catch (_) { /* rate limited or gone: the next tick asks again */ }
-  }
-  const n = (Number(state.prepN) || 0) + 1;
-  return { prep, prepN: n, ...(n >= POLL_MAX ? { prepStop: true } : {}) };
 }

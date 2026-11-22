@@ -9,16 +9,15 @@ import * as catalog from "./catalog.js";
 import * as live from "./live.js";
 import * as scr from "./screen.js";
 import * as reauthNotice from "./reauthNotice.js";
-import * as setup from "./setup.js";
 import { beginCall, callFor } from "./flight.js";
 import { afterHome } from "./seedContrib.js";
 import { upgradeOnce } from "./upgrade.js";
-import { kinoTooOld, updateKinoError, updateKinoView, updateKinoText } from "./kinoGate.js";
+import { kinoTooOld, updateKinoError, updateKinoView } from "./kinoGate.js";
 
 async function begin(name) { beginCall(); callFor(name); await upgradeOnce(); }
 
 // Xuper only on the latest Kino (src/kinoGate.js): below the minimum every entry stops here — the screen is the
-// "Actualiza Kino" page, Home and search are empty, a content call throws the same sentence, the setup says it.
+// "Actualiza Kino" page, Home and search are empty, a content call throws the same sentence.
 const old = () => kinoTooOld();
 
 // Own screen (catalog tabs, Fútbol, En vivo, Ajustes) + auth with kino.identity.
@@ -67,11 +66,6 @@ export async function migrate(input) { await begin("migrate"); return catalog.mi
 export async function liveCategories() { await begin("liveCategories"); if (old()) return []; return live.liveCategories(); }
 export async function liveChannels(arg) { await begin("liveChannels"); if (old()) throw updateKinoError(); return live.liveChannels(arg); }
 
-// Kino's plugin setup (apiVersion 30, the manifest's enhancements["30"].setup): Xuper's setup is its activation.
-// `setupStatus` is cheap and unattended (also asked at app start): it reads the stored session, never identity or the
-// vault. `setupRun` is person-started and signs in (src/setup.js).
-export async function setupStatus() { await begin("setupStatus"); if (old()) return { ready: false, label: updateKinoText() }; return setup.setupStatus(); }
-export async function setupRun(arg) { await begin("setupRun"); if (old()) throw updateKinoError(); return setup.setupRun(arg); }
 
 // Scheduled job (capability "schedule", manifest `jobs`): the only background work. It keeps the Home-bell
 // "Reautentícate" reminder in step with the stored flag, so a stuck access reaches the person WITHOUT opening Xuper. A

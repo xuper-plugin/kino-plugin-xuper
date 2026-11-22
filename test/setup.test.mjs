@@ -13,8 +13,6 @@ const { screen, screenEvent } = await import("../src/screen.js");
 const { beginCall } = await import("../src/flight.js");
 
 const BACKEND = "https://x.xkplugins.site";
-const MOVIEPLUS = "xuper-plugin/kino-plugin-movieplus";
-const HDFULL = "xuper-plugin/kino-plugin-hdfull";
 
 const identityOk = (calls) => async () => { calls.n++; return { id: "p".repeat(32), token: "gate.token", deviceKey: "dk", signature: "sig", author: "07DA-B67F-2ACF-B4D3", codeHash: "c0de" }; };
 const backend = (url) => {
@@ -162,178 +160,47 @@ test("setupRun with the reauth flag set and the sign-in failing: step error, fla
   assert.equal((await P.setupStatus()).ready, true);
 });
 
-// ── Preparar todo ──
-function withPlugins(impl) {
-  globalThis.kino.plugins = impl;
-  return impl;
-}
-const configState = (extra = {}) => ({ nav: "config", ...extra });
+// ── The setup route is Xuper's own screen (owner, 2026-11-22): no "Xuper está listo" / "Preparar todo" page ──
+const SETUP_ROUTE = { name: "setup", params: {} };
+const texts = (tree) => JSON.stringify(tree);
 
-test("Preparar todo shows only on a Kino with kino.plugins.setup", async () => {
-  await fresh({ bearer: "b" });
-  api.markIntroSeen();
-  delete globalThis.kino.plugins;
-  assert.equal(byKey(await screen({ state: configState() }), "prepAll"), undefined);
-  globalThis.kino.plugins = {};   // an older Kino's kino.plugins (call only)
-  assert.equal(byKey(await screen({ state: configState() }), "prepAll"), undefined);
-  withPlugins({ setup: async () => ({ state: "SETTING_UP" }), setupStatus: async () => ({ ready: false }) });
-  const tree = await screen({ state: configState() });
-  const btn = byKey(tree, "prepAll");
-  assert.ok(btn, "the button is there");
-  assert.equal(btn.onPressed.event, "prepareAll");
-  // the setup route draws it too
-  const setupTree = await screen({ state: {}, route: { name: "setup", params: {} } });
-  assert.ok(byKey(setupTree, "prepAll"));
+test("the setup route before any session: the welcome's Ingresar; after it, Xuper's own screen (its catalog)", async () => {
+  await fresh();
+  api.clearIntro && api.clearIntro();
+  beginCall();
+  const before = await screen({ state: {}, route: SETUP_ROUTE, device: "phone" });
+  assert.match(texts(before), /"event":"enter"/, "the one-time welcome with Ingresar");
+
+  beginCall();
+  const out = await screenEvent({ name: "enter", state: {}, route: SETUP_ROUTE });
+  assert.equal(out.state.actError, null, "signed in");
+
+  beginCall();
+  const after = await screen({ state: out.state, route: SETUP_ROUTE, device: "phone" });
+  assert.doesNotMatch(texts(after), /Xuper está listo|Preparar todo|Prepare everything/);
+  assert.match(texts(after), /"key":"tab"|TabBar|NavigationBar/, "Xuper's own screen, with its sections");
 });
 
-test("prepareAll: calls setup for Movie+ and HDFull, maps refused to a no-op and shows both as starting", async () => {
-  await fresh({ bearer: "b" });
-  const asked = [];
-  withPlugins({ setup: async (repo) => { asked.push(repo); return { state: "SETTING_UP" }; }, setupStatus: async () => ({ ready: false }) });
-  const out = await screenEvent({ name: "prepareAll", state: configState() });
-  assert.deepEqual(asked, [MOVIEPLUS, HDFULL]);
-  assert.equal(out.state.prep.movieplus.s, "SETTING_UP");
-  assert.equal(out.state.prep.hdfull.s, "SETTING_UP");
-  // refused: nothing to show, nothing offered
-  withPlugins({ setup: async () => { throw Object.assign(new Error("no"), { code: "refused" }); } });
-  const out2 = await screenEvent({ name: "prepareAll", state: configState() });
-  assert.equal(out2.state.prep.movieplus, null);
-  assert.equal(out2.state.prep.hdfull, null);
-  assert.equal(out2.toast, undefined);
+test("the setup route with a session already stored is Xuper's screen at once; Ajustes has no Preparar todo", async () => {
+  await fresh({ bearer: "stored" });
+  beginCall();
+  const v = await screen({ state: {}, route: SETUP_ROUTE, device: "tv" });
+  assert.doesNotMatch(texts(v), /Xuper está listo|Preparar todo/);
+  beginCall();
+  const cfg = await screen({ state: { nav: "config" }, device: "phone" });
+  assert.doesNotMatch(texts(cfg), /Preparar todo|prepareAll|Movie+ y HDFull/);
 });
 
-test("prepareAll: not_installed offers go.installPlugin for that repo; no_setup says it needs updating", async () => {
-  await fresh({ bearer: "b" });
-  withPlugins({
-    setup: async (repo) => { throw Object.assign(new Error("x"), { code: repo === MOVIEPLUS ? "not_installed" : "no_setup" }); },
-    setupStatus: async () => ({ ready: false }),
-  });
-  const out = await screenEvent({ name: "prepareAll", state: configState() });
-  assert.equal(out.state.prep.movieplus.s, "not_installed");
-  assert.equal(out.state.prep.hdfull.s, "no_setup");
-  const tree = await screen({ state: configState({ prep: out.state.prep }) });
-  const install = byKey(tree, "prepInstall-movieplus");
-  assert.deepEqual(install.onPressed, { go: { installPlugin: { repo: MOVIEPLUS } } });
-  assert.equal(byKey(tree, "prepInstall-hdfull"), undefined, "an old version is updated, not installed");
-  assert.match(byKey(tree, "prepMsg-hdfull").text, /actualiz/i);
-});
-
-test("prepareAll: busy, rate_limited and timeout show a message and let the person retry", async () => {
-  await fresh({ bearer: "b" });
-  for (const code of ["busy", "rate_limited", "timeout"]) {
-    withPlugins({ setup: async () => { throw Object.assign(new Error("x"), { code }); } });
-    const out = await screenEvent({ name: "prepareAll", state: configState() });
-    assert.equal(out.state.prep.movieplus.s, code);
-    const tree = await screen({ state: configState({ prep: out.state.prep }) });
-    assert.ok(byKey(tree, "prepMsg-movieplus").text.length > 5, code);
-    assert.ok(byKey(tree, "prepAll"), "retry stays");
-  }
-});
-
-test("progress: while a target sets up, a timer follows kino.plugins.setupStatus and shows progress, then ready", async () => {
-  await fresh({ bearer: "b" });
-  let ready = false;
-  withPlugins({
-    setup: async () => ({ state: "SETTING_UP" }),
-    setupStatus: async (repo) => (repo === MOVIEPLUS
-      ? { ready, progress: 0.4, label: "Descargando catálogo" } : { ready: true }),
-  });
-  const started = await screenEvent({ name: "prepareAll", state: configState() });
-  let state = configState({ ...started.state });
-  let tree = await screen({ state });
-  const timer = all(tree, (n) => n.event === "prepPoll")[0];
-  assert.ok(timer, "a poll timer while something sets up");
-  const tick = await screenEvent({ name: "prepPoll", state });
-  assert.equal(tick.state.prep.movieplus.s, "SETTING_UP");
-  assert.equal(tick.state.prep.movieplus.p, 0.4);
-  assert.equal(tick.state.prep.hdfull.s, "READY");
-  state = { ...state, ...tick.state };
-  tree = await screen({ state });
-  const bar = byKey(tree, "prepBar-movieplus");
-  assert.equal(bar.value, 0.4);
-  assert.match(byKey(tree, "prepMsg-movieplus").text, /Descargando catálogo/);
-  ready = true;
-  const done = await screenEvent({ name: "prepPoll", state });
-  assert.equal(done.state.prep.movieplus.s, "READY");
-  state = { ...state, ...done.state };
-  tree = await screen({ state });
-  assert.equal(all(tree, (n) => n.event === "prepPoll").length, 0, "no timer once nothing sets up");
-});
-
-test("a target whose setup stopped without finishing (not ready, not running) is a failed row with Reintentar", async () => {
-  await fresh({ bearer: "b" });
-  let attempts = 0;
-  withPlugins({
-    setup: async () => { attempts++; return { state: "SETTING_UP" }; },
-    setupStatus: async (repo) => (repo === MOVIEPLUS
-      ? { ready: false, running: false, label: "El servidor del catálogo no responde" } : { ready: false, running: true, progress: 0.5 }),
-  });
-  const started = await screenEvent({ name: "prepareAll", state: configState() });
-  let state = configState({ ...started.state });
-  const tick = await screenEvent({ name: "prepPoll", state });
-  assert.equal(tick.state.prep.movieplus.s, "failed");
-  assert.equal(tick.state.prep.movieplus.l, "El servidor del catálogo no responde");
-  assert.equal(tick.state.prep.hdfull.s, "SETTING_UP", "still running: followed");
-  state = { ...state, ...tick.state };
-  const tree = await screen({ state });
-  assert.match(byKey(tree, "prepMsg-movieplus").text, /no responde/);
-  const retry = byKey(tree, "prepRetry-movieplus");
-  assert.equal(retry.onPressed.event, "prepareAll", "Reintentar runs Preparar todo again");
-  assert.equal(byKey(tree, "prepRetry-hdfull"), undefined);
-  // the retry asks Kino again
-  const again = await screenEvent({ name: "prepareAll", state });
-  assert.equal(again.state.prep.movieplus.s, "SETTING_UP");
-  assert.equal(attempts, 4);
-});
-
-test("an older Kino's setupStatus without running keeps the target SETTING_UP", async () => {
-  await fresh({ bearer: "b" });
-  withPlugins({ setup: async () => ({ state: "SETTING_UP" }), setupStatus: async () => ({ ready: false, progress: 0.2 }) });
-  const started = await screenEvent({ name: "prepareAll", state: configState() });
-  const tick = await screenEvent({ name: "prepPoll", state: configState({ ...started.state }) });
-  assert.equal(tick.state.prep.movieplus.s, "SETTING_UP");
-  assert.equal(tick.state.prep.movieplus.p, 0.2);
-});
-
-test("a failing status poll never throws and stops after a bounded number of ticks", async () => {
-  await fresh({ bearer: "b" });
-  withPlugins({ setup: async () => ({ state: "SETTING_UP" }), setupStatus: async () => { throw Object.assign(new Error("x"), { code: "rate_limited" }); } });
-  const started = await screenEvent({ name: "prepareAll", state: configState() });
-  let state = configState({ ...started.state });
-  let ticks = 0;
-  for (; ticks < 500; ticks++) {
-    const tree = await screen({ state });
-    if (!all(tree, (n) => n.event === "prepPoll").length) break;
-    const t = await screenEvent({ name: "prepPoll", state });
-    state = { ...state, ...t.state };
-  }
-  assert.ok(ticks > 0 && ticks < 500, "the timer ends by itself (" + ticks + ")");
-});
-
-// Kino's own screen rules (the kit's checkScreenTree) drop no node of the new views.
-const KIT = process.env.KINO_SCREEN_KIT || "C:/dev/kino-app/.claude/worktrees/plugin-setup/plugins/sdk/screen.mjs";
-test("Kino's screen rules drop no node of Preparar todo / the setup view (ES/EN × phone/TV)", { skip: !existsSync(KIT) && "Kino's kit is not on this machine" }, async () => {
+// Kino's own screen rules (the kit's checkScreenTree) drop no node of Ajustes.
+const KIT = process.env.KINO_SCREEN_KIT || "C:/dev/kino-app/plugins/sdk/screen.mjs";
+test("Kino's screen rules drop no node of Ajustes (ES/EN × phone/TV)", { skip: !existsSync(KIT) && "Kino's kit is not on this machine" }, async () => {
   const { checkScreenTree } = await import(pathToFileURL(KIT).href);
-  const { configView, setupView } = await import("../src/screenView.js");
-  withPlugins({ setup: async () => ({ state: "SETTING_UP" }) });
-  const prep = { movieplus: { s: "SETTING_UP", p: 0.3, l: "Descargando" }, hdfull: { s: "not_installed" } };
-  const failed = { movieplus: { s: "failed", l: "El servidor no responde" }, hdfull: { s: "failed" } };
+  const { configView } = await import("../src/screenView.js");
   for (const lang of ["es", "en"]) {
     for (const device of ["phone", "tv"]) {
       globalThis.kino.lang = lang;
-      for (const v of [configView({ version: "3.1.7", device, prep }), setupView({ prep, device }), setupView({ prep: failed, device }), setupView({ device })]) {
-        assert.deepEqual(checkScreenTree(v, lang, undefined, { apiVersion: 27 }).dropped, [], `${lang} ${device}`);
-      }
+      assert.deepEqual(checkScreenTree(configView({ version: "3.1.12", device }), lang, undefined, { apiVersion: 30 }).dropped, [], `${lang} ${device}`);
     }
-  }
-  globalThis.kino.lang = "es";
-});
-
-test("the setup view keeps the Apoyar (Ko-fi) ask, ES/EN x phone/TV", async () => {
-  const { setupView } = await import("../src/screenView.js");
-  for (const lang of ["es", "en"]) for (const device of ["phone", "tv"]) {
-    globalThis.kino.lang = lang;
-    assert.ok(byKey(setupView({ device }), "setupSupport"), `${lang} ${device}`);
   }
   globalThis.kino.lang = "es";
 });
