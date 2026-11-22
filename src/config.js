@@ -7,7 +7,7 @@
 export const DEFAULT_SERVER = "https://x.xkplugins.site";
 
 /** Must equal kino-plugin.json `version` (test/wiring.test.mjs checks it). */
-export const PLUGIN_VERSION = "3.1.6";
+export const PLUGIN_VERSION = "3.1.7";
 
 /**
  * «Apoyar» (the welcome screen and Ajustes): Kino opens it with `go.url`, after its own sheet (a QR code on a TV), and
@@ -57,6 +57,23 @@ export function lang() {
  */
 export function httpImages() {
   try { return typeof kino !== "undefined" && !!kino && !!kino.screen && kino.screen.httpImages === true; } catch (_) { return false; }
+}
+
+/** The Kino apiVersion that first opens its own "Reautenticar Telegram" screen from a plugin (`go.relinkTelegram`). */
+export const RELINK_TELEGRAM_API_VERSION = 29;
+
+/**
+ * Whether this Kino can open its own "Reautenticar Telegram" screen from the plugin (`go: { relinkTelegram: true }`, apiVersion
+ * 29): feature detection through `kino.pluginApiVersion` (the runtime's feature apiVersion; this plugin reaches it with the
+ * manifest's `enhancements: { "29": {} }`). Below it the go is dropped, so the button is hidden and only the written instruction
+ * ("Valida tu Telegram en Kino") stays.
+ */
+export function canRelinkTelegram() {
+  try {
+    return typeof kino !== "undefined" && !!kino && typeof kino.pluginApiVersion === "number" && kino.pluginApiVersion >= RELINK_TELEGRAM_API_VERSION;
+  } catch (_) {
+    return false;
+  }
 }
 
 /** A title that is either a plain string or `{ es, en }`, in the visible language (live category titles). */

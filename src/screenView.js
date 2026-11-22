@@ -3,7 +3,7 @@
 // Palette: the theme's semantic colors (they adapt) + the xuper brand.
 // No view carries a 1 s timer: data is drawn from what is stored (src/data.js) in the first frame, a skeleton
 // appears only when nothing was ever stored, and slow events show the hidden `busy` bar through a local `ui` op.
-import { SECTIONS, lang, httpImages, SUPPORT_URL } from "./config.js";
+import { SECTIONS, lang, httpImages, SUPPORT_URL, canRelinkTelegram } from "./config.js";
 import { X_LOGO_DATA } from "./logo.js";
 import { isLiveMatch, matchStart, visibleMatches, LIVE_BEFORE_MS } from "./v2.js";
 import { KINO_GROUP_URL } from "./api.js";
@@ -202,9 +202,21 @@ export function loadingView(device) {
 
 /**
  * The gate shown only when this device has no Telegram identity (the backend/identity answered `not_available` → the
- * "link" banner): the person must validate their Telegram in Kino. "Reintentar" tries the sign-in again once they have.
+ * "link" banner): the person must validate their Telegram in Kino. On a Kino that supports it (apiVersion 29,
+ * `canRelinkTelegram`) the primary button sends them straight to Kino's own "Reautenticar Telegram" screen
+ * (`go.relinkTelegram`) and "Reintentar" tries the sign-in again once they return; on an older Kino, which has no such go,
+ * only "Reintentar" shows and the written instruction ("Valida tu Telegram en Kino") stands on its own.
  */
 function linkTelegramView(E, device) {
+  const canRelink = canRelinkTelegram();
+  // With the relink button present, "Reintentar" steps back to a plain text button so the primary action stands out.
+  const retry = canRelink
+    ? { type: "TextButton", key: "lRetry",
+        labelText: E ? "Retry" : "Reintentar", labelTextEn: "Retry",
+        onPressed: { event: "activate", timeoutMs: PRESS_MS } }
+    : { type: "ElevatedButton", key: "lRetry", icon: "refresh",
+        labelText: E ? "Retry" : "Reintentar", labelTextEn: "Retry",
+        onPressed: { event: "activate", timeoutMs: PRESS_MS } };
   const body = [
     { type: "Text", key: "lTitle", style: "h3", textAlign: "center",
       text: E ? "Validate your Telegram" : "Valida tu Telegram", textEn: "Validate your Telegram" },
@@ -212,9 +224,12 @@ function linkTelegramView(E, device) {
       text: E ? "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back."
         : "Este aparato todavía no está validado con una cuenta de Telegram. Valida tu Telegram en Kino y vuelve.",
       textEn: "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back." },
-    { type: "ElevatedButton", key: "lRetry", icon: "refresh",
-      labelText: E ? "Retry" : "Reintentar", labelTextEn: "Retry",
-      onPressed: { event: "activate", timeoutMs: PRESS_MS } },
+    ...(canRelink
+      ? [{ type: "ElevatedButton", key: "lValidate", icon: "open_in_new",
+          labelText: E ? "Validate my Telegram" : "Validar mi Telegram", labelTextEn: "Validate my Telegram",
+          onPressed: { go: { relinkTelegram: true } } }]
+      : []),
+    retry,
     supportButton("lSupport", E, device),
   ];
   return {

@@ -82,6 +82,50 @@ test("welcomeView: a banner per cause — consent points at the settings toggle,
   assert.match(txt(true), /servidor de Xuper/);                // a legacy truthy actError still reads as "server"
 });
 
+// The "Valida tu Telegram" gate (error "link": this device has no Telegram identity). On a Kino that supports go.relinkTelegram
+// (apiVersion 29, kino.pluginApiVersion) the primary button opens Kino's own relink screen; on an older Kino only Reintentar shows.
+const withApiVersion = (v, fn) => {
+  const saved = globalThis.kino.pluginApiVersion;
+  try {
+    if (v === undefined) delete globalThis.kino.pluginApiVersion; else globalThis.kino.pluginApiVersion = v;
+    return fn();
+  } finally {
+    if (saved === undefined) delete globalThis.kino.pluginApiVersion; else globalThis.kino.pluginApiVersion = saved;
+  }
+};
+
+test("linkTelegramView: a Kino with apiVersion 29 shows a primary 'Validar mi Telegram' that opens Kino's relink screen, Reintentar steps back", () => {
+  withApiVersion(29, () => {
+    const v = welcomeView({ error: "link" });
+    const validate = byKey(v, "lValidate");
+    assert.ok(validate, "the validate button is shown");
+    assert.equal(validate.type, "ElevatedButton");
+    assert.deepEqual(validate.onPressed, { go: { relinkTelegram: true } });
+    assert.ok(KINO_ICONS.has(validate.icon), "unknown icon " + validate.icon);
+    assert.equal(validate.labelText, "Validar mi Telegram");
+    assert.equal(validate.labelTextEn, "Validate my Telegram");
+    const retry = byKey(v, "lRetry");
+    assert.equal(retry.type, "TextButton", "Reintentar steps back to a secondary button");
+    assert.equal(retry.onPressed.event, "activate");
+    assert.ok(retry.onPressed.timeoutMs >= 20_000);
+    assert.match(JSON.stringify(v), /Valida tu Telegram en Kino/);   // the written instruction still stands
+  });
+});
+
+test("linkTelegramView: an older Kino (no go.relinkTelegram) shows only Reintentar as an ElevatedButton and never emits the go", () => {
+  withApiVersion(undefined, () => {
+    const v = welcomeView({ error: "link" });
+    assert.equal(byKey(v, "lValidate"), undefined, "no validate button without support");
+    assert.ok(!JSON.stringify(v).includes("relinkTelegram"), "the go is never emitted on an older Kino");
+    const retry = byKey(v, "lRetry");
+    assert.equal(retry.type, "ElevatedButton");
+    assert.equal(retry.icon, "refresh");
+    assert.equal(retry.onPressed.event, "activate");
+  });
+  // Feature detection matches the parser's gate exactly: apiVersion 28 (Kino without the shape) still hides it.
+  withApiVersion(28, () => assert.equal(byKey(welcomeView({ error: "link" }), "lValidate"), undefined));
+});
+
 const kofiGo = (v) => all(v, (n) => n.onPressed && n.onPressed.go && n.onPressed.go.url && /ko-fi\.com/.test(n.onPressed.go.url.href));
 
 test("support: on TV it is a QR to scan with the phone; on phone/desktop it stays a Ko-fi link", () => {

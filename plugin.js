@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.6";
+var PLUGIN_VERSION = "3.1.7";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
 var DRM_DECLARED = true;
@@ -19,6 +19,14 @@ function lang() {
 function httpImages() {
   try {
     return typeof kino !== "undefined" && !!kino && !!kino.screen && kino.screen.httpImages === true;
+  } catch (_) {
+    return false;
+  }
+}
+var RELINK_TELEGRAM_API_VERSION = 29;
+function canRelinkTelegram() {
+  try {
+    return typeof kino !== "undefined" && !!kino && typeof kino.pluginApiVersion === "number" && kino.pluginApiVersion >= RELINK_TELEGRAM_API_VERSION;
   } catch (_) {
     return false;
   }
@@ -11220,6 +11228,21 @@ function loadingView(device) {
   };
 }
 function linkTelegramView(E3, device) {
+  const canRelink = canRelinkTelegram();
+  const retry = canRelink ? {
+    type: "TextButton",
+    key: "lRetry",
+    labelText: E3 ? "Retry" : "Reintentar",
+    labelTextEn: "Retry",
+    onPressed: { event: "activate", timeoutMs: PRESS_MS }
+  } : {
+    type: "ElevatedButton",
+    key: "lRetry",
+    icon: "refresh",
+    labelText: E3 ? "Retry" : "Reintentar",
+    labelTextEn: "Retry",
+    onPressed: { event: "activate", timeoutMs: PRESS_MS }
+  };
   const body = [
     {
       type: "Text",
@@ -11237,14 +11260,15 @@ function linkTelegramView(E3, device) {
       text: E3 ? "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back." : "Este aparato todav\xEDa no est\xE1 validado con una cuenta de Telegram. Valida tu Telegram en Kino y vuelve.",
       textEn: "This device isn't validated with a Telegram account yet. Validate your Telegram in Kino, then come back."
     },
-    {
+    ...canRelink ? [{
       type: "ElevatedButton",
-      key: "lRetry",
-      icon: "refresh",
-      labelText: E3 ? "Retry" : "Reintentar",
-      labelTextEn: "Retry",
-      onPressed: { event: "activate", timeoutMs: PRESS_MS }
-    },
+      key: "lValidate",
+      icon: "open_in_new",
+      labelText: E3 ? "Validate my Telegram" : "Validar mi Telegram",
+      labelTextEn: "Validate my Telegram",
+      onPressed: { go: { relinkTelegram: true } }
+    }] : [],
+    retry,
     supportButton("lSupport", E3, device)
   ];
   return {
