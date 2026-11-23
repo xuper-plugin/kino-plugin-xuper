@@ -31,13 +31,21 @@ async function firstOpen(identity = OK) {
   return k;
 }
 
-test("manifest: no Kino setup step (Kino would open Configurar after the install), and no setup exports", () => {
+test("manifest: no Kino setup step on Kino 0.9.91/0.9.92 (they would open Configurar after the install); Kino 0.9.93 gets one", () => {
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url), "utf8"));
+  // The base manifest still declares no setup and stays at apiVersion 30: 3.1.12's choice for the Kinos that read only it.
   assert.equal(m.setup, undefined);
-  assert.equal(m.enhancements, undefined);
   assert.equal(m.apiVersion, 30);
-  assert.equal(P.setupStatus, undefined);
-  assert.equal(P.setupRun, undefined);
+  // Only Kino 0.9.93 (apiVersion 31) merges enhancements["31"]: its setup opens Xuper's own first screen, never a form.
+  assert.deepEqual(m.enhancements, { "31": { setup: { route: "main" } } });
+  assert.equal(typeof P.setupStatus, "function");
+  assert.equal(typeof P.setupRun, "function");
+});
+
+test("setupStatus: ready only with a session and still in the Kino group; setupRun has nothing to run", async () => {
+  await firstOpen();
+  assert.deepEqual(await P.setupStatus(), { ready: false });
+  assert.deepEqual(await P.setupRun({ step: 0 }), { done: true });
 });
 
 test("first open: the welcome with Ingresar; a sign-in that works goes straight to Xuper's Home", async () => {

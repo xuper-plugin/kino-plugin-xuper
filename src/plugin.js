@@ -13,6 +13,7 @@ import { beginCall, callFor } from "./flight.js";
 import { afterHome } from "./seedContrib.js";
 import { upgradeOnce } from "./upgrade.js";
 import { kinoTooOld, updateKinoError, updateKinoView } from "./kinoGate.js";
+import { currentBearer, notMemberActive } from "./api.js";
 
 async function begin(name) { beginCall(); callFor(name); await upgradeOnce(); }
 
@@ -71,3 +72,10 @@ export async function liveChannels(arg) { await begin("liveChannels"); if (old()
 // "Reautentícate" reminder in step with the stored flag, so a stuck access reaches the person WITHOUT opening Xuper. A
 // job cannot call kino.identity and never mints here: it only posts or clears the notice (its answer is never read).
 export async function job() { beginCall(); return reauthNotice.syncReauthNotice(); }
+
+// Kino 0.9.93+ only (the manifest's enhancements["31"].setup, route "main"; an older Kino never reads it, so 3.1.12's choice
+// stands there: no Kino setup step). Xuper is set up once it has a session and is still in the Kino group; until then Kino
+// (and Da-Video) offer Configurar, which opens Xuper's own first screen: Ingresar, or the Valida tu Telegram gate.
+export async function setupStatus() { beginCall(); return { ready: !!(await currentBearer()) && !notMemberActive() }; }
+// Nothing for Kino to run: the sign-in happens on Xuper's own screen. Kino asks setupStatus again right after.
+export async function setupRun() { beginCall(); return { done: true }; }

@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.13";
+var PLUGIN_VERSION = "3.1.14";
 var MIN_KINO_FLOOR = "0.9.91";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
@@ -13083,6 +13083,14 @@ async function job() {
   beginCall();
   return syncReauthNotice();
 }
+async function setupStatus() {
+  beginCall();
+  return { ready: !!await currentBearer() && !notMemberActive() };
+}
+async function setupRun() {
+  beginCall();
+  return { done: true };
+}
 export {
   browse2 as browse,
   categories3 as categories,
@@ -13097,5 +13105,7 @@ export {
   resolve3 as resolve,
   screen2 as screen,
   screenEvent2 as screenEvent,
-  search2 as search
+  search2 as search,
+  setupRun,
+  setupStatus
 };
