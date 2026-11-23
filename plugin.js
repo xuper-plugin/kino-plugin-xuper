@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.14";
+var PLUGIN_VERSION = "3.1.15";
 var MIN_KINO_FLOOR = "0.9.91";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
@@ -12999,6 +12999,40 @@ async function upgradeOnce() {
   }
 }
 
+// src/door.js
+var CATALOG_MAX = 40;
+var OVERVIEW_MAX = 300;
+var HTTPS3 = /^https:\/\//;
+function catalogItems(found) {
+  const out = [];
+  const list = Array.isArray(found) ? found : found && Array.isArray(found.items) ? found.items : [];
+  for (const it of list) {
+    if (out.length >= CATALOG_MAX) break;
+    if (!it || typeof it.id !== "string" || !it.id || typeof it.ref !== "string" || !it.ref || typeof it.title !== "string" || !it.title) continue;
+    const item = { id: it.id, ref: it.ref, title: it.title, kind: typeof it.kind === "string" && it.kind ? it.kind : "movie" };
+    if (typeof it.poster === "string" && HTTPS3.test(it.poster)) item.poster = it.poster;
+    if (typeof it.backdrop === "string" && HTTPS3.test(it.backdrop)) item.backdrop = it.backdrop;
+    if (it.year !== void 0 && it.year !== null && String(it.year)) item.year = String(it.year);
+    if (typeof it.overview === "string" && it.overview.trim()) item.overview = it.overview.trim().slice(0, OVERVIEW_MAX);
+    const tmdb = it.ids && Number.isInteger(it.ids.tmdb) ? it.ids.tmdb : Number.isInteger(it.tmdb) ? it.tmdb : 0;
+    if (tmdb > 0) item.tmdb = tmdb;
+    out.push(item);
+  }
+  return out;
+}
+function catalogQuery(arg) {
+  const q = String(arg && arg.q || "").trim().slice(0, 200);
+  const type = arg && (arg.type === "movie" || arg.type === "series") ? arg.type : "any";
+  return { q, type, season: 0, episode: 0, tmdbId: 0, year: 0, originalTitle: "", altTitles: [], cursor: null };
+}
+function catalogDoor(search3) {
+  return async (arg) => {
+    const query = catalogQuery(arg);
+    if (!query.q) return [];
+    return catalogItems(await search3(query));
+  };
+}
+
 // src/plugin.js
 async function begin(name) {
   beginCall();
@@ -13035,6 +13069,7 @@ async function search2(query) {
     return [];
   }
 }
+var proto_catalog_search = catalogDoor(search2);
 async function episodes2(ref) {
   await begin("episodes");
   if (old()) throw updateKinoError();
@@ -13102,6 +13137,7 @@ export {
   liveChannels2 as liveChannels,
   migrate3 as migrate,
   prepare2 as prepare,
+  proto_catalog_search,
   resolve3 as resolve,
   screen2 as screen,
   screenEvent2 as screenEvent,

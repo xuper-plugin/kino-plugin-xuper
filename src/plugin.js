@@ -14,6 +14,7 @@ import { afterHome } from "./seedContrib.js";
 import { upgradeOnce } from "./upgrade.js";
 import { kinoTooOld, updateKinoError, updateKinoView } from "./kinoGate.js";
 import { currentBearer, notMemberActive } from "./api.js";
+import { catalogDoor } from "./door.js";
 
 async function begin(name) { beginCall(); callFor(name); await upgradeOnce(); }
 
@@ -40,6 +41,9 @@ export async function home() {
 
 // Kino's native search (stays dynamic): empty until Xuper is activated (it uses the Bearer).
 export async function search(query) { await begin("search"); if (old()) return []; try { return await catalog.search(query); } catch (_) { return []; } }
+
+// The catalog door (Kino's plugin protocol): Da-Video's search finds Xuper's titles through it, as Kino's own search does.
+export const proto_catalog_search = catalogDoor(search);
 
 // Native detail + player: Kino calls them with a card's ref; they reuse the stored Bearer. Xuper 2.x's library refs
 // play and list too (src/legacy.js).

@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "3.1.14",
+  "version": "3.1.15",
   "apiVersion": 30,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -263,12 +263,39 @@
   },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "85cdac0afa8213bb7e4e9befb3dd7c0463ee69f4dd50131f7c3097fdc5033136e1b90832da8863623093e8e5dab345162a7e62e7e390ba121d0588deb820b304"
+    "value": "f3e4b2bf5d48319a2ab565e8b935719e23232390c0e24a02f09e4914bacb652644b921ab9ec47fe0260a6cf662b91b7d318837212f6eb2315d59b83dd6e1b901"
   },
   "enhancements": {
     "31": {
       "setup": {
         "route": "main"
+      }
+    }
+  },
+  "provides": {
+    "catalog": {
+      "summary": "Titles this plugin finds, for the author's other plugins",
+      "calls": {
+        "search": {
+          "in": {
+            "q": "string",
+            "type": "string?"
+          },
+          "out": "Item[]"
+        }
+      },
+      "types": {
+        "Item": {
+          "id": "string",
+          "ref": "string",
+          "title": "string",
+          "kind": "string",
+          "poster": "string?",
+          "backdrop": "string?",
+          "year": "string?",
+          "overview": "string?",
+          "tmdb": "number?"
+        }
       }
     }
   }
