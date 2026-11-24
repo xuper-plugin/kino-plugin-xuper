@@ -1,7 +1,7 @@
 {
   "id": "xuper",
   "name": "Xuper",
-  "version": "3.1.16",
+  "version": "3.1.17",
   "apiVersion": 30,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -263,7 +263,7 @@
   },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "5a5d6b95161a9110a25157e8889d043fb75f5dd25fa6805f8b914279e3eae1b128c93e1d50663dd18e6ac6baf80cc4008a801569821fbbd4375f30a4203f5d0b"
+    "value": "94a6b0c4f2bbf333232cbbc0f63f0384b3eab6d69c2f3dba331e0e204f01044aa5b37d65ed34b6e6b2556eb5a35d9cf909d0b1e83f21e03e0bf3bca5a748af06"
   },
   "enhancements": {
     "31": {

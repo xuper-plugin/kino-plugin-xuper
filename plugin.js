@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.16";
+var PLUGIN_VERSION = "3.1.17";
 var MIN_KINO_FLOOR = "0.9.91";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
@@ -2945,7 +2945,7 @@ function fixable(e) {
 }
 function explain(e) {
   if (e instanceof PortalError && e.code === VERSION_REFUSED && !e.userMessage) {
-    e.userMessage = lang() === "en" ? "Xuper is not accepting connections right now. It usually comes back by itself within a few hours; try again later." : "Xuper no est\xE1 aceptando conexiones por ahora. Suele volver solo en unas horas; vuelve a intentar m\xE1s tarde.";
+    e.userMessage = lang() === "en" ? "Xuper is not accepting connections right now. It usually comes back by itself; try again in a few minutes." : "Xuper no est\xE1 aceptando conexiones por ahora. Suele volver solo; vuelve a intentar en unos minutos.";
   }
   return e;
 }

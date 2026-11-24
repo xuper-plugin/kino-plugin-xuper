@@ -374,8 +374,8 @@ function fixable(e) {
 function explain(e) {
   if (e instanceof PortalError && e.code === VERSION_REFUSED && !e.userMessage) {
     e.userMessage = lang() === "en"
-      ? "Xuper is not accepting connections right now. It usually comes back by itself within a few hours; try again later."
-      : "Xuper no está aceptando conexiones por ahora. Suele volver solo en unas horas; vuelve a intentar más tarde.";
+      ? "Xuper is not accepting connections right now. It usually comes back by itself; try again in a few minutes."
+      : "Xuper no está aceptando conexiones por ahora. Suele volver solo; vuelve a intentar en unos minutos.";
   }
   return e;
 }

@@ -68,11 +68,11 @@ test("3. portal200001 at v3/snToken asks no seed; the person reads that it comes
   call("liveChannels");
   const e = await rejection(xuper.channels("31", {}));
   assert.equal(e.code, "portal200001");
-  assert.match(e.userMessage, /Xuper no está aceptando conexiones por ahora\. Suele volver solo en unas horas/);
+  assert.match(e.userMessage, /Xuper no está aceptando conexiones por ahora\. Suele volver solo; vuelve a intentar en unos minutos/);
   assert.equal(w.gets, 0);
   kino.lang = "en";
   call("liveChannels");
-  assert.match((await rejection(xuper.channels("31", {}))).userMessage, /It usually comes back by itself within a few hours/);
+  assert.match((await rejection(xuper.channels("31", {}))).userMessage, /It usually comes back by itself; try again in a few minutes/);
   kino.lang = "es";
   // on content too
   const w2 = await device({ pool: [poolSeed(1)], handlers: { "v4/startPlayLive": () => portalError("portal200001") } });
