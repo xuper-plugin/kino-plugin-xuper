@@ -110,7 +110,7 @@ async function device(storage = {}) {
 }
 const storedCatalog = () => {
   const v2 = seal(built(), LEGACY.generatedAt, sha256);
-  return { "o2:cat": JSON.stringify(v2), "o2:catm": JSON.stringify({ h: v2.hash, gen: LEGACY.generatedAt, etag: '"e1"', lm: "", src: "rel", b: 2, checkedAt: Date.now(), writtenAt: Date.now() - 60_000, failAt: 0, failN: 0 }) };
+  return { "o2:cat": JSON.stringify(v2), "o2:catm": JSON.stringify({ h: v2.hash, gen: LEGACY.generatedAt, etag: '"e1"', lm: "", src: "rel", b: 3, checkedAt: Date.now(), writtenAt: Date.now() - 60_000, failAt: 0, failN: 0 }) };
 };
 
 test("browse(col:<id>:a): every title of an Adultos row's «Ver más» is 18+", async () => {
@@ -193,14 +193,14 @@ test("a catalog an older conversion stored (3.0.0: rails without «Ver más», n
   const asked = k.requests.filter((x) => x.url === REL_HOME);
   assert.equal(asked.length, 1);
   assert.equal((asked[0].headers || {})["If-None-Match"], undefined, "no ETag: a 304 would keep the old conversion");
-  assert.equal(JSON.parse(k.store.get("o2:catm")).b, 2);
+  assert.equal(JSON.parse(k.store.get("o2:catm")).b, 3);
   assert.equal(data.catalog().sections.pelicula.rails[0].ref, "col:85205");
   beginCall();
   await data.revalidate({ catalog: true });
   assert.equal(k.requests.filter((x) => x.url === REL_HOME).length, 1, "rebuilt once: within the TTL nothing more is asked");
 });
 
-test("a catalog this conversion stored (meta b: 2) keeps its conditional request", async () => {
+test("a catalog this conversion stored (meta b: 3) keeps its conditional request", async () => {
   const k = installKino({ storage: storedCatalog(), routes: releaseRoutes() });
   data._resetMemory();
   beginCall();

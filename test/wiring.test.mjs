@@ -77,7 +77,7 @@ test("the manifest version equals PLUGIN_VERSION (bumped together)", async () =>
   const m = JSON.parse(readFileSync(new URL("../kino-plugin.json", import.meta.url)));
   const { PLUGIN_VERSION } = await import("../src/config.js");
   assert.equal(m.version, PLUGIN_VERSION);
-  assert.equal(m.version, "3.1.15");
+  assert.equal(m.version, "3.1.16");
 });
 
 test("the manifest id equals PLUGIN_ID, the id the session request declares", async () => {

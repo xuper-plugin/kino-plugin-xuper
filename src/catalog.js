@@ -203,7 +203,12 @@ function columnItems(cards, adult) {
   const v2 = storedCatalog();
   if (v2 && Array.isArray(v2.items)) {
     const adultIds = new Set(v2.items.filter((it) => it && it.adult === true).map((it) => it.id));
-    for (const it of items) if (adultIds.has(it.id)) it.adult = true;
+    for (const it of items) {
+      if (adultIds.has(it.id)) it.adult = true;
+      // the publisher's TMDB ids of a title the stored catalog also holds (a live column carries none)
+      const known = it.ids ? null : itemById(v2, it.id);
+      if (known && known.ids) it.ids = { ...known.ids };
+    }
   }
   return items;
 }

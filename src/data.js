@@ -49,8 +49,9 @@ const PARTS = {
   catalog: {
     key: KEYS.cat, meta: KEYS.catm, dir: "c", asset: "home.json", relTtl: 60 * MIN,
     // The revision of this device-side conversion, kept in the meta as `b`. A Release copy built by an older one is
-    // downloaded in full and converted again once (releasePart). 2 = the rails carry their «Ver más» ref (3.0.1).
-    build: 2,
+    // downloaded in full and converted again once (releasePart). 2 = the rails carry their «Ver más» ref (3.0.1);
+    // 3 = the items carry the publisher's TMDB `ids` (3.1.16).
+    build: 3,
     fromLegacy: (j) => fromLegacyHome(j, { poster: "recommended" }),
     validate: validateCatalog,
     shape: (v) => !!v && v.schema === SCHEMA && Array.isArray(v.items) && !!v.sections && typeof v.sections === "object",

@@ -90,8 +90,27 @@ export function toItem(card, adult = false, opts) {
   if (tags.length) item.genres = tags.slice(0, 5);
   const rt = durationToMinutes(card.duration);
   if (rt > 0 && (!rec || rt <= 1000)) item.runtimeMinutes = rt;   // → Kino's native "continue watching"
+  if (rec) {
+    const ids = cleanIds(card.ids);
+    if (ids) item.ids = ids;              // added by the publisher (tools/enrich-ids.mjs): Kino's TMDB match for Home
+  }
   if (adult) item.adult = true;           // 18+: Kino shows it only with the parental lock open
   return item;
+}
+
+const TMDB_MAX = 2147483647;
+const IMDB_RX = /^tt\d{7,10}$/;
+
+/**
+ * A card's `ids` as Kino reads them (`{ tmdb?: positive int, imdb?: "tt…" }`), or undefined when nothing valid is left.
+ * The portal never sends ids: the publisher adds `tmdb` at catalog publish time, so the devices make no TMDB request.
+ */
+export function cleanIds(ids) {
+  if (!ids || typeof ids !== "object" || Array.isArray(ids)) return undefined;
+  const out = {};
+  if (Number.isInteger(ids.tmdb) && ids.tmdb > 0 && ids.tmdb <= TMDB_MAX) out.tmdb = ids.tmdb;
+  if (typeof ids.imdb === "string" && IMDB_RX.test(ids.imdb)) out.imdb = ids.imdb;
+  return out.tmdb !== undefined || out.imdb !== undefined ? out : undefined;
 }
 
 export function toItems(cards, adult = false, opts) {

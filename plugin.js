@@ -1,6 +1,6 @@
 // src/config.js
 var DEFAULT_SERVER = "https://x.xkplugins.site";
-var PLUGIN_VERSION = "3.1.15";
+var PLUGIN_VERSION = "3.1.16";
 var MIN_KINO_FLOOR = "0.9.91";
 var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 var PLUGIN_ID = "xuper";
@@ -3979,8 +3979,21 @@ function toItem(card2, adult = false, opts) {
   if (tags.length) item.genres = tags.slice(0, 5);
   const rt = durationToMinutes(card2.duration);
   if (rt > 0 && (!rec || rt <= 1e3)) item.runtimeMinutes = rt;
+  if (rec) {
+    const ids = cleanIds(card2.ids);
+    if (ids) item.ids = ids;
+  }
   if (adult) item.adult = true;
   return item;
+}
+var TMDB_MAX = 2147483647;
+var IMDB_RX = /^tt\d{7,10}$/;
+function cleanIds(ids) {
+  if (!ids || typeof ids !== "object" || Array.isArray(ids)) return void 0;
+  const out = {};
+  if (Number.isInteger(ids.tmdb) && ids.tmdb > 0 && ids.tmdb <= TMDB_MAX) out.tmdb = ids.tmdb;
+  if (typeof ids.imdb === "string" && IMDB_RX.test(ids.imdb)) out.imdb = ids.imdb;
+  return out.tmdb !== void 0 || out.imdb !== void 0 ? out : void 0;
 }
 function toItems(cards, adult = false, opts) {
   const out = [], seen = /* @__PURE__ */ new Set();
@@ -4216,6 +4229,15 @@ function emptyStrings(v, path, bad) {
 }
 var isIdx = (n, len) => Number.isInteger(n) && n >= 0 && n < len;
 var httpsUrl = (u) => typeof u === "string" && HTTPS.test(u) && u.length <= 2048;
+var IMDB_RX2 = /^tt\d{7,10}$/;
+function validIds(ids) {
+  if (!ids || typeof ids !== "object" || Array.isArray(ids)) return false;
+  const keys2 = Object.keys(ids);
+  if (!keys2.length || !keys2.every((k) => k === "tmdb" || k === "imdb")) return false;
+  if (ids.tmdb !== void 0 && !(Number.isInteger(ids.tmdb) && ids.tmdb > 0 && ids.tmdb <= 2147483647)) return false;
+  if (ids.imdb !== void 0 && !(typeof ids.imdb === "string" && IMDB_RX2.test(ids.imdb))) return false;
+  return true;
+}
 function validateCatalog(v2) {
   const errs = [];
   const bad = (m) => {
@@ -4255,6 +4277,7 @@ function validateCatalog(v2) {
     if (it.genres !== void 0 && !(Array.isArray(it.genres) && it.genres.length <= 5 && it.genres.every((g) => typeof g === "string"))) bad(at2 + ".genres");
     if (it.runtimeMinutes !== void 0 && !(Number.isInteger(it.runtimeMinutes) && it.runtimeMinutes >= 1 && it.runtimeMinutes <= 1e3)) bad(at2 + ".runtimeMinutes");
     if (it.adult !== void 0 && it.adult !== true) bad(at2 + ".adult");
+    if (it.ids !== void 0 && !validIds(it.ids)) bad(at2 + ".ids");
     if (it.adult === true && typeof it.id === "string") adultIds.add(it.id);
   });
   let homeRows2 = 0;
@@ -4453,8 +4476,9 @@ var PARTS = {
     asset: "home.json",
     relTtl: 60 * MIN2,
     // The revision of this device-side conversion, kept in the meta as `b`. A Release copy built by an older one is
-    // downloaded in full and converted again once (releasePart). 2 = the rails carry their «Ver más» ref (3.0.1).
-    build: 2,
+    // downloaded in full and converted again once (releasePart). 2 = the rails carry their «Ver más» ref (3.0.1);
+    // 3 = the items carry the publisher's TMDB `ids` (3.1.16).
+    build: 3,
     fromLegacy: (j) => fromLegacyHome(j, { poster: "recommended" }),
     validate: validateCatalog,
     shape: (v) => !!v && v.schema === SCHEMA && Array.isArray(v.items) && !!v.sections && typeof v.sections === "object"
@@ -10857,7 +10881,11 @@ function columnItems(cards, adult) {
   const v2 = catalog();
   if (v2 && Array.isArray(v2.items)) {
     const adultIds = new Set(v2.items.filter((it) => it && it.adult === true).map((it) => it.id));
-    for (const it of items) if (adultIds.has(it.id)) it.adult = true;
+    for (const it of items) {
+      if (adultIds.has(it.id)) it.adult = true;
+      const known = it.ids ? null : itemById(v2, it.id);
+      if (known && known.ids) it.ids = { ...known.ids };
+    }
   }
   return items;
 }

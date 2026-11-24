@@ -208,6 +208,17 @@ function emptyStrings(v, path, bad) {
 
 const isIdx = (n, len) => Number.isInteger(n) && n >= 0 && n < len;
 const httpsUrl = (u) => typeof u === "string" && HTTPS.test(u) && u.length <= 2048;
+const IMDB_RX = /^tt\d{7,10}$/;
+
+/** An item's optional `ids`: an object with only `tmdb` (positive int) and/or `imdb` ("tt" + digits), at least one. */
+function validIds(ids) {
+  if (!ids || typeof ids !== "object" || Array.isArray(ids)) return false;
+  const keys = Object.keys(ids);
+  if (!keys.length || !keys.every((k) => k === "tmdb" || k === "imdb")) return false;
+  if (ids.tmdb !== undefined && !(Number.isInteger(ids.tmdb) && ids.tmdb > 0 && ids.tmdb <= 2147483647)) return false;
+  if (ids.imdb !== undefined && !(typeof ids.imdb === "string" && IMDB_RX.test(ids.imdb))) return false;
+  return true;
+}
 
 /** → [] when the catalog is valid, else a list of problems (at most 20). */
 export function validateCatalog(v2) {
@@ -238,6 +249,7 @@ export function validateCatalog(v2) {
     if (it.genres !== undefined && !(Array.isArray(it.genres) && it.genres.length <= 5 && it.genres.every((g) => typeof g === "string"))) bad(at + ".genres");
     if (it.runtimeMinutes !== undefined && !(Number.isInteger(it.runtimeMinutes) && it.runtimeMinutes >= 1 && it.runtimeMinutes <= 1000)) bad(at + ".runtimeMinutes");
     if (it.adult !== undefined && it.adult !== true) bad(at + ".adult");
+    if (it.ids !== undefined && !validIds(it.ids)) bad(at + ".ids");
     if (it.adult === true && typeof it.id === "string") adultIds.add(it.id);
   });
   let homeRows = 0;

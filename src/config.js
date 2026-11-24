@@ -7,7 +7,7 @@
 export const DEFAULT_SERVER = "https://x.xkplugins.site";
 
 /** Must equal kino-plugin.json `version` (test/wiring.test.mjs checks it). */
-export const PLUGIN_VERSION = "3.1.15";
+export const PLUGIN_VERSION = "3.1.16";
 
 /** The oldest Kino Xuper runs on (owner rule: Xuper only on the latest Kino). The backend can raise it (src/kinoGate.js). */
 export const MIN_KINO_FLOOR = "0.9.91";
